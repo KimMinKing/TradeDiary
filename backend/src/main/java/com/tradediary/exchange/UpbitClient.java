@@ -30,17 +30,22 @@ public class UpbitClient {
     private final OkHttpClient httpClient = new OkHttpClient();
     private final Gson gson = new Gson();
 
-    // [용도] 완료된 주문 내역 조회 (커서 기반 페이지네이션) / [호출] TradeService.syncTrades()
-    public List<UpbitOrder> getClosedOrders(String accessKey, String secretKey) {
+    // [용도] 완료된 주문 내역 조회 (회원가입 이후, 커서 기반 페이지네이션) / [호출] TradeService.syncTrades()
+    public List<UpbitOrder> getClosedOrders(String accessKey, String secretKey, LocalDateTime startTime) {
         List<UpbitOrder> allOrders = new ArrayList<>();
         String cursor = null;
+
+        // 회원가입 시각을 Upbit API start_time 형식으로 변환 (ISO 8601)
+        String startTimeStr = startTime.atOffset(java.time.ZoneOffset.ofHours(9))
+                .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
 
         while (true) {
             // 레퍼런스 방식으로 쿼리스트링 빌드
             Map<String, Object> params = new LinkedHashMap<>();
             params.put("states", Arrays.asList("done"));
             params.put("limit", "100");
-            params.put("order_by", "desc");
+            params.put("order_by", "asc");  // 오래된 것부터 → 커서 페이지네이션 정방향
+            params.put("start_time", startTimeStr);
             if (cursor != null) params.put("cursor", cursor);
 
             String queryString = buildQueryString(params);

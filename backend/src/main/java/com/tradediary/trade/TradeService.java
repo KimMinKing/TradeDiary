@@ -32,11 +32,12 @@ public class TradeService {
         ExchangeKeyService.DecryptedKey keys =
                 exchangeKeyService.getDecryptedKey(userId, ExchangeKey.Exchange.UPBIT);
 
-        List<UpbitClient.UpbitOrder> orders =
-                upbitClient.getClosedOrders(keys.apiKey(), keys.secretKey());
-
         var user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+
+        // 회원가입 시각 이후 거래만 조회
+        List<UpbitClient.UpbitOrder> orders =
+                upbitClient.getClosedOrders(keys.apiKey(), keys.secretKey(), user.getCreatedAt());
 
         int savedCount = 0;
         for (UpbitClient.UpbitOrder order : orders) {
