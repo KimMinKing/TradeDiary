@@ -1,0 +1,43 @@
+# ===== 환경변수 (절대 커밋 금지) =====
+.env
+.env.*
+*.env
+
+# ===== Java / Spring Boot =====
+backend/target/
+backend/.gradle/
+backend/build/
+backend/*.jar
+backend/*.war
+*.class
+*.log
+backend/.mvn/wrapper/maven-wrapper.jar
+
+# ===== Python / AI 서버 =====
+ai-server/__pycache__/
+ai-server/.venv/
+ai-server/venv/
+ai-server/*.pyc
+ai-server/.pytest_cache/
+__pycache__/
+*.pyc
+*.pyo
+
+# ===== React / Node =====
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/.next/
+*.tsbuildinfo
+
+# ===== IDE =====
+.idea/
+.vscode/
+*.iml
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+
+# ===== Docker =====
+docker-compose.override.yml
