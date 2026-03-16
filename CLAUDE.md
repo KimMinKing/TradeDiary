@@ -170,51 +170,52 @@ streak_records  ← 불꽃 성장 기록
 
 # 개발 순서
 
-## Phase 1 — 기반 구축 (1~2주)
-1. 프로젝트 초기 설정 (Spring Boot, React, Python 폴더 구조)
-2. PostgreSQL DB 설계 및 테이블 생성
-3. Docker Compose 설정
+## Phase 1 — 기반 구축 ✅
+- [x] 1. 프로젝트 초기 설정 (Spring Boot, React, Python 폴더 구조)
+- [x] 2. PostgreSQL DB 설계 및 테이블 생성
+- [x] 3. Docker Compose 설정 (전체 서비스 포함)
 
-## Phase 2 — 인증 (2~3주)
-4. 회원가입/로그인 API (Spring Security + JWT)
-5. RefreshToken 재발급 API
-6. React 로그인/회원가입 화면
+## Phase 2 — 인증 ✅
+- [x] 4. 회원가입/로그인 API (Spring Security + JWT)
+- [x] 5. RefreshToken 재발급 API
+- [x] 6. React 로그인/회원가입 화면
+- [x] 6-1. 토큰 만료(30분) 시 자동 로그아웃 + /login 리다이렉트
 
-## Phase 3 — 거래소 연동 (3~4주)
-7. Bybit API 연동 (거래 데이터 수집)
-8. Upbit API 연동
-9. API Key 암호화 저장 (AES-256)
-10. 포지션 묶기 알고리즘 구현
-11. 거래 데이터 DB 저장
+## Phase 3 — 거래소 연동 ✅
+- [x] 7. Bybit API 연동 (spot/linear/inverse 병렬 동기화)
+- [x] 8. Upbit API 연동 (/v1/orders/closed, 7일 슬라이딩 윈도우)
+- [x] 9. API Key 암호화 저장 (AES-256)
+- [ ] 10. 포지션 묶기 알고리즘 구현
+- [x] 11. 거래 데이터 DB 저장 (증분 동기화)
 
-## Phase 4 — 핵심 기능 (4~5주)
-12. 매매 일기 CRUD (이유, 감정, 전략 태그)
-13. 전략 태그 관리 (기본 제공 + 사용자 정의)
-14. 통계 분석 API (승률, 시간대별, 종목별)
-15. 트레이딩 리포트 API (일/주/월)
+## Phase 4 — 핵심 기능
+- [ ] 12. 매매 일기 CRUD (이유, 감정, 전략 태그)
+- [ ] 13. 전략 태그 관리 (기본 제공 + 사용자 정의)
+- [ ] 14. 통계 분석 API (승률, 시간대별, 종목별)
+- [ ] 15. 트레이딩 리포트 API (일/주/월)
 
-## Phase 5 — 화면 (3~4주)
-16. 대시보드 메인 화면
-17. 거래 목록/상세 화면
-18. 통계 화면
-19. 매매 일기 작성 화면
-20. 모바일 반응형 대응
+## Phase 5 — 화면
+- [x] 16. 대시보드 메인 화면
+- [x] 17. 거래 목록 화면 (거래소 탭 + 날짜 필터 + KRW/USD 토글)
+- [ ] 18. 통계 화면
+- [ ] 19. 매매 일기 작성 화면
+- [x] 20. 모바일 반응형 대응 (하단 탭 바, 카드 리스트)
 
-## Phase 6 — AI 서버 (2~3주)
-21. Python FastAPI 서버 설정
-22. OpenAI GPT-4o mini 연동
-23. AI 분석 리포트 생성 (시간대별, 연속손실, 종목별)
-24. Spring Boot → Python 서버 연동
+## Phase 6 — AI 서버
+- [ ] 21. Python FastAPI 서버 설정
+- [ ] 22. OpenAI GPT-4o mini 연동
+- [ ] 23. AI 분석 리포트 생성 (시간대별, 연속손실, 종목별)
+- [ ] 24. Spring Boot → Python 서버 연동
 
-## Phase 7 — 부가 기능 (3~4주)
-25. 랭킹 시스템
-26. 트레이더 유형 분석 (캐릭터 이미지)
-27. 불꽃 성장 시스템
-28. PDF 리포트 다운로드
+## Phase 7 — 부가 기능
+- [ ] 25. 랭킹 시스템
+- [ ] 26. 트레이더 유형 분석 (캐릭터 이미지)
+- [ ] 27. 불꽃 성장 시스템
+- [ ] 28. PDF 리포트 다운로드
 
-## Phase 8 — 배포 (1~2주)
-29. Oracle Cloud 서버 설정
-30. Docker Compose 배포
+## Phase 8 — 배포
+- [ ] 29. Oracle Cloud 서버 설정
+- [x] 30. Docker Compose 배포 (로컬/노트북 멀티 환경)
 
 ---
 
