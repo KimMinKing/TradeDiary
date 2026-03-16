@@ -18,70 +18,114 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 
-// [클래스] Upbit API 인증 및 데이터 조회 (주문 내역)
+// [클래스] Upbit /v1/orders/closed API 호출 (7일 슬라이딩 윈도우 방식)
 @Slf4j
 @Component
 public class UpbitClient {
 
     private static final String BASE_URL = "https://api.upbit.com/v1";
+    // /v1/orders/closed 최대 조회 기간: 7일 / 최대 limit: 1000
+    private static final int WINDOW_DAYS = 7;
+    private static final int PAGE_LIMIT = 1000;
+
     private final OkHttpClient httpClient = new OkHttpClient();
     private final Gson gson = new Gson();
 
-    // [용도] 완료된 주문 내역 조회 (회원가입 이후, 커서 기반 페이지네이션) / [호출] TradeService.syncTrades()
+    // [용도] 체결 완료 주문 목록 조회 (7일 슬라이딩 윈도우) / [호출] TradeService.syncUpbitTrades()
+    // startTime: 초기 동기화 = 1년 전, 증분 동기화 = DB 마지막 거래 시각
     public List<UpbitOrder> getClosedOrders(String accessKey, String secretKey, LocalDateTime startTime) {
+        // 복호화된 Key 앞 6자리만 로그 (검증용)
+        log.info("[Upbit] Access Key 앞 6자리: {}...", accessKey.length() > 6 ? accessKey.substring(0, 6) : accessKey);
+
         List<UpbitOrder> allOrders = new ArrayList<>();
-        String cursor = null;
+        LocalDateTime windowStart = startTime.truncatedTo(ChronoUnit.SECONDS);
+        LocalDateTime now = LocalDateTime.now().truncatedTo(ChronoUnit.SECONDS);
 
-        // 회원가입 시각을 Upbit API start_time 형식으로 변환 (ISO 8601)
-        String startTimeStr = startTime.atOffset(java.time.ZoneOffset.ofHours(9))
-                .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+        log.info("[Upbit] 조회 구간: {} ~ {}", windowStart, now);
 
-        while (true) {
-            // 레퍼런스 방식으로 쿼리스트링 빌드
-            Map<String, Object> params = new LinkedHashMap<>();
-            params.put("states", Arrays.asList("done"));
-            params.put("limit", "100");
-            params.put("order_by", "asc");  // 오래된 것부터 → 커서 페이지네이션 정방향
-            params.put("start_time", startTimeStr);
-            if (cursor != null) params.put("cursor", cursor);
+        while (windowStart.isBefore(now)) {
+            LocalDateTime windowEnd = windowStart.plusDays(WINDOW_DAYS);
+            if (windowEnd.isAfter(now)) windowEnd = now;
 
-            String queryString = buildQueryString(params);
-            String jwtToken = createJwt(accessKey, secretKey, queryString);
+            List<UpbitOrder> windowOrders = fetchWindow(accessKey, secretKey, windowStart, windowEnd);
+            allOrders.addAll(windowOrders);
 
-            Request request = new Request.Builder()
-                    .url(BASE_URL + "/orders?" + queryString)
-                    .get()
-                    .addHeader("Accept", "application/json")
-                    .addHeader("Authorization", "Bearer " + jwtToken)
-                    .build();
+            log.info("[Upbit] 윈도우 {} ~ {}: {}건 (누적 {}건)",
+                    windowStart, windowEnd, windowOrders.size(), allOrders.size());
 
-            try (Response response = httpClient.newCall(request).execute()) {
-                String body = response.body().string();
-                if (!response.isSuccessful()) {
-                    log.error("Upbit API 오류: {}", body);
-                    break;
-                }
-                List<UpbitOrder> orders = gson.fromJson(body,
-                        new TypeToken<List<UpbitOrder>>() {}.getType());
-                if (orders == null || orders.isEmpty()) break;
-                allOrders.addAll(orders);
-                if (orders.size() < 100) break;
-                cursor = orders.get(orders.size() - 1).created_at;
-            } catch (Exception e) {
-                log.error("Upbit API 호출 실패: {}", e.getMessage());
-                break;
+            windowStart = windowEnd;
+
+            // rate limit 방지: 윈도우 이동 시 200ms 딜레이
+            if (windowStart.isBefore(now)) {
+                try { TimeUnit.MILLISECONDS.sleep(200); } catch (InterruptedException ignored) {}
             }
         }
 
-        log.info("Upbit 주문 조회 완료: {}건", allOrders.size());
+        log.info("[Upbit] 전체 조회 완료: {}건", allOrders.size());
         return allOrders;
     }
 
-    // [용도] 레퍼런스 방식 쿼리스트링 빌드 (배열은 key[]=v1&key[]=v2 형식) / [호출] getClosedOrders()
-    private String buildQueryString(Map<String, Object> params) {
+    // [용도] 특정 7일 윈도우 내 주문 조회 / [호출] getClosedOrders()
+    private List<UpbitOrder> fetchWindow(String accessKey, String secretKey,
+                                          LocalDateTime windowStart, LocalDateTime windowEnd) {
+        // state 미지정 → 기본값 done+cancel 모두 반환
+        // cancel 포함 이유: 시장가 매수(ord_type=price)는 소수점 잔량으로 인해 state=cancel로 끝날 수 있음
+        // 실제 체결 여부는 executed_volume > 0 으로 판단 (TradeService에서 필터링)
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("start_time", toIso(windowStart));
+        params.put("end_time", toIso(windowEnd));
+        params.put("limit", String.valueOf(PAGE_LIMIT));
+        params.put("order_by", "asc");
+
+        String hashQueryString = buildQueryString(params, false);
+        String urlQueryString = buildQueryString(params, true);
+
+        log.debug("[Upbit] 요청: {}", hashQueryString);
+
+        String jwtToken = createJwt(accessKey, secretKey, hashQueryString);
+
+        Request request = new Request.Builder()
+                .url(BASE_URL + "/orders/closed?" + urlQueryString)
+                .get()
+                .addHeader("Accept", "application/json")
+                .addHeader("Authorization", "Bearer " + jwtToken)
+                .build();
+
+        try (Response response = httpClient.newCall(request).execute()) {
+            String body = response.body().string();
+            log.info("[Upbit] status={}, body 앞 200자: {}",
+                    response.code(), body.length() > 200 ? body.substring(0, 200) + "..." : body);
+
+            if (!response.isSuccessful()) {
+                log.error("[Upbit] API 오류: {}", body);
+                return Collections.emptyList();
+            }
+
+            List<UpbitOrder> orders = gson.fromJson(body,
+                    new TypeToken<List<UpbitOrder>>() {}.getType());
+            return orders != null ? orders : Collections.emptyList();
+
+        } catch (Exception e) {
+            log.error("[Upbit] 호출 실패: {}", e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    // [용도] LocalDateTime → KST ISO 형식 (초 단위) / [호출] fetchWindow()
+    private String toIso(LocalDateTime dateTime) {
+        return dateTime.atOffset(ZoneOffset.ofHours(9))
+                .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+    }
+
+    // [용도] 쿼리스트링 빌드 / [호출] fetchWindow()
+    // encodeValues=false: hash 계산용, encodeValues=true: URL용
+    private String buildQueryString(Map<String, Object> params, boolean encodeValues) {
         List<String> components = new ArrayList<>();
         for (Map.Entry<String, Object> entry : params.entrySet()) {
             String key = entry.getKey();
@@ -93,26 +137,22 @@ public class UpbitClient {
                     : Collections.singletonList(value);
 
             for (Object val : values) {
-                // List 값은 key[]=val, 단일 값은 key=val
-                String encodedKey;
-                if (value instanceof List) {
-                    // [] 는 URL 인코딩 제외
-                    encodedKey = URLEncoder.encode(key, StandardCharsets.UTF_8) + "[]";
-                } else {
-                    encodedKey = URLEncoder.encode(key, StandardCharsets.UTF_8);
-                }
-                String encodedVal = URLEncoder.encode(String.valueOf(val), StandardCharsets.UTF_8);
-                components.add(encodedKey + "=" + encodedVal);
+                String paramKey = (value instanceof List)
+                        ? URLEncoder.encode(key, StandardCharsets.UTF_8) + "[]"
+                        : URLEncoder.encode(key, StandardCharsets.UTF_8);
+                String paramVal = encodeValues
+                        ? URLEncoder.encode(String.valueOf(val), StandardCharsets.UTF_8)
+                        : String.valueOf(val);
+                components.add(paramKey + "=" + paramVal);
             }
         }
         return String.join("&", components);
     }
 
-    // [용도] JWT 토큰 생성 (Upbit 인증용) / [호출] getClosedOrders()
+    // [용도] JWT 토큰 생성 (Upbit 인증용) / [호출] fetchWindow()
     private String createJwt(String accessKey, String secretKey, String queryString) {
         try {
-            byte[] secretKeyBytes = secretKey.getBytes(StandardCharsets.UTF_8);
-            Algorithm algorithm = Algorithm.HMAC512(secretKeyBytes);
+            Algorithm algorithm = Algorithm.HMAC512(secretKey.getBytes(StandardCharsets.UTF_8));
 
             JWTCreator.Builder builder = JWT.create()
                     .withHeader(Collections.singletonMap("alg", "HS512"))
@@ -136,20 +176,21 @@ public class UpbitClient {
         return HexFormat.of().formatHex(md.digest());
     }
 
-    // Upbit 주문 응답 DTO
+    // Upbit /v1/orders/closed 응답 DTO
     public static class UpbitOrder {
         public String uuid;
         public String side;             // bid(매수), ask(매도)
-        public String ord_type;         // market(시장가 매도), price(시장가 매수), limit(지정가)
+        public String ord_type;         // market, price, limit
         public String market;           // KRW-BTC
+        public String state;            // done, cancel
         public String executed_volume;  // 체결 수량
         public String avg_price;        // 평균 체결가
         public String executed_funds;   // 총 체결 금액
         public String paid_fee;         // 수수료
-        public String created_at;       // ISO 8601
+        public String created_at;       // ISO 8601 +09:00
     }
 
-    // [용도] UpbitOrder를 공통 형식으로 변환 / [호출] TradeService.syncTrades()
+    // [용도] UpbitOrder를 공통 형식으로 변환 / [호출] TradeService.syncUpbitTrades()
     public record NormalizedTrade(
             String exchangeTradeId,
             String symbol,
@@ -163,7 +204,7 @@ public class UpbitClient {
             BigDecimal executedVolume = new BigDecimal(
                     order.executed_volume != null ? order.executed_volume : "0");
 
-            // 시장가 주문은 avg_price가 null → executed_funds / executed_volume으로 평균가 계산
+            // 시장가 주문은 avg_price null → executed_funds / executed_volume으로 계산
             BigDecimal price;
             if (order.avg_price != null && !order.avg_price.equals("0")) {
                 price = new BigDecimal(order.avg_price);
@@ -183,8 +224,7 @@ public class UpbitClient {
                     executedVolume,
                     price,
                     new BigDecimal(order.paid_fee != null ? order.paid_fee : "0"),
-                    LocalDateTime.parse(order.created_at,
-                            DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+                    LocalDateTime.parse(order.created_at, DateTimeFormatter.ISO_OFFSET_DATE_TIME)
             );
         }
 

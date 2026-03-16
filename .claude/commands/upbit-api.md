@@ -213,7 +213,122 @@ GET /v1/accounts
 
 ---
 
-## 3. 주문 내역 조회
+## 3. 체결 완료 주문 목록 조회 (거래 내역 동기화용)
+
+```
+GET /v1/orders/closed
+```
+
+> **TradeNote 거래 내역 동기화는 반드시 이 엔드포인트를 사용할 것**
+> `/v1/order` = 단건 조회, `/v1/orders` = 특정 uuid 복수 조회 → 거래 내역 용도 아님
+
+### 핵심 제약사항
+
+| 항목 | 값 |
+|------|-----|
+| 최대 조회 기간 | **7일** (start_time~end_time 최대 7일) |
+| start_time만 입력 시 | 해당 시각 기준 **이후 7일** |
+| end_time만 입력 시 | 해당 시각 기준 **이전 7일** |
+| 둘 다 미입력 시 | 요청 시각 기준 **이전 7일** |
+| 최대 limit | 1000 |
+| Rate Limit | 초당 30회 |
+
+→ **1년치 가져오려면 7일 슬라이딩 윈도우** 방식으로 약 52번 호출 필요
+
+### ord_type별 처리 (중요)
+
+| ord_type | 의미 | avg_price | 주의사항 |
+|----------|------|-----------|----------|
+| `limit` | 지정가 매수/매도 | 있음 | 정상 처리 |
+| `price` | **시장가 매수** | 있음 | `price` 필드 = 매수 총액(단가 아님), avg_price로 단가 계산 |
+| `market` | **시장가 매도** | 있음 | `executed_funds / executed_volume`으로 평균가 계산 |
+| `best` | 최유리 지정가 | 있음 | 정상 처리 |
+
+### state별 처리 (중요)
+
+| state | 의미 | 포함 여부 |
+|-------|------|----------|
+| `done` | 전량 체결 완료 | ✅ 항상 포함 |
+| `cancel` | 취소 (부분 체결 포함) | ✅ **반드시 포함** |
+
+> **시장가 매수(`ord_type=price`)는 소수점 잔량으로 인해 `state=cancel`로 끝나는 경우가 있음**
+> `state=done`만 필터링하면 시장가 매수 거래가 누락됨
+> → `state` 파라미터 미지정 (기본값 done+cancel) 또는 `states[]=done&states[]=cancel` 사용
+> → 실제 체결 여부는 **`executed_volume > 0`** 으로 판단
+
+### 파라미터
+
+| 파라미터 | 설명 | 예시 |
+|---------|------|------|
+| `start_time` | 조회 시작 시각 | `2025-03-16T20:55:44+09:00` |
+| `end_time` | 조회 종료 시각 | `2025-03-23T20:55:44+09:00` |
+| `limit` | 최대 건수 (기본 100, 최대 1000) | `1000` |
+| `order_by` | 정렬 (asc/desc) | `asc` |
+| `state` | 단일 상태 필터 | `done` |
+| `states[]` | 복수 상태 필터 (state와 동시 사용 불가) | `states[]=done&states[]=cancel` |
+
+> **시간 형식**: 초 단위까지만 (나노초 포함 시 빈 배열 반환됨)
+> ✅ `2025-03-16T20:55:44+09:00`
+> ❌ `2025-03-16T20:55:44.2582271+09:00`
+
+### query_hash 계산 규칙 (중요)
+
+```
+hash 계산: URL 인코딩 없이 원본값 그대로 SHA512
+URL 전송:  값을 URL 인코딩해서 전송
+
+예시) start_time=2025-03-16T20:55:44+09:00
+  hash 입력: start_time=2025-03-16T20:55:44+09:00  ← 원본
+  URL 전송:  start_time=2025-03-16T20%3A55%3A44%2B09%3A00  ← 인코딩
+```
+
+이유: Upbit 서버가 URL 디코딩 후 hash 검증 → 인코딩된 값으로 hash 계산 시 `invalid_query_payload` 401 에러
+
+### 7일 슬라이딩 윈도우 Java 구현 예시
+
+```java
+LocalDateTime windowStart = startTime.truncatedTo(ChronoUnit.SECONDS);
+LocalDateTime now = LocalDateTime.now().truncatedTo(ChronoUnit.SECONDS);
+
+while (windowStart.isBefore(now)) {
+    LocalDateTime windowEnd = windowStart.plusDays(7);
+    if (windowEnd.isAfter(now)) windowEnd = now;
+
+    Map<String, Object> params = new LinkedHashMap<>();
+    params.put("start_time", toIso(windowStart));  // KST +09:00, 초 단위
+    params.put("end_time",   toIso(windowEnd));
+    params.put("limit", "1000");
+    params.put("order_by", "asc");
+    // state 미지정 → done+cancel 기본값 (시장가 매수 누락 방지)
+
+    String hashQs = buildQueryString(params, false);  // 원본값 (hash용)
+    String urlQs  = buildQueryString(params, true);   // 인코딩 (URL용)
+    String jwt    = createJwt(accessKey, secretKey, hashQs);
+
+    // GET /v1/orders/closed?{urlQs}
+    windowStart = windowEnd;
+    Thread.sleep(200); // rate limit 방지
+}
+```
+
+### 응답 주요 필드
+
+```json
+{
+  "uuid": "aec7b38d-...",
+  "side": "bid",           // bid=매수, ask=매도
+  "ord_type": "limit",     // limit, price(시장가매수), market(시장가매도), best
+  "market": "KRW-BTC",
+  "state": "done",         // done, cancel
+  "executed_volume": "0.0097809",
+  "avg_price": "51136555.5",
+  "executed_funds": "500000",
+  "paid_fee": "249.95",
+  "created_at": "2022-01-11T21:30:29+09:00"
+}
+```
+
+## 4. 단건/복수 주문 조회 (참고용, 거래내역 동기화에는 사용하지 않음)
 
 | 목적 | 엔드포인트 |
 |------|------------|
@@ -236,7 +351,7 @@ Request request = new Request.Builder()
 
 ---
 
-## 4. 에러 코드
+## 5. 에러 코드
 
 | HTTP | 에러 코드 | 원인 |
 |------|-----------|------|

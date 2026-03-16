@@ -26,10 +26,19 @@ public class TradeController {
         return ResponseEntity.ok(Map.of("savedCount", count));
     }
 
-    // [용도] 전체 거래 목록 조회 / [호출] GET /api/trades
+    // [용도] Bybit 거래 내역 동기화 / [호출] POST /api/trades/sync/bybit
+    @PostMapping("/sync/bybit")
+    public ResponseEntity<Map<String, Integer>> syncBybitTrades(
+            @AuthenticationPrincipal Long userId) {
+        int count = tradeService.syncBybitTrades(userId);
+        return ResponseEntity.ok(Map.of("savedCount", count));
+    }
+
+    // [용도] 거래 목록 조회 (exchange 필터 선택) / [호출] GET /api/trades?exchange=UPBIT|BYBIT
     @GetMapping
     public ResponseEntity<List<TradeService.TradeResponse>> getTrades(
-            @AuthenticationPrincipal Long userId) {
-        return ResponseEntity.ok(tradeService.getTrades(userId));
+            @AuthenticationPrincipal Long userId,
+            @RequestParam(required = false) String exchange) {
+        return ResponseEntity.ok(tradeService.getTrades(userId, exchange));
     }
 }

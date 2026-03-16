@@ -2,6 +2,8 @@
 .env
 .env.*
 *.env
+# 템플릿 파일은 커밋 허용
+!.env.example
 
 # ===== Java / Spring Boot =====
 backend/target/

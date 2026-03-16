@@ -107,6 +107,33 @@ for (Trade trade : trades) {
 }
 ```
 
+## Upbit 거래 동기화 전략
+
+### 사용 엔드포인트
+- `/v1/orders/closed` — 체결 완료된 주문 목록 (거래 내역 조회용)
+- `/v1/orders` (단건 조회) 또는 `/v1/order` — 사용하지 않음
+
+### 동기화 흐름
+```
+1. 초기 동기화 (DB에 해당 거래소 거래 없을 때)
+   → start_time = 현재 - 1년
+   → /v1/orders/closed?start_time=...&limit=100&order_by=asc 반복 호출
+   → 페이지네이션: 마지막 created_at을 cursor로 사용
+   → 전체 저장, exchange_trade_id(uuid) unique로 중복 방지
+
+2. 증분 동기화 (DB에 이미 거래 있을 때)
+   → start_time = DB 마지막 거래의 tradedAt
+   → 동일한 방식으로 새 거래만 가져와 저장
+
+3. 주기적 실행: 5분마다 스케줄러로 증분 동기화
+```
+
+### JWT query_hash 규칙 (중요)
+- hash 계산: URL 인코딩 없이 원본값 그대로 (SHA512)
+- 실제 URL: 값을 URL 인코딩해서 전송
+- 배열 파라미터: `key[]=value` 형식 (`[]` 는 인코딩 안 함)
+- Upbit 서버가 URL 디코딩 후 hash 검증하므로 인코딩된 값으로 hash 계산 시 401 발생
+
 ## API 통신 구조
 
 ```
