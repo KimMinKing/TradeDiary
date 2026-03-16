@@ -100,7 +100,7 @@ const TradeListPage = () => {
                     <td style={styles.td}>{Number(trade.qty).toLocaleString()}</td>
                     <td style={styles.td}>{Number(trade.price).toLocaleString()}원</td>
                     <td style={styles.td}>{Number(trade.fee).toLocaleString()}</td>
-                    <td style={styles.td}>{trade.tradedAt.replace('T', ' ').slice(0, 16)}</td>
+                    <td style={styles.td}>{trade.traded_at?.replace('T', ' ').slice(0, 16)}</td>
                   </tr>
                 ))}
               </tbody>
