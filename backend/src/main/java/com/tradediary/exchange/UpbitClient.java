@@ -33,11 +33,15 @@ public class UpbitClient {
         List<UpbitOrder> allOrders = new ArrayList<>();
         String cursor = null;
 
+        // ord_type[] 명시: market(시장가 매도), price(시장가 매수), limit(지정가) 모두 포함
+        String baseQuery = "state=done&limit=100&order_by=desc"
+                + "&ord_type[]=market&ord_type[]=price&ord_type[]=limit";
+
         while (true) {
             // cursor가 있으면 이어서 조회, 없으면 처음부터
             String queryString = cursor != null
-                    ? "state=done&limit=100&order_by=desc&cursor=" + cursor
-                    : "state=done&limit=100&order_by=desc";
+                    ? baseQuery + "&cursor=" + cursor
+                    : baseQuery;
 
             String jwtToken = createJwt(accessKey, secretKey, queryString);
 
@@ -101,10 +105,11 @@ public class UpbitClient {
     public static class UpbitOrder {
         public String uuid;
         public String side;             // bid(매수), ask(매도)
+        public String ord_type;         // market(시장가 매도), price(시장가 매수), limit(지정가)
         public String market;           // KRW-BTC
         public String executed_volume;  // 체결 수량
-        public String avg_price;        // 평균 체결가 (지정가 주문)
-        public String executed_funds;   // 총 체결 금액 (시장가 주문에서 avg_price 대신 사용)
+        public String avg_price;        // 평균 체결가
+        public String executed_funds;   // 총 체결 금액
         public String paid_fee;         // 수수료
         public String created_at;       // ISO 8601
     }

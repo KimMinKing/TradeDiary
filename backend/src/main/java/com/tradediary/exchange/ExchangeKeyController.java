@@ -2,6 +2,7 @@
 
 package com.tradediary.exchange;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
@@ -45,7 +46,7 @@ public class ExchangeKeyController {
 
     public record SaveKeyRequest(
             @NotBlank String exchange,
-            @NotBlank String apiKey,
-            @NotBlank String secretKey
+            @JsonProperty("api_key") @NotBlank String apiKey,
+            @JsonProperty("secret_key") @NotBlank String secretKey
     ) {}
 }

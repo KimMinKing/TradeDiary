@@ -40,7 +40,7 @@ public class TradeService {
 
         int savedCount = 0;
         for (UpbitClient.UpbitOrder order : orders) {
-            // 수량이 0인 미체결 주문 제외
+            // 수량이 0인 미체결/취소 주문 제외
             if (order.executed_volume == null || "0".equals(order.executed_volume)) continue;
 
             // 중복 저장 방지
@@ -48,6 +48,9 @@ public class TradeService {
                     userId, ExchangeKey.Exchange.UPBIT, order.uuid)) continue;
 
             UpbitClient.NormalizedTrade normalized = UpbitClient.NormalizedTrade.from(order);
+
+            // 가격/수량이 0인 유효하지 않은 주문 제외
+            if (!normalized.isValid()) continue;
             tradeRepository.save(Trade.builder()
                     .user(user)
                     .exchange(ExchangeKey.Exchange.UPBIT)
