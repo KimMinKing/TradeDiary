@@ -47,7 +47,7 @@ public class UpbitClient {
             String jwtToken = createJwt(accessKey, secretKey, queryString);
 
             Request request = new Request.Builder()
-                    .url(BASE_URL + "/orders/closed?" + queryString)
+                    .url(BASE_URL + "/orders?" + queryString)
                     .get()
                     .addHeader("Accept", "application/json")
                     .addHeader("Authorization", "Bearer " + jwtToken)
