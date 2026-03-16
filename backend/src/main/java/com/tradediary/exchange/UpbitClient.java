@@ -28,13 +28,17 @@ public class UpbitClient {
     private final OkHttpClient httpClient = new OkHttpClient();
     private final Gson gson = new Gson();
 
-    // [용도] 완료된 주문 내역 조회 / [호출] TradeService.syncTrades()
+    // [용도] 완료된 주문 내역 조회 (커서 기반 페이지네이션) / [호출] TradeService.syncTrades()
     public List<UpbitOrder> getClosedOrders(String accessKey, String secretKey) {
         List<UpbitOrder> allOrders = new ArrayList<>();
-        int page = 1;
+        String cursor = null;
 
         while (true) {
-            String queryString = "state=done&limit=100&page=" + page + "&order_by=desc";
+            // cursor가 있으면 이어서 조회, 없으면 처음부터
+            String queryString = cursor != null
+                    ? "state=done&limit=100&order_by=desc&cursor=" + cursor
+                    : "state=done&limit=100&order_by=desc";
+
             String jwtToken = createJwt(accessKey, secretKey, queryString);
 
             Request request = new Request.Builder()
@@ -54,8 +58,10 @@ public class UpbitClient {
                         new TypeToken<List<UpbitOrder>>() {}.getType());
                 if (orders == null || orders.isEmpty()) break;
                 allOrders.addAll(orders);
+                // 100건 미만이면 마지막 페이지
                 if (orders.size() < 100) break;
-                page++;
+                // 다음 페이지 커서: 마지막 항목의 created_at 사용
+                cursor = orders.get(orders.size() - 1).created_at;
             } catch (Exception e) {
                 log.error("Upbit API 호출 실패: {}", e.getMessage());
                 break;
@@ -94,12 +100,13 @@ public class UpbitClient {
     // Upbit 주문 응답 DTO
     public static class UpbitOrder {
         public String uuid;
-        public String side;           // bid(매수), ask(매도)
-        public String market;         // KRW-BTC
-        public String executed_volume;
-        public String avg_price;
-        public String paid_fee;
-        public String created_at;     // ISO 8601
+        public String side;             // bid(매수), ask(매도)
+        public String market;           // KRW-BTC
+        public String executed_volume;  // 체결 수량
+        public String avg_price;        // 평균 체결가 (지정가 주문)
+        public String executed_funds;   // 총 체결 금액 (시장가 주문에서 avg_price 대신 사용)
+        public String paid_fee;         // 수수료
+        public String created_at;       // ISO 8601
     }
 
     // [용도] UpbitOrder를 공통 형식으로 변환 / [호출] TradeService.syncTrades()
@@ -113,18 +120,37 @@ public class UpbitClient {
             LocalDateTime tradedAt
     ) {
         public static NormalizedTrade from(UpbitOrder order) {
+            BigDecimal executedVolume = new BigDecimal(
+                    order.executed_volume != null ? order.executed_volume : "0");
+
+            // 시장가 주문은 avg_price가 null → executed_funds / executed_volume으로 평균가 계산
+            BigDecimal price;
+            if (order.avg_price != null && !order.avg_price.equals("0")) {
+                price = new BigDecimal(order.avg_price);
+            } else if (order.executed_funds != null && executedVolume.compareTo(BigDecimal.ZERO) > 0) {
+                price = new BigDecimal(order.executed_funds).divide(executedVolume, 10, java.math.RoundingMode.HALF_UP);
+            } else {
+                price = BigDecimal.ZERO;
+            }
+
             return new NormalizedTrade(
                     order.uuid,
                     order.market,
                     "bid".equals(order.side)
                             ? com.tradediary.trade.TradeSide.BUY
                             : com.tradediary.trade.TradeSide.SELL,
-                    new BigDecimal(order.executed_volume),
-                    new BigDecimal(order.avg_price),
-                    new BigDecimal(order.paid_fee),
+                    executedVolume,
+                    price,
+                    new BigDecimal(order.paid_fee != null ? order.paid_fee : "0"),
                     LocalDateTime.parse(order.created_at,
                             DateTimeFormatter.ISO_OFFSET_DATE_TIME)
             );
+        }
+
+        // [용도] 저장 가능한 체결 주문인지 확인 / [호출] TradeService.syncUpbitTrades()
+        public boolean isValid() {
+            return qty().compareTo(BigDecimal.ZERO) > 0
+                    && price().compareTo(BigDecimal.ZERO) > 0;
         }
     }
 }

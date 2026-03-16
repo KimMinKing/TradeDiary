@@ -29,6 +29,7 @@ const TradeListPage = () => {
   };
 
   const handleSync = async () => {
+    if (syncing) return; // 중복 요청 방지
     setSyncing(true);
     setSyncMessage('');
     try {
