@@ -1,0 +1,13 @@
+# [파일 용도] 로컬 개발 환경 설정 (git 제외 대상)
+
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+
+jwt:
+  secret: local-dev-secret-key-must-be-at-least-256-bits-long-for-hs256-algorithm
+
+ai-server:
+  url: http://localhost:8000
