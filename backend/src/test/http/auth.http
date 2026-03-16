@@ -1,0 +1,40 @@
+### [파일 용도] 인증 API 테스트 (IntelliJ HTTP Client)
+
+@baseUrl = http://localhost:8080
+
+### 회원가입
+POST {{baseUrl}}/api/auth/signup
+Content-Type: application/json
+
+{
+  "email": "test@test.com",
+  "password": "password123",
+  "nickname": "테스터"
+}
+
+###
+
+### 로그인
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "test@test.com",
+  "password": "password123"
+}
+
+###
+
+### AccessToken 재발급 (로그인 후 refreshToken 복사해서 넣기)
+POST {{baseUrl}}/api/auth/refresh
+Content-Type: application/json
+
+{
+  "refreshToken": "eyJhbGciOiJIUzM4NCJ9.eyJzdWIiOiIxIiwidHlwZSI6ImFjY2VzcyIsImlhdCI6MTc3MzY1NTY1MCwiZXhwIjoxNzczNjU2NTUwfQ.PsFfddCH8LQO4Bz7EQso_QhHRBB1xSCfl4uybDn-cZjJ_qMj28TbMJhIYqCmjJt3"
+}
+
+###
+
+### 로그아웃 (로그인 후 accessToken 복사해서 넣기)
+POST {{baseUrl}}/api/auth/logout
+Authorization: Bearer 여기에_access_token_붙여넣기
