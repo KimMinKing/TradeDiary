@@ -14,3 +14,8 @@ ai-server:
 
 aes:
   secret: local-aes-secret-key-32bytesxx
+
+logging:
+  level:
+    org.hibernate.SQL: OFF
+    org.hibernate.orm.jdbc.bind: OFF
