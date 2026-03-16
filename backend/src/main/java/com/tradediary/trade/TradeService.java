@@ -45,7 +45,7 @@ public class TradeService {
         LocalDateTime startTime = tradeRepository
                 .findTopByUserIdAndExchangeOrderByTradedAtDesc(userId, ExchangeKey.Exchange.UPBIT)
                 .map(Trade::getTradedAt)
-                .orElse(LocalDateTime.now().minusYears(1));
+                .orElse(LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul")).minusYears(1));
 
         log.info("Upbit 동기화 시작 - userId: {}, startTime: {}, 방식: {}",
                 userId, startTime, isInitialSync(userId) ? "초기(1년)" : "증분");
@@ -112,7 +112,7 @@ public class TradeService {
         LocalDateTime startTime = tradeRepository
                 .findTopByUserIdAndExchangeOrderByTradedAtDesc(userId, ExchangeKey.Exchange.BYBIT)
                 .map(Trade::getTradedAt)
-                .orElse(LocalDateTime.now().minusYears(1));
+                .orElse(LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul")).minusYears(1));
 
         log.info("Bybit 동기화 시작 - userId: {}, startTime: {}", userId, startTime);
 

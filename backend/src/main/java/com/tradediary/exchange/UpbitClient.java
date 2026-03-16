@@ -45,7 +45,8 @@ public class UpbitClient {
 
         List<UpbitOrder> allOrders = new ArrayList<>();
         LocalDateTime windowStart = startTime.truncatedTo(ChronoUnit.SECONDS);
-        LocalDateTime now = LocalDateTime.now().truncatedTo(ChronoUnit.SECONDS);
+        // 시스템 기본 시간대(Docker = UTC)에 의존하지 않고 KST 기준으로 명시
+        LocalDateTime now = LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul")).truncatedTo(ChronoUnit.SECONDS);
 
         log.info("[Upbit] 조회 구간: {} ~ {}", windowStart, now);
 

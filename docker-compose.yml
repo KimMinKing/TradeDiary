@@ -35,6 +35,7 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       AES_SECRET: ${AES_SECRET}
       AI_SERVER_URL: http://ai-server:8000
+      TZ: Asia/Seoul
     ports:
       - "8080:8080"
     depends_on:

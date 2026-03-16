@@ -42,7 +42,8 @@ public class BybitClient {
     public List<BybitExecution> getExecutions(String apiKey, String secretKey, LocalDateTime startTime) {
         log.info("[Bybit] API Key 앞 6자리: {}...", apiKey.length() > 6 ? apiKey.substring(0, 6) : apiKey);
 
-        LocalDateTime now = LocalDateTime.now();
+        // 시스템 기본 시간대(Docker = UTC)에 의존하지 않고 KST 기준으로 명시
+        LocalDateTime now = LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul"));
 
         // spot / linear / inverse 3개 카테고리 병렬 조회 (순차 대비 ~3배 빠름)
         List<CompletableFuture<List<BybitExecution>>> futures = Arrays.stream(CATEGORIES)
