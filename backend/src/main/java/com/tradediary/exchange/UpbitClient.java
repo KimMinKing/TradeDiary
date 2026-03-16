@@ -3,6 +3,7 @@
 package com.tradediary.exchange;
 
 import com.auth0.jwt.JWT;
+import com.auth0.jwt.JWTCreator;
 import com.auth0.jwt.algorithms.Algorithm;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
@@ -13,6 +14,7 @@ import okhttp3.Response;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
@@ -33,16 +35,15 @@ public class UpbitClient {
         List<UpbitOrder> allOrders = new ArrayList<>();
         String cursor = null;
 
-        // ord_type[] 명시: market(시장가 매도), price(시장가 매수), limit(지정가) 모두 포함
-        String baseQuery = "state=done&limit=100&order_by=desc"
-                + "&ord_type[]=market&ord_type[]=price&ord_type[]=limit";
-
         while (true) {
-            // cursor가 있으면 이어서 조회, 없으면 처음부터
-            String queryString = cursor != null
-                    ? baseQuery + "&cursor=" + cursor
-                    : baseQuery;
+            // 레퍼런스 방식으로 쿼리스트링 빌드
+            Map<String, Object> params = new LinkedHashMap<>();
+            params.put("states", Arrays.asList("done"));
+            params.put("limit", "100");
+            params.put("order_by", "desc");
+            if (cursor != null) params.put("cursor", cursor);
 
+            String queryString = buildQueryString(params);
             String jwtToken = createJwt(accessKey, secretKey, queryString);
 
             Request request = new Request.Builder()
@@ -62,16 +63,44 @@ public class UpbitClient {
                         new TypeToken<List<UpbitOrder>>() {}.getType());
                 if (orders == null || orders.isEmpty()) break;
                 allOrders.addAll(orders);
-                // 100건 미만이면 마지막 페이지
                 if (orders.size() < 100) break;
-                // 다음 페이지 커서: 마지막 항목의 created_at 사용
                 cursor = orders.get(orders.size() - 1).created_at;
             } catch (Exception e) {
                 log.error("Upbit API 호출 실패: {}", e.getMessage());
                 break;
             }
         }
+
+        log.info("Upbit 주문 조회 완료: {}건", allOrders.size());
         return allOrders;
+    }
+
+    // [용도] 레퍼런스 방식 쿼리스트링 빌드 (배열은 key[]=v1&key[]=v2 형식) / [호출] getClosedOrders()
+    private String buildQueryString(Map<String, Object> params) {
+        List<String> components = new ArrayList<>();
+        for (Map.Entry<String, Object> entry : params.entrySet()) {
+            String key = entry.getKey();
+            Object value = entry.getValue();
+            if (value == null) continue;
+
+            List<Object> values = (value instanceof List)
+                    ? (List<Object>) value
+                    : Collections.singletonList(value);
+
+            for (Object val : values) {
+                // List 값은 key[]=val, 단일 값은 key=val
+                String encodedKey;
+                if (value instanceof List) {
+                    // [] 는 URL 인코딩 제외
+                    encodedKey = URLEncoder.encode(key, StandardCharsets.UTF_8) + "[]";
+                } else {
+                    encodedKey = URLEncoder.encode(key, StandardCharsets.UTF_8);
+                }
+                String encodedVal = URLEncoder.encode(String.valueOf(val), StandardCharsets.UTF_8);
+                components.add(encodedKey + "=" + encodedVal);
+            }
+        }
+        return String.join("&", components);
     }
 
     // [용도] JWT 토큰 생성 (Upbit 인증용) / [호출] getClosedOrders()
@@ -80,15 +109,16 @@ public class UpbitClient {
             byte[] secretKeyBytes = secretKey.getBytes(StandardCharsets.UTF_8);
             Algorithm algorithm = Algorithm.HMAC512(secretKeyBytes);
 
-            String queryHash = sha512(queryString);
-
-            return JWT.create()
+            JWTCreator.Builder builder = JWT.create()
                     .withHeader(Collections.singletonMap("alg", "HS512"))
                     .withClaim("access_key", accessKey)
-                    .withClaim("nonce", UUID.randomUUID().toString())
-                    .withClaim("query_hash", queryHash)
-                    .withClaim("query_hash_alg", "SHA512")
-                    .sign(algorithm);
+                    .withClaim("nonce", UUID.randomUUID().toString());
+
+            if (queryString != null && !queryString.isEmpty()) {
+                builder.withClaim("query_hash", sha512(queryString));
+                builder.withClaim("query_hash_alg", "SHA512");
+            }
+            return builder.sign(algorithm);
         } catch (Exception e) {
             throw new RuntimeException("Upbit JWT 생성 실패", e);
         }
@@ -133,7 +163,8 @@ public class UpbitClient {
             if (order.avg_price != null && !order.avg_price.equals("0")) {
                 price = new BigDecimal(order.avg_price);
             } else if (order.executed_funds != null && executedVolume.compareTo(BigDecimal.ZERO) > 0) {
-                price = new BigDecimal(order.executed_funds).divide(executedVolume, 10, java.math.RoundingMode.HALF_UP);
+                price = new BigDecimal(order.executed_funds)
+                        .divide(executedVolume, 10, java.math.RoundingMode.HALF_UP);
             } else {
                 price = BigDecimal.ZERO;
             }
