@@ -18,6 +18,21 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// [용도] 401 응답 시 토큰 삭제 후 로그인 페이지로 이동 / [호출] axios 인터셉터 자동 실행
+// 로그인/회원가입 API 자체의 401은 제외 (잘못된 비밀번호 등)
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const isAuthEndpoint = error.config?.url?.includes('/api/auth/');
+    if (error.response?.status === 401 && !isAuthEndpoint) {
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
+  }
+);
+
 // [용도] 회원가입 / [호출] SignupPage.jsx
 export const signup = (email, password, nickname) =>
   api.post('/api/auth/signup', { email, password, nickname });
@@ -34,9 +49,14 @@ export const login = async (email, password) => {
 
 // [용도] 로그아웃 → 토큰 삭제 / [호출] useAuthStore
 export const logout = async () => {
-  await api.post('/api/auth/logout');
-  localStorage.removeItem('accessToken');
-  localStorage.removeItem('refreshToken');
+  try {
+    await api.post('/api/auth/logout');
+  } catch {
+    // 이미 만료된 토큰이어도 로컬 토큰은 삭제
+  } finally {
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
+  }
 };
 
 export default api;
