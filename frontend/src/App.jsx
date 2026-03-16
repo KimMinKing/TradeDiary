@@ -4,6 +4,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
 import DashboardPage from './pages/DashboardPage';
+import ExchangeKeyPage from './pages/ExchangeKeyPage';
+import TradeListPage from './pages/TradeListPage';
 import useAuthStore from './store/authStore';
 
 // [컴포넌트] 로그인 여부에 따라 접근 제한하는 라우트 / [호출] App
@@ -26,6 +28,14 @@ const App = () => {
               <DashboardPage />
             </PrivateRoute>
           }
+        />
+        <Route
+          path="/exchange-keys"
+          element={<PrivateRoute><ExchangeKeyPage /></PrivateRoute>}
+        />
+        <Route
+          path="/trades"
+          element={<PrivateRoute><TradeListPage /></PrivateRoute>}
         />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>

@@ -11,3 +11,6 @@ jwt:
 
 ai-server:
   url: http://localhost:8000
+
+aes:
+  secret: local-aes-secret-key-32bytesxx

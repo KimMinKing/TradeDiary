@@ -10,6 +10,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 public class TradeDiaryApplication {
 
     public static void main(String[] args) {
+
         SpringApplication.run(TradeDiaryApplication.class, args);
     }
 }

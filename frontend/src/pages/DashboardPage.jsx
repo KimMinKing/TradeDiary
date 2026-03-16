@@ -17,10 +17,18 @@ const DashboardPage = () => {
     <div style={styles.container}>
       <div style={styles.card}>
         <h1 style={styles.title}>대시보드</h1>
-        <p style={styles.text}>로그인 성공! 거래소 연동 후 이곳에 데이터가 표시됩니다.</p>
-        <button style={styles.button} onClick={handleLogout}>
-          로그아웃
-        </button>
+        <p style={styles.text}>거래소를 연동하고 거래 내역을 확인해보세요.</p>
+        <div style={styles.btnGroup}>
+          <button style={styles.primaryBtn} onClick={() => navigate('/exchange-keys')}>
+            거래소 연동
+          </button>
+          <button style={styles.primaryBtn} onClick={() => navigate('/trades')}>
+            거래 내역
+          </button>
+          <button style={styles.logoutBtn} onClick={handleLogout}>
+            로그아웃
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -44,16 +52,10 @@ const styles = {
     maxWidth: '400px',
   },
   title: { marginBottom: '16px' },
-  text: { color: '#666', marginBottom: '32px' },
-  button: {
-    padding: '12px 24px',
-    backgroundColor: '#e53e3e',
-    color: '#fff',
-    border: 'none',
-    borderRadius: '8px',
-    fontSize: '16px',
-    cursor: 'pointer',
-  },
+  text: { color: '#666', marginBottom: '24px' },
+  btnGroup: { display: 'flex', flexDirection: 'column', gap: '10px' },
+  primaryBtn: { padding: '12px', backgroundColor: '#4f46e5', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '15px', cursor: 'pointer' },
+  logoutBtn: { padding: '12px', backgroundColor: '#e53e3e', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '15px', cursor: 'pointer' },
 };
 
 export default DashboardPage;

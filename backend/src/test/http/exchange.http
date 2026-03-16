@@ -1,0 +1,39 @@
+### [파일 용도] 거래소 API Key 및 거래 내역 API 테스트
+
+@baseUrl = http://localhost:8080
+@accessToken = 여기에_로그인후_accessToken_붙여넣기
+
+### Upbit API Key 등록
+POST {{baseUrl}}/api/exchange-keys
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "exchange": "UPBIT",
+  "apiKey": "여기에_upbit_access_key",
+  "secretKey": "여기에_upbit_secret_key"
+}
+
+###
+
+### 등록된 거래소 목록 조회
+GET {{baseUrl}}/api/exchange-keys
+Authorization: Bearer {{accessToken}}
+
+###
+
+### Upbit 거래 내역 동기화
+POST {{baseUrl}}/api/trades/sync/upbit
+Authorization: Bearer {{accessToken}}
+
+###
+
+### 거래 내역 조회
+GET {{baseUrl}}/api/trades
+Authorization: Bearer {{accessToken}}
+
+###
+
+### API Key 삭제
+DELETE {{baseUrl}}/api/exchange-keys/UPBIT
+Authorization: Bearer {{accessToken}}
