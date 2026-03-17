@@ -74,30 +74,42 @@ CREATE TABLE IF NOT EXISTS positions (
 );
 
 -- =============================================
--- 매매 일기
--- =============================================
-CREATE TABLE IF NOT EXISTS trade_journals (
-    id              BIGSERIAL PRIMARY KEY,
-    user_id         BIGINT       NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    position_id     BIGINT       NOT NULL REFERENCES positions(id) ON DELETE CASCADE,
-    reason          TEXT,                   -- 진입 이유
-    emotion         VARCHAR(20),            -- FEAR, GREED, NEUTRAL, CONFIDENT
-    memo            TEXT,                   -- 자유 메모
-    created_at      TIMESTAMP    NOT NULL DEFAULT NOW(),
-    updated_at      TIMESTAMP    NOT NULL DEFAULT NOW()
-);
-
--- =============================================
 -- 전략 태그
 -- =============================================
 CREATE TABLE IF NOT EXISTS strategy_tags (
     id              BIGSERIAL PRIMARY KEY,
     user_id         BIGINT       REFERENCES users(id) ON DELETE CASCADE,  -- NULL이면 기본 제공 태그
     name            VARCHAR(50)  NOT NULL,
+    color           VARCHAR(20)  NOT NULL DEFAULT '#00d4aa',
     created_at      TIMESTAMP    NOT NULL DEFAULT NOW()
 );
 
--- 포지션 ↔ 전략태그 다대다 매핑
+-- =============================================
+-- 매매 일기
+-- =============================================
+CREATE TABLE IF NOT EXISTS trade_journals (
+    id              BIGSERIAL PRIMARY KEY,
+    user_id         BIGINT       NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    position_id     BIGINT       REFERENCES positions(id) ON DELETE SET NULL,   -- 포지션 구현 후 연결
+    trade_id        BIGINT       REFERENCES trades(id)    ON DELETE SET NULL,   -- 현재는 개별 거래에 연결
+    symbol          VARCHAR(30),
+    entry_reason    TEXT,                   -- 진입 이유
+    exit_reason     TEXT,                   -- 청산 이유
+    emotion         VARCHAR(20),            -- CALM, CONFIDENT, FOMO, GREEDY, FEARFUL, ANXIOUS
+    memo            TEXT,                   -- 자유 메모
+    created_at      TIMESTAMP    NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMP    NOT NULL DEFAULT NOW()
+);
+
+-- 일기 ↔ 전략태그 다대다 매핑
+CREATE TABLE IF NOT EXISTS journal_strategy_tags (
+    id              BIGSERIAL PRIMARY KEY,
+    journal_id      BIGINT NOT NULL REFERENCES trade_journals(id) ON DELETE CASCADE,
+    tag_id          BIGINT NOT NULL REFERENCES strategy_tags(id)  ON DELETE CASCADE,
+    UNIQUE (journal_id, tag_id)
+);
+
+-- 포지션 ↔ 전략태그 다대다 매핑 (포지션 구현 시 사용)
 CREATE TABLE IF NOT EXISTS position_strategy_tags (
     position_id     BIGINT NOT NULL REFERENCES positions(id) ON DELETE CASCADE,
     tag_id          BIGINT NOT NULL REFERENCES strategy_tags(id) ON DELETE CASCADE,

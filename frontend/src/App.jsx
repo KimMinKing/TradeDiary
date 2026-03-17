@@ -7,6 +7,7 @@ import SignupPage from './pages/SignupPage';
 import DashboardPage from './pages/DashboardPage';
 import ExchangeKeyPage from './pages/ExchangeKeyPage';
 import TradeListPage from './pages/TradeListPage';
+import JournalPage from './pages/JournalPage';
 import Layout from './components/Layout';
 import useAuthStore from './store/authStore';
 
@@ -48,6 +49,10 @@ const App = () => {
         <Route
           path="/trades"
           element={<PrivateRoute><TradeListPage /></PrivateRoute>}
+        />
+        <Route
+          path="/journal"
+          element={<PrivateRoute><JournalPage /></PrivateRoute>}
         />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>

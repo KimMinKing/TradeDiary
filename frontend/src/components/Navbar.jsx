@@ -17,6 +17,7 @@ const Navbar = () => {
   const navItems = [
     { path: '/dashboard',    label: '대시보드', icon: '⊞' },
     { path: '/trades',       label: '거래 내역', icon: '≡' },
+    { path: '/journal',      label: '매매 일기', icon: '📓' },
     { path: '/exchange-keys', label: '거래소 연동', icon: '⚙' },
   ];
 
