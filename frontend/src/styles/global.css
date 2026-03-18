@@ -529,6 +529,37 @@ button { font-family: var(--font-ui); }
 .nav-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 
 .nav-right { display: flex; align-items: center; gap: 10px; white-space: nowrap; }
+
+/* ── 자동 동기화 UI ── */
+.auto-sync-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.auto-sync-select {
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px 6px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  outline: none;
+}
+.auto-sync-select:hover { border-color: var(--border-glow); }
+.auto-sync-status {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.auto-sync-status.syncing {
+  color: var(--accent);
+  animation: pulse 1s ease-in-out infinite;
+}
+.auto-sync-status.idle { color: var(--text-muted); }
+
 .nav-status-online { font-size: 12px; color: #4ade80; font-family: var(--font-mono); }
 .nav-status-offline { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); }
 .nav-logout {
