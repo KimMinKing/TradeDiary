@@ -1,8 +1,9 @@
-// [파일 용도] Bitget REST API 호출 클라이언트
+// [파일 용도] Bitget REST API 호출 클라이언트 (V3 Unified Trading Account)
 
 package com.tradediary.exchange;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.OkHttpClient;
@@ -23,56 +24,64 @@ import java.util.Base64;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-// [클래스] Bitget V2 /api/v2/mix/order/orderHistory API 호출 (90일 슬라이딩 윈도우 방식)
+// [클래스] Bitget V3 /api/v3/trade/history-orders API 호출 (30일 슬라이딩 윈도우 방식)
 @Slf4j
 @Component
 public class BitgetClient {
 
     private static final String BASE_URL = "https://api.bitget.com";
-    // V2 productType: USDT-FUTURES (V1의 umcbl에서 변경)
-    private static final String PRODUCT_TYPE = "USDT-FUTURES";
+    // V3 Unified Account: USDT 선물
+    private static final String CATEGORY = "USDT-FUTURES";
     private static final int PAGE_SIZE = 100;
 
     private final OkHttpClient httpClient = new OkHttpClient();
     private final Gson gson = new Gson();
 
-    // [용도] Bitget 선물 거래 내역 전체 조회 (90일 슬라이딩 윈도우) / [호출] TradeService.syncBitgetTrades()
+    // [용도] Bitget 선물 거래 내역 전체 조회 (30일 슬라이딩 윈도우) / [호출] TradeService.syncBitgetTrades()
     // startTime: 초기 동기화 = 1년 전, 증분 동기화 = DB 마지막 거래 시각
+    // Bitget V3: 1회 쿼리 최대 30일, 총 90일 이내
     public List<BitgetOrder> getOrders(String apiKey, String secretKey, String passphrase, LocalDateTime startTime) {
         log.info("[Bitget] API Key 앞 6자리: {}...", apiKey.length() > 6 ? apiKey.substring(0, 6) : apiKey);
 
         LocalDateTime now = LocalDateTime.now(ZoneId.of("Asia/Seoul"));
+        // Bitget V3 최대 조회 범위: 90일
+        LocalDateTime cutoff = now.minusDays(90);
+        if (startTime.isBefore(cutoff)) {
+            startTime = cutoff;
+            log.info("[Bitget] startTime을 90일 전으로 조정: {}", startTime);
+        }
+
         List<BitgetOrder> result = new ArrayList<>();
         LocalDateTime windowStart = startTime.truncatedTo(ChronoUnit.SECONDS);
 
         while (windowStart.isBefore(now)) {
-            // Bitget 최대 조회 기간: 90일
-            LocalDateTime windowEnd = windowStart.plusDays(90);
+            // V3: 1회 요청당 최대 30일
+            LocalDateTime windowEnd = windowStart.plusDays(30);
             if (windowEnd.isAfter(now)) windowEnd = now;
 
             long startMs = toEpochMilli(windowStart);
             long endMs = toEpochMilli(windowEnd);
 
-            // V2: idLessThan 커서 기반 페이지네이션 (응답의 endId를 다음 요청 idLessThan으로 사용)
-            String idLessThan = null;
+            // cursor 기반 페이지네이션
+            String cursor = null;
 
             while (true) {
                 BitgetOrderPage page;
                 try {
-                    page = fetchPage(apiKey, secretKey, passphrase, startMs, endMs, idLessThan);
+                    page = fetchPage(apiKey, secretKey, passphrase, startMs, endMs, cursor);
                 } catch (RuntimeException e) {
                     log.error("[Bitget] 동기화 중단: {}", e.getMessage());
                     return result;
                 }
 
-                if (page == null || page.orders.isEmpty()) break;
+                if (page == null || page.orders().isEmpty()) break;
 
-                result.addAll(page.orders);
+                result.addAll(page.orders());
 
-                // endId가 없으면 마지막 페이지
-                if (page.endId == null || page.endId.isBlank()) break;
+                // cursor가 없으면 마지막 페이지
+                if (page.cursor() == null || page.cursor().isBlank()) break;
 
-                idLessThan = page.endId;
+                cursor = page.cursor();
                 try { TimeUnit.MILLISECONDS.sleep(50); } catch (InterruptedException ignored) {}
             }
 
@@ -84,20 +93,20 @@ public class BitgetClient {
         return result;
     }
 
-    // [용도] 단일 페이지 API 호출 (V2) / [호출] getOrders()
+    // [용도] 단일 페이지 API 호출 (V3) / [호출] getOrders()
     private BitgetOrderPage fetchPage(String apiKey, String secretKey, String passphrase,
-                                      long startMs, long endMs, String idLessThan) {
+                                      long startMs, long endMs, String cursor) {
         StringBuilder qs = new StringBuilder();
-        qs.append("productType=").append(PRODUCT_TYPE);
+        qs.append("category=").append(CATEGORY);
         qs.append("&startTime=").append(startMs);
         qs.append("&endTime=").append(endMs);
         qs.append("&limit=").append(PAGE_SIZE);
-        if (idLessThan != null && !idLessThan.isBlank()) {
-            qs.append("&idLessThan=").append(idLessThan);
+        if (cursor != null && !cursor.isBlank()) {
+            qs.append("&cursor=").append(cursor);
         }
 
-        // V2 엔드포인트
-        String requestPath = "/api/v2/mix/order/orderHistory";
+        // V3 엔드포인트
+        String requestPath = "/api/v3/trade/history-orders";
         String timestamp = String.valueOf(System.currentTimeMillis());
         String signature = sign(secretKey, timestamp, "GET", requestPath, qs.toString(), "");
 
@@ -126,43 +135,60 @@ public class BitgetClient {
                 throw new RuntimeException("Bitget API 오류 (code=" + code + "): " + msg);
             }
 
-            // V2: data가 배열일 수도 있고 객체일 수도 있음
-            // orderHistory는 data 안에 orderList 배열
             JsonObject data = json.getAsJsonObject("data");
 
-            // V2 페이지네이션: endId (다음 요청의 idLessThan으로 사용)
-            String endId = data.has("endId") && !data.get("endId").isJsonNull()
-                    ? data.get("endId").getAsString() : null;
+            // V3 페이지네이션: cursor (다음 요청에 cursor 파라미터로 사용)
+            String nextCursor = data.has("cursor") && !data.get("cursor").isJsonNull()
+                    ? data.get("cursor").getAsString() : null;
 
             List<BitgetOrder> orders = new ArrayList<>();
-            if (data.has("orderList") && !data.get("orderList").isJsonNull()) {
-                for (var elem : data.getAsJsonArray("orderList")) {
+            if (data.has("list") && !data.get("list").isJsonNull()) {
+                for (var elem : data.getAsJsonArray("list")) {
                     JsonObject o = elem.getAsJsonObject();
-                    // V2: 체결 수량 = baseVolume (V1의 filledQty)
-                    String baseVolumeStr = getStr(o, "baseVolume");
-                    if (baseVolumeStr == null || "0".equals(baseVolumeStr) || "0.0".equals(baseVolumeStr)) continue;
+
+                    // filled 상태인 주문만 처리
+                    String status = getStr(o, "orderStatus");
+                    if (!"filled".equals(status)) continue;
+
+                    // 체결 수량이 0이면 제외
+                    String execQtyStr = getStr(o, "cumExecQty");
+                    if (execQtyStr == null || new BigDecimal(execQtyStr).compareTo(BigDecimal.ZERO) == 0) continue;
 
                     BitgetOrder order = new BitgetOrder();
                     order.orderId   = getStr(o, "orderId");
                     order.symbol    = getStr(o, "symbol");
-                    // V2: tradeSide = open_long/close_long/open_short/close_short (V1의 side)
-                    order.side      = getStr(o, "tradeSide");
-                    order.filledQty = baseVolumeStr;
-                    order.priceAvg  = getStr(o, "priceAvg");
-                    // V2: totalFee (음수 또는 양수 — abs() 처리는 NormalizedTrade에서)
-                    order.fee       = getStr(o, "totalFee");
-                    order.cTime     = getStr(o, "cTime");
+                    // V3: side = buy/sell (단순 매핑)
+                    order.side      = getStr(o, "side");
+                    order.filledQty = execQtyStr;
+                    order.priceAvg  = getStr(o, "avgPrice");
+                    // feeDetail 배열의 fee 합산
+                    order.fee       = sumFeeDetail(o);
+                    order.cTime     = getStr(o, "createdTime");
                     orders.add(order);
                 }
             }
 
-            return new BitgetOrderPage(orders, endId);
+            return new BitgetOrderPage(orders, nextCursor);
 
         } catch (Exception e) {
             if (e instanceof RuntimeException re) throw re;
             log.error("[Bitget] 호출 실패: {}", e.getMessage());
             return null;
         }
+    }
+
+    // [용도] feeDetail 배열의 fee 합산 (절댓값) / [호출] fetchPage()
+    private String sumFeeDetail(JsonObject order) {
+        if (!order.has("feeDetail") || order.get("feeDetail").isJsonNull()) return "0";
+        JsonArray feeDetail = order.getAsJsonArray("feeDetail");
+        BigDecimal total = BigDecimal.ZERO;
+        for (var elem : feeDetail) {
+            JsonObject feeObj = elem.getAsJsonObject();
+            if (feeObj.has("fee") && !feeObj.get("fee").isJsonNull()) {
+                total = total.add(new BigDecimal(feeObj.get("fee").getAsString()).abs());
+            }
+        }
+        return total.toPlainString();
     }
 
     // [용도] HMAC-SHA256 + Base64 서명 생성 / [호출] fetchPage()
@@ -195,15 +221,15 @@ public class BitgetClient {
     public static class BitgetOrder {
         public String orderId;
         public String symbol;
-        public String side;      // open_long, close_long, open_short, close_short
-        public String filledQty;
-        public String priceAvg;
-        public String fee;       // 음수값 (수수료)
-        public String cTime;     // 밀리초 타임스탬프 문자열
+        public String side;      // V3: buy / sell
+        public String filledQty; // cumExecQty
+        public String priceAvg;  // avgPrice
+        public String fee;       // feeDetail 합산값 (절댓값)
+        public String cTime;     // createdTime (밀리초 타임스탬프 문자열)
     }
 
-    // 페이지 조회 결과 (내부용) — V2: nextFlag 제거, endId로만 페이지네이션
-    private record BitgetOrderPage(List<BitgetOrder> orders, String endId) {}
+    // 페이지 조회 결과 (내부용)
+    private record BitgetOrderPage(List<BitgetOrder> orders, String cursor) {}
 
     // [용도] BitgetOrder를 공통 형식으로 변환 / [호출] TradeService.syncBitgetTrades()
     public record NormalizedTrade(
@@ -219,26 +245,17 @@ public class BitgetClient {
             return new NormalizedTrade(
                     order.orderId,
                     order.symbol,
-                    mapSide(order.side),
+                    // V3: buy→BUY, sell→SELL (단순 매핑)
+                    "buy".equals(order.side)
+                            ? com.tradediary.trade.TradeSide.BUY
+                            : com.tradediary.trade.TradeSide.SELL,
                     new BigDecimal(order.filledQty != null ? order.filledQty : "0"),
                     new BigDecimal(order.priceAvg != null ? order.priceAvg : "0"),
-                    // 수수료는 음수로 전달되므로 절댓값 사용
-                    new BigDecimal(order.fee != null ? order.fee : "0").abs(),
+                    new BigDecimal(order.fee != null ? order.fee : "0"),
                     LocalDateTime.ofInstant(
                             Instant.ofEpochMilli(Long.parseLong(order.cTime)),
                             ZoneId.of("Asia/Seoul"))
             );
-        }
-
-        // [용도] Bitget side 문자열 → TradeSide 변환
-        // open_long(롱 진입)=BUY, close_long(롱 청산)=SELL, open_short(숏 진입)=SELL, close_short(숏 청산)=BUY
-        private static com.tradediary.trade.TradeSide mapSide(String side) {
-            if (side == null) return com.tradediary.trade.TradeSide.BUY;
-            return switch (side) {
-                case "open_long", "close_short" -> com.tradediary.trade.TradeSide.BUY;
-                case "close_long", "open_short" -> com.tradediary.trade.TradeSide.SELL;
-                default -> com.tradediary.trade.TradeSide.BUY;
-            };
         }
 
         // [용도] 저장 가능한 주문인지 확인 / [호출] TradeService.syncBitgetTrades()

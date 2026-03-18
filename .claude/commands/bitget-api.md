@@ -1,7 +1,7 @@
-# Bitget API 레퍼런스
+# Bitget API 레퍼런스 (V3 Unified Trading Account)
 
 ## 인증 정보
-- **3가지 자격증명 필요**: apiKey, secretKey, passphrase (Bybit/Upbit의 2가지와 다름)
+- **3가지 자격증명 필요**: apiKey, secretKey, passphrase
 - Base URL: `https://api.bitget.com`
 
 ## 요청 헤더 (모든 인증 API)
@@ -20,15 +20,9 @@ locale: en-US
 - queryString이 없을 때: `timestamp + method.toUpperCase() + requestPath + body`
 - queryString이 있을 때: `timestamp + method.toUpperCase() + requestPath + "?" + queryString + body`
 
-### 서명 생성
-```
-Step 1: HMAC-SHA256(secretKey, 서명문자열)
-Step 2: Base64 인코딩
-```
-
 ### Java 예시
 ```java
-String preHash = timestamp + "GET" + "/api/mix/v1/order/historyProductType" + "?" + queryString;
+String preHash = timestamp + "GET" + "/api/v3/trade/history-orders" + "?" + queryString;
 Mac mac = Mac.getInstance("HmacSHA256");
 mac.init(new SecretKeySpec(secretKey.getBytes("UTF-8"), "HmacSHA256"));
 String sign = Base64.getEncoder().encodeToString(mac.doFinal(preHash.getBytes("UTF-8")));
@@ -36,56 +30,60 @@ String sign = Base64.getEncoder().encodeToString(mac.doFinal(preHash.getBytes("U
 
 ---
 
-## 선물 거래 내역 조회 (핵심)
+## 거래 내역 조회 (핵심)
 
-### GET /api/mix/v1/order/historyProductType
-- 심볼 불필요 (productType으로 전체 조회)
-- 최대 조회 기간: 90일
-- 최대 pageSize: 100
+### GET /api/v3/trade/history-orders
+- 최대 조회 기간: **90일** (단, 1회 요청당 최대 30일)
+- 최대 limit: 100
 
 **Request 파라미터:**
 | 파라미터 | 타입 | 필수 | 설명 |
 |---------|------|------|------|
-| productType | String | Y | `umcbl` (USDT선물) |
-| startTime | String | Y | 밀리초 타임스탬프 |
-| endTime | String | Y | 밀리초 타임스탬프 |
-| pageSize | String | Y | 최대 100 |
-| lastEndId | String | N | 페이지네이션 커서 |
+| category | String | Y | `USDT-FUTURES` |
+| symbol | String | N | 심볼명 (예: BTCUSDT) |
+| startTime | String | N | 밀리초 타임스탬프 |
+| endTime | String | N | 밀리초 타임스탬프 (startTime~endTime ≤ 30일) |
+| limit | String | N | 기본 100, 최대 100 |
+| cursor | String | N | 페이지네이션 커서 (이전 응답의 cursor 사용) |
 
 **Response:**
 ```json
 {
   "code": "00000",
+  "msg": "success",
   "data": {
-    "nextFlag": false,
-    "endId": "963544804144852112",
-    "orderList": [
+    "list": [
       {
-        "orderId": "963544804144852112",
-        "symbol": "BTCUSDT_UMCBL",
-        "side": "open_long",
-        "filledQty": "0.001",
-        "priceAvg": "50000.00",
-        "fee": "-0.03",
-        "cTime": "1684134644509"
+        "orderId": "111111111111111111",
+        "symbol": "BTCUSDT",
+        "side": "sell",
+        "posSide": "long",
+        "orderStatus": "filled",
+        "cumExecQty": "0.429",
+        "avgPrice": "49534.4",
+        "feeDetail": [
+          { "feeCoin": "USDT", "fee": "4.2500586" }
+        ],
+        "createdTime": "1730181468493"
       }
-    ]
+    ],
+    "cursor": "1233319323918499840"
   }
 }
 ```
 
-**성공 코드:** `"00000"` (문자열, Bybit의 정수 0과 다름)
+**성공 코드:** `"00000"` (문자열)
 
 ---
 
 ## Side 매핑 (포지션 알고리즘용)
 
-| Bitget side | 의미 | TradeSide |
-|------------|------|-----------|
-| `open_long` | 롱 진입 (매수) | BUY |
-| `close_long` | 롱 청산 (매도) | SELL |
-| `open_short` | 숏 진입 (매도) | SELL |
-| `close_short` | 숏 청산 (매수) | BUY |
+V3는 단순히 `side` 필드만 사용:
+
+| side 값 | TradeSide |
+|---------|-----------|
+| `buy`  | BUY |
+| `sell` | SELL |
 
 ---
 
@@ -93,18 +91,28 @@ String sign = Base64.getEncoder().encodeToString(mac.doFinal(preHash.getBytes("U
 
 | Bitget 필드 | 설명 | Trade 엔티티 필드 |
 |------------|------|-----------------|
-| `orderId` | 거래 고유 ID | `exchangeTradeId` |
-| `symbol` | 종목 (예: BTCUSDT_UMCBL) | `symbol` |
-| `side` | 거래 방향 | `side` (위 매핑 적용) |
-| `filledQty` | 체결 수량 | `qty` |
-| `priceAvg` | 평균 체결가 | `price` |
-| `fee` | 수수료 (음수) | `fee` (절댓값) |
-| `cTime` | 체결 시각 (밀리초) | `tradedAt` |
+| `orderId` | 주문 고유 ID | `exchangeTradeId` |
+| `symbol` | 종목 (예: BTCUSDT) | `symbol` |
+| `side` | buy/sell | `side` |
+| `cumExecQty` | 체결 수량 (base coin) | `qty` |
+| `avgPrice` | 평균 체결가 | `price` |
+| `feeDetail[].fee` 합산 | 수수료 | `fee` |
+| `createdTime` | 체결 시각 (밀리초) | `tradedAt` |
+
+- `orderStatus != "filled"` 인 주문 제외 (취소/미체결)
 
 ---
 
 ## 페이지네이션
 
-- `data.nextFlag == true` 이면 다음 페이지 존재
-- `data.endId` 를 다음 요청의 `lastEndId` 로 사용
-- 90일 슬라이딩 윈도우 방식으로 전체 기간 조회
+- 첫 요청: cursor 파라미터 없이 호출
+- 응답에 `cursor` 있으면 다음 페이지 존재
+- 다음 요청에 이전 응답의 `cursor` 값 사용
+- 30일 슬라이딩 윈도우 × 3회 = 90일 전체 커버
+
+---
+
+## 주의사항
+
+- 1회 startTime~endTime 범위 ≤ **30일** (초과 시 오류)
+- 90일 이전 데이터 조회 불가
