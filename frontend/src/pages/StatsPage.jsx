@@ -174,6 +174,7 @@ const StatsPage = () => {
           <p className="empty-state-desc">거래를 동기화하고 포지션을 재계산해주세요</p>
         </div>
       ) : (
+        <>
         {/* ── AI 리포트 결과 ── */}
         {(aiReport || aiLoading) && (
           <div className="stats-section anim-fade-up" style={{ marginBottom: '8px' }}>
@@ -550,6 +551,7 @@ const StatsPage = () => {
           )}
 
         </div>
+        </>
       )}
     </div>
   );
