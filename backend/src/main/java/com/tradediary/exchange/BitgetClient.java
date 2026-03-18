@@ -23,14 +23,14 @@ import java.util.Base64;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-// [클래스] Bitget /api/mix/v1/order/historyProductType API 호출 (90일 슬라이딩 윈도우 방식)
+// [클래스] Bitget V2 /api/v2/mix/order/orderHistory API 호출 (90일 슬라이딩 윈도우 방식)
 @Slf4j
 @Component
 public class BitgetClient {
 
     private static final String BASE_URL = "https://api.bitget.com";
-    // Bitget 선물: USDT 무기한 선물 (UMCBL)
-    private static final String PRODUCT_TYPE = "umcbl";
+    // V2 productType: USDT-FUTURES (V1의 umcbl에서 변경)
+    private static final String PRODUCT_TYPE = "USDT-FUTURES";
     private static final int PAGE_SIZE = 100;
 
     private final OkHttpClient httpClient = new OkHttpClient();
@@ -53,13 +53,13 @@ public class BitgetClient {
             long startMs = toEpochMilli(windowStart);
             long endMs = toEpochMilli(windowEnd);
 
-            String lastEndId = null;
-            boolean hasNext = true;
+            // V2: idLessThan 커서 기반 페이지네이션 (응답의 endId를 다음 요청 idLessThan으로 사용)
+            String idLessThan = null;
 
-            while (hasNext) {
+            while (true) {
                 BitgetOrderPage page;
                 try {
-                    page = fetchPage(apiKey, secretKey, passphrase, startMs, endMs, lastEndId);
+                    page = fetchPage(apiKey, secretKey, passphrase, startMs, endMs, idLessThan);
                 } catch (RuntimeException e) {
                     log.error("[Bitget] 동기화 중단: {}", e.getMessage());
                     return result;
@@ -68,12 +68,12 @@ public class BitgetClient {
                 if (page == null || page.orders.isEmpty()) break;
 
                 result.addAll(page.orders);
-                hasNext = page.nextFlag;
-                lastEndId = page.endId;
 
-                if (hasNext) {
-                    try { TimeUnit.MILLISECONDS.sleep(50); } catch (InterruptedException ignored) {}
-                }
+                // endId가 없으면 마지막 페이지
+                if (page.endId == null || page.endId.isBlank()) break;
+
+                idLessThan = page.endId;
+                try { TimeUnit.MILLISECONDS.sleep(50); } catch (InterruptedException ignored) {}
             }
 
             windowStart = windowEnd;
@@ -84,19 +84,20 @@ public class BitgetClient {
         return result;
     }
 
-    // [용도] 단일 페이지 API 호출 / [호출] getOrders()
+    // [용도] 단일 페이지 API 호출 (V2) / [호출] getOrders()
     private BitgetOrderPage fetchPage(String apiKey, String secretKey, String passphrase,
-                                      long startMs, long endMs, String lastEndId) {
+                                      long startMs, long endMs, String idLessThan) {
         StringBuilder qs = new StringBuilder();
         qs.append("productType=").append(PRODUCT_TYPE);
         qs.append("&startTime=").append(startMs);
         qs.append("&endTime=").append(endMs);
-        qs.append("&pageSize=").append(PAGE_SIZE);
-        if (lastEndId != null && !lastEndId.isBlank()) {
-            qs.append("&lastEndId=").append(lastEndId);
+        qs.append("&limit=").append(PAGE_SIZE);
+        if (idLessThan != null && !idLessThan.isBlank()) {
+            qs.append("&idLessThan=").append(idLessThan);
         }
 
-        String requestPath = "/api/mix/v1/order/historyProductType";
+        // V2 엔드포인트
+        String requestPath = "/api/v2/mix/order/orderHistory";
         String timestamp = String.valueOf(System.currentTimeMillis());
         String signature = sign(secretKey, timestamp, "GET", requestPath, qs.toString(), "");
 
@@ -125,8 +126,11 @@ public class BitgetClient {
                 throw new RuntimeException("Bitget API 오류 (code=" + code + "): " + msg);
             }
 
+            // V2: data가 배열일 수도 있고 객체일 수도 있음
+            // orderHistory는 data 안에 orderList 배열
             JsonObject data = json.getAsJsonObject("data");
-            boolean nextFlag = data.has("nextFlag") && data.get("nextFlag").getAsBoolean();
+
+            // V2 페이지네이션: endId (다음 요청의 idLessThan으로 사용)
             String endId = data.has("endId") && !data.get("endId").isJsonNull()
                     ? data.get("endId").getAsString() : null;
 
@@ -134,23 +138,25 @@ public class BitgetClient {
             if (data.has("orderList") && !data.get("orderList").isJsonNull()) {
                 for (var elem : data.getAsJsonArray("orderList")) {
                     JsonObject o = elem.getAsJsonObject();
-                    // filledQty가 0인 미체결 주문 제외
-                    String filledQtyStr = getStr(o, "filledQty");
-                    if (filledQtyStr == null || "0".equals(filledQtyStr) || "0.0".equals(filledQtyStr)) continue;
+                    // V2: 체결 수량 = baseVolume (V1의 filledQty)
+                    String baseVolumeStr = getStr(o, "baseVolume");
+                    if (baseVolumeStr == null || "0".equals(baseVolumeStr) || "0.0".equals(baseVolumeStr)) continue;
 
                     BitgetOrder order = new BitgetOrder();
-                    order.orderId    = getStr(o, "orderId");
-                    order.symbol     = getStr(o, "symbol");
-                    order.side       = getStr(o, "side");
-                    order.filledQty  = filledQtyStr;
-                    order.priceAvg   = getStr(o, "priceAvg");
-                    order.fee        = getStr(o, "fee");
-                    order.cTime      = getStr(o, "cTime");
+                    order.orderId   = getStr(o, "orderId");
+                    order.symbol    = getStr(o, "symbol");
+                    // V2: tradeSide = open_long/close_long/open_short/close_short (V1의 side)
+                    order.side      = getStr(o, "tradeSide");
+                    order.filledQty = baseVolumeStr;
+                    order.priceAvg  = getStr(o, "priceAvg");
+                    // V2: totalFee (음수 또는 양수 — abs() 처리는 NormalizedTrade에서)
+                    order.fee       = getStr(o, "totalFee");
+                    order.cTime     = getStr(o, "cTime");
                     orders.add(order);
                 }
             }
 
-            return new BitgetOrderPage(orders, nextFlag, endId);
+            return new BitgetOrderPage(orders, endId);
 
         } catch (Exception e) {
             if (e instanceof RuntimeException re) throw re;
@@ -196,8 +202,8 @@ public class BitgetClient {
         public String cTime;     // 밀리초 타임스탬프 문자열
     }
 
-    // 페이지 조회 결과 (내부용)
-    private record BitgetOrderPage(List<BitgetOrder> orders, boolean nextFlag, String endId) {}
+    // 페이지 조회 결과 (내부용) — V2: nextFlag 제거, endId로만 페이지네이션
+    private record BitgetOrderPage(List<BitgetOrder> orders, String endId) {}
 
     // [용도] BitgetOrder를 공통 형식으로 변환 / [호출] TradeService.syncBitgetTrades()
     public record NormalizedTrade(
