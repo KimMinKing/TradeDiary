@@ -12,11 +12,32 @@ const ACTIONS = [
     accent: 'var(--accent)',
   },
   {
+    title: '포지션',
+    desc: '완결된 포지션 손익·승률을 분석합니다',
+    icon: '◈',
+    path: '/positions',
+    accent: '#4ade80',
+  },
+  {
+    title: '통계',
+    desc: '승률·손익비·시간대별 성과를 한눈에 파악합니다',
+    icon: '◫',
+    path: '/stats',
+    accent: '#facc15',
+  },
+  {
+    title: '매매 일기',
+    desc: '감정·전략 태그로 매매를 기록하고 패턴을 발견합니다',
+    icon: '◧',
+    path: '/journal',
+    accent: '#a78bfa',
+  },
+  {
     title: '거래소 연동',
     desc: 'Upbit · Bybit API Key를 등록하고 관리합니다',
     icon: '⚙',
     path: '/exchange-keys',
-    accent: '#a78bfa',
+    accent: '#60a5fa',
   },
 ];
 
@@ -108,7 +129,7 @@ const DashboardPage = () => {
             gap: '12px',
           }}
         >
-          {['포지션 분석', 'AI 리포트', '매매 일기', '성장 통계'].map((label) => (
+          {['AI 리포트'].map((label) => (
             <div
               key={label}
               className="card"

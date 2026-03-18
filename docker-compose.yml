@@ -43,6 +43,21 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # ── Python FastAPI AI 분석 서버 ─────────────────────────────────────
+  ai-server:
+    build: ./ai-server
+    container_name: tradediary-ai-server
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # ── React 프론트엔드 (nginx) ────────────────────────────────────────
   frontend:
     build: ./frontend

@@ -38,3 +38,7 @@ export const rebuildPositions = (exchange) =>
 // [용도] 성과 통계 조회 / [호출] StatsPage.jsx
 export const getStats = (exchange = null) =>
   api.get('/api/stats', { params: exchange && exchange !== 'ALL' ? { exchange } : {} });
+
+// [용도] AI 트레이딩 리포트 생성 / [호출] StatsPage.jsx
+export const generateAiReport = (exchange = null) =>
+  api.post('/api/ai/report', null, { params: exchange && exchange !== 'ALL' ? { exchange } : {} });

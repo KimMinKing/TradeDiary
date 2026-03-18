@@ -5,7 +5,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Cell, ReferenceLine,
 } from 'recharts';
-import { getStats } from '../api/exchangeApi';
+import { getStats, generateAiReport } from '../api/exchangeApi';
 
 // ── 통화 설정 ────────────────────────────────────────────────────
 const CURRENCY = {
@@ -82,9 +82,11 @@ const ChartTooltip = ({ active, payload, curr }) => {
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────
 // [컴포넌트] 성과 통계 메인 페이지 / [호출] App.jsx 라우터
 const StatsPage = () => {
-  const [exchange, setExchange] = useState('ALL');
-  const [stats,    setStats]    = useState(null);
-  const [loading,  setLoading]  = useState(true);
+  const [exchange,    setExchange]    = useState('ALL');
+  const [stats,       setStats]       = useState(null);
+  const [loading,     setLoading]     = useState(true);
+  const [aiReport,    setAiReport]    = useState('');
+  const [aiLoading,   setAiLoading]   = useState(false);
 
   const curr = CURRENCY[exchange];
 
@@ -99,6 +101,20 @@ const StatsPage = () => {
       console.error(e);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // [용도] AI 리포트 생성 요청 / [호출] AI 리포트 버튼 클릭
+  const handleAiReport = async () => {
+    setAiLoading(true);
+    setAiReport('');
+    try {
+      const res = await generateAiReport(exchange);
+      setAiReport(res.data.report);
+    } catch (e) {
+      setAiReport('AI 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+    } finally {
+      setAiLoading(false);
     }
   };
 
@@ -120,7 +136,24 @@ const StatsPage = () => {
       <div className="stats-header anim-fade-up">
         <div className="stats-title-row">
           <h1 className="page-title">성과 통계</h1>
-          <ExchangeSelect value={exchange} onChange={setExchange} />
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <ExchangeSelect value={exchange} onChange={setExchange} />
+            {!isEmpty && (
+              <button
+                className="btn btn-sm"
+                onClick={handleAiReport}
+                disabled={aiLoading}
+                style={{
+                  background: 'linear-gradient(135deg, #a78bfa, #7c3aed)',
+                  border: 'none', color: '#fff', fontWeight: 600,
+                  padding: '8px 16px', borderRadius: '8px', cursor: 'pointer',
+                  opacity: aiLoading ? 0.6 : 1, whiteSpace: 'nowrap',
+                }}
+              >
+                {aiLoading ? '분석 중...' : '✦ AI 리포트'}
+              </button>
+            )}
+          </div>
         </div>
         {curr.mixed && !isEmpty && (
           <div className="stats-mixed-notice">
@@ -141,6 +174,27 @@ const StatsPage = () => {
           <p className="empty-state-desc">거래를 동기화하고 포지션을 재계산해주세요</p>
         </div>
       ) : (
+        {/* ── AI 리포트 결과 ── */}
+        {(aiReport || aiLoading) && (
+          <div className="stats-section anim-fade-up" style={{ marginBottom: '8px' }}>
+            <div className="stats-section-label" style={{ color: '#a78bfa' }}>✦ AI 트레이딩 리포트</div>
+            <div style={{
+              background: 'rgba(167,139,250,0.06)',
+              border: '1px solid rgba(167,139,250,0.25)',
+              borderRadius: '12px',
+              padding: '20px',
+              lineHeight: 1.75,
+              whiteSpace: 'pre-wrap',
+              color: 'var(--text-secondary)',
+              fontSize: '14px',
+            }}>
+              {aiLoading ? (
+                <span style={{ color: 'var(--text-muted)' }}>AI가 분석 중입니다...</span>
+              ) : aiReport}
+            </div>
+          </div>
+        )}
+
         <div className="stats-body anim-fade-up2">
 
           {/* ── KPI 카드 그리드 ── */}
