@@ -157,8 +157,8 @@ public class BitgetClient {
                     // tradeId 또는 fillId를 exchangeTradeId로 사용
                     order.orderId   = firstNonNull(o, "tradeId", "fillId", "orderId");
                     order.symbol    = getStr(o, "symbol");
-                    // tradeSide(open_long/close_long/open_short/close_short) 우선, 없으면 side(buy/sell)
-                    order.side      = firstNonNull(o, "tradeSide", "side");
+                    // V2 fills: side = buy/sell (직접 사용 — tradeSide는 open/close/buy_single 등으로 별도 의미)
+                    order.side      = getStr(o, "side");
                     order.filledQty = qtyStr;
                     order.priceAvg  = priceStr;
                     order.fee       = extractFee(o);
@@ -193,8 +193,11 @@ public class BitgetClient {
             BigDecimal total = BigDecimal.ZERO;
             for (var elem : order.getAsJsonArray("feeDetail")) {
                 JsonObject feeObj = elem.getAsJsonObject();
-                if (feeObj.has("fee") && !feeObj.get("fee").isJsonNull()) {
-                    total = total.add(new BigDecimal(feeObj.get("fee").getAsString()).abs());
+                // V2 fills: feeDetail[].totalFee 사용 (fee 키는 없음)
+                String feeKey = feeObj.has("totalFee") ? "totalFee"
+                        : feeObj.has("fee") ? "fee" : null;
+                if (feeKey != null && !feeObj.get(feeKey).isJsonNull()) {
+                    total = total.add(new BigDecimal(feeObj.get(feeKey).getAsString()).abs());
                 }
             }
             if (total.compareTo(BigDecimal.ZERO) > 0) return total.toPlainString();
