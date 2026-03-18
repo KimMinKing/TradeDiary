@@ -176,10 +176,12 @@ public class TradeService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
 
-        LocalDateTime startTime = tradeRepository
-                .findTopByUserIdAndExchangeOrderByTradedAtDesc(userId, ExchangeKey.Exchange.BITGET)
-                .map(Trade::getTradedAt)
-                .orElse(LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul")).minusYears(1));
+        // Bitget은 최대 90일만 조회 가능하므로 매번 전체 재동기화
+        // 기존 데이터를 삭제하고 재저장하여 side 오류 등을 자동 정정
+        tradeRepository.deleteAllByUserIdAndExchange(userId, ExchangeKey.Exchange.BITGET);
+        positionService.rebuildPositions(userId, ExchangeKey.Exchange.BITGET); // 포지션도 초기화
+
+        LocalDateTime startTime = LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul")).minusDays(90);
 
         log.info("Bitget 동기화 시작 - userId: {}, startTime: {}", userId, startTime);
 

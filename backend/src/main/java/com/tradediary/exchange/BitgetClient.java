@@ -157,7 +157,8 @@ public class BitgetClient {
                     // tradeId 또는 fillId를 exchangeTradeId로 사용
                     order.orderId   = firstNonNull(o, "tradeId", "fillId", "orderId");
                     order.symbol    = getStr(o, "symbol");
-                    order.side      = firstNonNull(o, "side", "tradeSide");
+                    // tradeSide(open_long/close_long/open_short/close_short) 우선, 없으면 side(buy/sell)
+                    order.side      = firstNonNull(o, "tradeSide", "side");
                     order.filledQty = qtyStr;
                     order.priceAvg  = priceStr;
                     order.fee       = extractFee(o);
@@ -256,9 +257,7 @@ public class BitgetClient {
             return new NormalizedTrade(
                     order.orderId,
                     order.symbol,
-                    "buy".equalsIgnoreCase(order.side)
-                            ? com.tradediary.trade.TradeSide.BUY
-                            : com.tradediary.trade.TradeSide.SELL,
+                    mapSide(order.side),
                     new BigDecimal(order.filledQty != null ? order.filledQty : "0"),
                     new BigDecimal(order.priceAvg != null ? order.priceAvg : "0"),
                     new BigDecimal(order.fee != null ? order.fee : "0"),
@@ -266,6 +265,18 @@ public class BitgetClient {
                             Instant.ofEpochMilli(Long.parseLong(order.cTime)),
                             ZoneId.of("Asia/Seoul"))
             );
+        }
+
+        // [용도] Bitget side 문자열 → TradeSide 변환
+        // tradeSide 우선(open_long/close_long/open_short/close_short), 없으면 buy/sell 직접 사용
+        // open_long(롱 진입)=BUY, close_long(롱 청산)=SELL, open_short(숏 진입)=SELL, close_short(숏 청산)=BUY
+        private static com.tradediary.trade.TradeSide mapSide(String side) {
+            if (side == null) return com.tradediary.trade.TradeSide.BUY;
+            return switch (side.toLowerCase()) {
+                case "buy", "open_long", "close_short" -> com.tradediary.trade.TradeSide.BUY;
+                case "sell", "close_long", "open_short" -> com.tradediary.trade.TradeSide.SELL;
+                default -> com.tradediary.trade.TradeSide.BUY;
+            };
         }
 
         // [용도] 저장 가능한 주문인지 확인 / [호출] TradeService.syncBitgetTrades()

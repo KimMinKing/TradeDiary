@@ -32,4 +32,7 @@ public interface TradeRepository extends JpaRepository<Trade, Long> {
     // [용도] 포지션 재계산용 거래 목록 (심볼 오름차순 → 시간 오름차순) / [호출] PositionService.rebuildPositions()
     List<Trade> findByUserIdAndExchangeOrderBySymbolAscTradedAtAsc(
             Long userId, ExchangeKey.Exchange exchange);
+
+    // [용도] 특정 거래소 거래 전체 삭제 (Bitget 재동기화 시 side 오류 정정용) / [호출] TradeService.syncBitgetTrades()
+    void deleteAllByUserIdAndExchange(Long userId, ExchangeKey.Exchange exchange);
 }
