@@ -32,6 +32,15 @@ const EXCHANGE_CONFIG = {
     secretKeyPlaceholder: 'Secret Key',
     hasPassphrase: true,
   },
+  OKX: {
+    label: 'OKX',
+    color: '#e4a400',
+    activeClass: 'active-okx',
+    guide: 'OKX → 계정 → API → API Key 생성에서 Read 권한으로 발급하세요. Passphrase는 API Key 생성 시 직접 설정한 비밀번호입니다.',
+    apiKeyPlaceholder: 'API Key',
+    secretKeyPlaceholder: 'Secret Key',
+    hasPassphrase: true,
+  },
 };
 
 // [컴포넌트] 거래소 API Key 선택 및 등록 화면 / [호출] App.jsx 라우터

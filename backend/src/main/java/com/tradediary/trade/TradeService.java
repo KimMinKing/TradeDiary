@@ -8,6 +8,7 @@ import com.tradediary.exchange.ExchangeKey;
 import com.tradediary.exchange.ExchangeKeyService;
 import com.tradediary.exchange.BitgetClient;
 import com.tradediary.exchange.BybitClient;
+import com.tradediary.exchange.OkxClient;
 import com.tradediary.exchange.UpbitClient;
 import com.tradediary.position.PositionService;
 import com.tradediary.user.User;
@@ -32,6 +33,7 @@ public class TradeService {
     private final UpbitClient upbitClient;
     private final BybitClient bybitClient;
     private final BitgetClient bitgetClient;
+    private final OkxClient okxClient;
     private final PositionService positionService;
 
     // [용도] Upbit 거래 내역 동기화 (신규 건만 저장) / [호출] TradeController.syncTrades()
@@ -215,6 +217,62 @@ public class TradeService {
 
         if (savedCount > 0) {
             positionService.rebuildPositions(userId, ExchangeKey.Exchange.BITGET);
+        }
+        return savedCount;
+    }
+
+    // [용도] OKX 거래 내역 동기화 (SWAP + FUTURES) / [호출] TradeController.syncOkxTrades()
+    // - 초기 동기화: DB에 OKX 거래 없으면 최근 90일
+    // - 증분 동기화: DB 마지막 OKX 거래 이후
+    @Transactional
+    public int syncOkxTrades(Long userId) {
+        ExchangeKeyService.DecryptedKey keys =
+                exchangeKeyService.getDecryptedKey(userId, ExchangeKey.Exchange.OKX);
+
+        if (keys.passphrase() == null || keys.passphrase().isBlank()) {
+            throw new RuntimeException("OKX passphrase가 등록되지 않았습니다. API Key를 다시 등록해주세요.");
+        }
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+
+        LocalDateTime startTime = tradeRepository
+                .findTopByUserIdAndExchangeOrderByTradedAtDesc(userId, ExchangeKey.Exchange.OKX)
+                .map(Trade::getTradedAt)
+                .orElse(LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul")).minusDays(90));
+
+        log.info("OKX 동기화 시작 - userId: {}, startTime: {}", userId, startTime);
+
+        List<OkxClient.OkxOrder> orders =
+                okxClient.getOrders(keys.apiKey(), keys.secretKey(), keys.passphrase(), startTime);
+
+        int savedCount = 0;
+        for (OkxClient.OkxOrder order : orders) {
+            if (tradeRepository.existsByUserIdAndExchangeAndExchangeTradeId(
+                    userId, ExchangeKey.Exchange.OKX, order.orderId)) continue;
+
+            OkxClient.NormalizedTrade normalized = OkxClient.NormalizedTrade.from(order);
+            if (!normalized.isValid()) continue;
+
+            tradeRepository.save(Trade.builder()
+                    .user(user)
+                    .exchange(ExchangeKey.Exchange.OKX)
+                    .exchangeTradeId(normalized.exchangeTradeId())
+                    .symbol(normalized.symbol())
+                    .side(normalized.side())
+                    .qty(normalized.qty())
+                    .price(normalized.price())
+                    .fee(normalized.fee())
+                    .tradedAt(normalized.tradedAt())
+                    .build());
+            savedCount++;
+        }
+
+        log.info("OKX 거래 동기화 완료 - userId: {}, 조회: {}건, 신규 저장: {}건",
+                userId, orders.size(), savedCount);
+
+        if (savedCount > 0) {
+            positionService.rebuildPositions(userId, ExchangeKey.Exchange.OKX);
         }
         return savedCount;
     }

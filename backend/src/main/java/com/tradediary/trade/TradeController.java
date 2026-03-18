@@ -63,7 +63,21 @@ public class TradeController {
         }
     }
 
-    // [용도] 에러 메시지에서 사용자 친화적 메시지 추출 / [호출] syncUpbitTrades, syncBybitTrades, syncBitgetTrades
+    // [용도] OKX 거래 내역 동기화 / [호출] POST /api/trades/sync/okx
+    @PostMapping("/sync/okx")
+    public ResponseEntity<Map<String, Object>> syncOkxTrades(
+            @AuthenticationPrincipal Long userId) {
+        try {
+            int count = tradeService.syncOkxTrades(userId);
+            return ResponseEntity.ok(Map.of("savedCount", count));
+        } catch (RuntimeException e) {
+            String message = resolveErrorMessage(e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body(Map.of("error", message));
+        }
+    }
+
+    // [용도] 에러 메시지에서 사용자 친화적 메시지 추출 / [호출] syncUpbitTrades, syncBybitTrades, syncBitgetTrades, syncOkxTrades
     private String resolveErrorMessage(String rawMessage) {
         if (rawMessage == null) return "거래소 API 호출 실패";
         String lower = rawMessage.toLowerCase();

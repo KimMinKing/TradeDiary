@@ -47,6 +47,7 @@ const PositionListPage = () => {
     { key: 'UPBIT',  label: 'Upbit' },
     { key: 'BYBIT',  label: 'Bybit' },
     { key: 'BITGET', label: 'Bitget' },
+    { key: 'OKX',    label: 'OKX' },
   ];
 
   const filtered = activeTab === 'ALL'
@@ -105,6 +106,13 @@ const PositionListPage = () => {
             disabled={rebuilding !== null}
           >
             {rebuilding === 'BITGET' ? '계산 중...' : 'Bitget 재계산'}
+          </button>
+          <button
+            className="btn btn-okx btn-sm"
+            onClick={() => handleRebuild('OKX')}
+            disabled={rebuilding !== null}
+          >
+            {rebuilding === 'OKX' ? '계산 중...' : 'OKX 재계산'}
           </button>
         </div>
       </div>

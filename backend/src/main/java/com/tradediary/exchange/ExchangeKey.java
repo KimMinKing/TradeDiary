@@ -57,6 +57,6 @@ public class ExchangeKey {
     }
 
     public enum Exchange {
-        UPBIT, BYBIT, BITGET
+        UPBIT, BYBIT, BITGET, OKX
     }
 }

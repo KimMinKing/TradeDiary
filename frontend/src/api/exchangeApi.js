@@ -28,6 +28,10 @@ export const syncBybitTrades = () =>
 export const syncBitgetTrades = () =>
   api.post('/api/trades/sync/bitget');
 
+// [용도] OKX 거래 내역 동기화 / [호출] TradeListPage.jsx
+export const syncOkxTrades = () =>
+  api.post('/api/trades/sync/okx');
+
 // [용도] 거래 목록 조회 (exchange: 'UPBIT'|'BYBIT'|null=전체) / [호출] TradeListPage.jsx
 export const getTrades = (exchange = null) =>
   api.get('/api/trades', { params: exchange ? { exchange } : {} });
