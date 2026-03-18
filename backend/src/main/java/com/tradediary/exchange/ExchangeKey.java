@@ -36,6 +36,9 @@ public class ExchangeKey {
     @Column(nullable = false, length = 512)
     private String secretKey;   // AES-256 암호화된 값
 
+    @Column(length = 512)
+    private String passphrase;  // Bitget 전용 AES-256 암호화된 값 (nullable)
+
     @Column(nullable = false)
     private boolean isActive;
 
@@ -43,16 +46,17 @@ public class ExchangeKey {
     private LocalDateTime createdAt;
 
     @Builder
-    public ExchangeKey(User user, Exchange exchange, String apiKey, String secretKey) {
+    public ExchangeKey(User user, Exchange exchange, String apiKey, String secretKey, String passphrase) {
         this.user = user;
         this.exchange = exchange;
         this.apiKey = apiKey;
         this.secretKey = secretKey;
+        this.passphrase = passphrase;
         this.isActive = true;
         this.createdAt = LocalDateTime.now();
     }
 
     public enum Exchange {
-        UPBIT, BYBIT
+        UPBIT, BYBIT, BITGET
     }
 }

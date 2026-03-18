@@ -25,7 +25,7 @@ public class ExchangeKeyController {
     public ResponseEntity<Void> saveKey(
             @AuthenticationPrincipal Long userId,
             @Valid @RequestBody SaveKeyRequest request) {
-        exchangeKeyService.saveKey(userId, request.exchange(), request.apiKey(), request.secretKey());
+        exchangeKeyService.saveKey(userId, request.exchange(), request.apiKey(), request.secretKey(), request.passphrase());
         return ResponseEntity.ok().build();
     }
 
@@ -47,6 +47,7 @@ public class ExchangeKeyController {
     public record SaveKeyRequest(
             @NotBlank String exchange,
             @JsonProperty("api_key") @NotBlank String apiKey,
-            @JsonProperty("secret_key") @NotBlank String secretKey
+            @JsonProperty("secret_key") @NotBlank String secretKey,
+            @JsonProperty("passphrase") String passphrase  // Bitget 전용 (nullable)
     ) {}
 }

@@ -1,7 +1,7 @@
 // [파일 용도] 거래 내역 목록 페이지 (거래소 필터 탭 + 날짜 필터 + KRW/USD 통화 토글)
 
 import { useState, useEffect, useRef } from 'react';
-import { getTrades, syncUpbitTrades, syncBybitTrades } from '../api/exchangeApi';
+import { getTrades, syncUpbitTrades, syncBybitTrades, syncBitgetTrades } from '../api/exchangeApi';
 import api from '../api/authApi';
 
 // [컴포넌트] 거래 내역 목록 및 거래소별 동기화 화면 / [호출] App.jsx 라우터
@@ -33,7 +33,7 @@ const TradeListPage = () => {
 
   // [용도] 거래소 신규 연동 후 1분 대기 여부 확인 / [호출] useEffect
   const checkPendingSync = () => {
-    const exchanges = ['UPBIT', 'BYBIT'];
+    const exchanges = ['UPBIT', 'BYBIT', 'BITGET'];
     const WAIT_MS = 60000; // 1분
     let minRemaining = null;
 
@@ -102,7 +102,11 @@ const TradeListPage = () => {
     setSyncing(exchange);
     setSyncMessage('');
     try {
-      const res = exchange === 'UPBIT' ? await syncUpbitTrades() : await syncBybitTrades();
+      const res = exchange === 'UPBIT'
+        ? await syncUpbitTrades()
+        : exchange === 'BYBIT'
+        ? await syncBybitTrades()
+        : await syncBitgetTrades();
       if (res.data.error) {
         // 백엔드가 에러 메시지를 반환한 경우 (IP 차단 등)
         setSyncMessage(res.data.error);
@@ -208,9 +212,10 @@ const TradeListPage = () => {
     ).length;
 
   const tabs = [
-    { key: 'ALL',   label: '전체' },
-    { key: 'UPBIT', label: 'Upbit' },
-    { key: 'BYBIT', label: 'Bybit' },
+    { key: 'ALL',    label: '전체' },
+    { key: 'UPBIT',  label: 'Upbit' },
+    { key: 'BYBIT',  label: 'Bybit' },
+    { key: 'BITGET', label: 'Bitget' },
   ];
 
   const datePresets = [
@@ -254,6 +259,13 @@ const TradeListPage = () => {
             disabled={syncing !== null}
           >
             {syncing === 'BYBIT' ? '동기화 중...' : 'Bybit 동기화'}
+          </button>
+          <button
+            className="btn btn-bitget btn-sm"
+            onClick={() => handleSync('BITGET')}
+            disabled={syncing !== null}
+          >
+            {syncing === 'BITGET' ? '동기화 중...' : 'Bitget 동기화'}
           </button>
         </div>
       </div>

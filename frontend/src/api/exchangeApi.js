@@ -4,8 +4,9 @@ import api from './authApi';
 
 // [용도] 거래소 API Key 등록 / [호출] ExchangeKeyPage.jsx
 // Spring Boot SNAKE_CASE 설정으로 인해 snake_case로 전송
-export const saveExchangeKey = (exchange, apiKey, secretKey) =>
-  api.post('/api/exchange-keys', { exchange, api_key: apiKey, secret_key: secretKey });
+// passphrase는 Bitget 전용 (선택 입력)
+export const saveExchangeKey = (exchange, apiKey, secretKey, passphrase = null) =>
+  api.post('/api/exchange-keys', { exchange, api_key: apiKey, secret_key: secretKey, passphrase });
 
 // [용도] 등록된 거래소 목록 조회 / [호출] ExchangeKeyPage.jsx
 export const getMyExchangeKeys = () =>
@@ -22,6 +23,10 @@ export const syncUpbitTrades = () =>
 // [용도] Bybit 거래 내역 동기화 / [호출] TradeListPage.jsx
 export const syncBybitTrades = () =>
   api.post('/api/trades/sync/bybit');
+
+// [용도] Bitget 거래 내역 동기화 / [호출] TradeListPage.jsx
+export const syncBitgetTrades = () =>
+  api.post('/api/trades/sync/bitget');
 
 // [용도] 거래 목록 조회 (exchange: 'UPBIT'|'BYBIT'|null=전체) / [호출] TradeListPage.jsx
 export const getTrades = (exchange = null) =>

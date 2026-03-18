@@ -49,7 +49,21 @@ public class TradeController {
         }
     }
 
-    // [용도] 에러 메시지에서 사용자 친화적 메시지 추출 / [호출] syncUpbitTrades, syncBybitTrades
+    // [용도] Bitget 거래 내역 동기화 / [호출] POST /api/trades/sync/bitget
+    @PostMapping("/sync/bitget")
+    public ResponseEntity<Map<String, Object>> syncBitgetTrades(
+            @AuthenticationPrincipal Long userId) {
+        try {
+            int count = tradeService.syncBitgetTrades(userId);
+            return ResponseEntity.ok(Map.of("savedCount", count));
+        } catch (RuntimeException e) {
+            String message = resolveErrorMessage(e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body(Map.of("error", message));
+        }
+    }
+
+    // [용도] 에러 메시지에서 사용자 친화적 메시지 추출 / [호출] syncUpbitTrades, syncBybitTrades, syncBitgetTrades
     private String resolveErrorMessage(String rawMessage) {
         if (rawMessage == null) return "거래소 API 호출 실패";
         String lower = rawMessage.toLowerCase();

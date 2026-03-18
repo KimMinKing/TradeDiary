@@ -6,6 +6,7 @@ import com.tradediary.common.exception.BusinessException;
 import com.tradediary.common.exception.ErrorCode;
 import com.tradediary.exchange.ExchangeKey;
 import com.tradediary.exchange.ExchangeKeyService;
+import com.tradediary.exchange.BitgetClient;
 import com.tradediary.exchange.BybitClient;
 import com.tradediary.exchange.UpbitClient;
 import com.tradediary.position.PositionService;
@@ -19,7 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 
-// [클래스] Upbit/Bybit 거래 내역 동기화 및 거래 목록 조회
+// [클래스] Upbit/Bybit/Bitget 거래 내역 동기화 및 거래 목록 조회
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -30,6 +31,7 @@ public class TradeService {
     private final UserRepository userRepository;
     private final UpbitClient upbitClient;
     private final BybitClient bybitClient;
+    private final BitgetClient bitgetClient;
     private final PositionService positionService;
 
     // [용도] Upbit 거래 내역 동기화 (신규 건만 저장) / [호출] TradeController.syncTrades()
@@ -155,6 +157,62 @@ public class TradeService {
         // 신규 거래가 있을 때만 포지션 재계산
         if (savedCount > 0) {
             positionService.rebuildPositions(userId, ExchangeKey.Exchange.BYBIT);
+        }
+        return savedCount;
+    }
+
+    // [용도] Bitget 거래 내역 동기화 (선물 UMCBL) / [호출] TradeController.syncBitgetTrades()
+    // - 초기 동기화: DB에 Bitget 거래 없으면 최근 1년
+    // - 증분 동기화: DB 마지막 Bitget 거래 이후
+    @Transactional
+    public int syncBitgetTrades(Long userId) {
+        ExchangeKeyService.DecryptedKey keys =
+                exchangeKeyService.getDecryptedKey(userId, ExchangeKey.Exchange.BITGET);
+
+        if (keys.passphrase() == null || keys.passphrase().isBlank()) {
+            throw new RuntimeException("Bitget passphrase가 등록되지 않았습니다. API Key를 다시 등록해주세요.");
+        }
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+
+        LocalDateTime startTime = tradeRepository
+                .findTopByUserIdAndExchangeOrderByTradedAtDesc(userId, ExchangeKey.Exchange.BITGET)
+                .map(Trade::getTradedAt)
+                .orElse(LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul")).minusYears(1));
+
+        log.info("Bitget 동기화 시작 - userId: {}, startTime: {}", userId, startTime);
+
+        List<BitgetClient.BitgetOrder> orders =
+                bitgetClient.getOrders(keys.apiKey(), keys.secretKey(), keys.passphrase(), startTime);
+
+        int savedCount = 0;
+        for (BitgetClient.BitgetOrder order : orders) {
+            if (tradeRepository.existsByUserIdAndExchangeAndExchangeTradeId(
+                    userId, ExchangeKey.Exchange.BITGET, order.orderId)) continue;
+
+            BitgetClient.NormalizedTrade normalized = BitgetClient.NormalizedTrade.from(order);
+            if (!normalized.isValid()) continue;
+
+            tradeRepository.save(Trade.builder()
+                    .user(user)
+                    .exchange(ExchangeKey.Exchange.BITGET)
+                    .exchangeTradeId(normalized.exchangeTradeId())
+                    .symbol(normalized.symbol())
+                    .side(normalized.side())
+                    .qty(normalized.qty())
+                    .price(normalized.price())
+                    .fee(normalized.fee())
+                    .tradedAt(normalized.tradedAt())
+                    .build());
+            savedCount++;
+        }
+
+        log.info("Bitget 거래 동기화 완료 - userId: {}, 조회: {}건, 신규 저장: {}건",
+                userId, orders.size(), savedCount);
+
+        if (savedCount > 0) {
+            positionService.rebuildPositions(userId, ExchangeKey.Exchange.BITGET);
         }
         return savedCount;
     }

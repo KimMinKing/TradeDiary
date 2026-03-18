@@ -229,6 +229,13 @@ button { font-family: var(--font-ui); }
 }
 .btn-bybit:hover { background: rgba(249, 115, 22, 0.2); }
 
+.btn-bitget {
+  background: rgba(0, 192, 163, 0.08);
+  color: #00c0a3;
+  border: 1px solid rgba(0, 192, 163, 0.2);
+}
+.btn-bitget:hover { background: rgba(0, 192, 163, 0.2); }
+
 .btn-sm   { padding: 5px 12px; font-size: 12px; }
 .btn-lg   { padding: 13px 28px; font-size: 15px; font-weight: 700; }
 .btn-full { width: 100%; }
@@ -245,7 +252,8 @@ button { font-family: var(--font-ui); }
   letter-spacing: 0.02em;
 }
 .badge-upbit { background: var(--upbit-soft); color: #60a5fa; }
-.badge-bybit { background: var(--bybit-soft); color: #fb923c; }
+.badge-bybit  { background: var(--bybit-soft);  color: #fb923c; }
+.badge-bitget { background: rgba(0, 192, 163, 0.08); color: #00c0a3; }
 .badge-buy   { background: var(--buy-soft);   color: #4ade80; }
 .badge-sell  { background: var(--sell-soft);  color: #fb7185; }
 
@@ -440,7 +448,8 @@ button { font-family: var(--font-ui); }
 }
 .exchange-tab-btn:hover { border-color: var(--border-glow); color: var(--text-secondary); }
 .exchange-tab-btn.active-upbit { border-color: var(--upbit); background: rgba(59,130,246,0.08); color: #60a5fa; }
-.exchange-tab-btn.active-bybit { border-color: var(--bybit); background: rgba(249,115,22,0.08); color: #fb923c; }
+.exchange-tab-btn.active-bybit  { border-color: var(--bybit); background: rgba(249,115,22,0.08); color: #fb923c; }
+.exchange-tab-btn.active-bitget { border-color: #00c0a3; background: rgba(0,192,163,0.08); color: #00c0a3; }
 
 .registered-dot {
   display: inline-block;

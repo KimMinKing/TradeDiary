@@ -1,4 +1,4 @@
-// [파일 용도] 거래소 API Key 등록 페이지 (Upbit / Bybit 선택)
+// [파일 용도] 거래소 API Key 등록 페이지 (Upbit / Bybit / Bitget 선택)
 
 import { useState, useEffect } from 'react';
 import { saveExchangeKey, getMyExchangeKeys, deleteExchangeKey } from '../api/exchangeApi';
@@ -12,6 +12,7 @@ const EXCHANGE_CONFIG = {
     guide: 'Upbit → 마이페이지 → Open API 관리에서 자산조회, 주문조회 권한으로 발급하세요.',
     apiKeyPlaceholder: 'Access Key',
     secretKeyPlaceholder: 'Secret Key',
+    hasPassphrase: false,
   },
   BYBIT: {
     label: 'Bybit',
@@ -20,6 +21,16 @@ const EXCHANGE_CONFIG = {
     guide: 'Bybit → 계정 → API 관리에서 포지션, 주문, 거래 조회 권한으로 발급하세요.',
     apiKeyPlaceholder: 'API Key',
     secretKeyPlaceholder: 'Secret Key',
+    hasPassphrase: false,
+  },
+  BITGET: {
+    label: 'Bitget',
+    color: '#00c0a3',
+    activeClass: 'active-bitget',
+    guide: 'Bitget → API Key 관리에서 읽기전용 권한으로 발급하세요. Passphrase는 API Key 생성 시 직접 설정한 비밀번호입니다.',
+    apiKeyPlaceholder: 'API Key',
+    secretKeyPlaceholder: 'Secret Key',
+    hasPassphrase: true,
   },
 };
 
@@ -28,6 +39,7 @@ const ExchangeKeyPage = () => {
   const [selectedExchange,    setSelectedExchange]    = useState('UPBIT');
   const [apiKey,              setApiKey]              = useState('');
   const [secretKey,           setSecretKey]           = useState('');
+  const [passphrase,          setPassphrase]          = useState('');
   const [registeredExchanges, setRegisteredExchanges] = useState([]);
   const [loading,             setLoading]             = useState(false);
   const [message,             setMessage]             = useState('');
@@ -40,6 +52,7 @@ const ExchangeKeyPage = () => {
     setSelectedExchange(exchange);
     setApiKey('');
     setSecretKey('');
+    setPassphrase('');
     setMessage('');
     setError('');
   };
@@ -65,10 +78,11 @@ const ExchangeKeyPage = () => {
     setMessage('');
     setLoading(true);
     try {
-      await saveExchangeKey(selectedExchange, apiKey.trim(), secretKey.trim());
+      await saveExchangeKey(selectedExchange, apiKey.trim(), secretKey.trim(), passphrase.trim() || null);
       setMessage(`${EXCHANGE_CONFIG[selectedExchange].label} API Key가 등록되었습니다.`);
       setApiKey('');
       setSecretKey('');
+      setPassphrase('');
       // 연동 직후 1분간 동기화 대기 시작 시각 기록
       localStorage.setItem(`syncStartTime_${selectedExchange}`, Date.now());
       fetchRegisteredKeys();
@@ -208,6 +222,20 @@ const ExchangeKeyPage = () => {
               autoComplete="new-password"
             />
           </div>
+          {config.hasPassphrase && (
+            <div>
+              <label className="input-label">Passphrase</label>
+              <input
+                className="input"
+                type="password"
+                placeholder="API Key 생성 시 설정한 Passphrase"
+                value={passphrase}
+                onChange={(e) => setPassphrase(e.target.value)}
+                required
+                autoComplete="new-password"
+              />
+            </div>
+          )}
 
           {error   && <p className="msg-error">{error}</p>}
           {message && <p className="msg-success">{message}</p>}

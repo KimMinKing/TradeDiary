@@ -23,7 +23,7 @@ public class ExchangeKeyService {
 
     // [용도] API Key 저장 (이미 있으면 덮어쓰기) / [호출] ExchangeKeyController.saveKey()
     @Transactional
-    public void saveKey(Long userId, String exchange, String apiKey, String secretKey) {
+    public void saveKey(Long userId, String exchange, String apiKey, String secretKey, String passphrase) {
         ExchangeKey.Exchange exchangeEnum = ExchangeKey.Exchange.valueOf(exchange.toUpperCase());
 
         // 기존 Key가 있으면 삭제 후 재등록
@@ -38,6 +38,7 @@ public class ExchangeKeyService {
                 .exchange(exchangeEnum)
                 .apiKey(aesUtil.encrypt(apiKey))
                 .secretKey(aesUtil.encrypt(secretKey))
+                .passphrase(passphrase != null && !passphrase.isBlank() ? aesUtil.encrypt(passphrase) : null)
                 .build());
     }
 
@@ -73,16 +74,18 @@ public class ExchangeKeyService {
         exchangeKeyRepository.delete(key);
     }
 
-    // [용도] 복호화된 API Key 반환 (내부 서비스용) / [호출] UpbitClient
+    // [용도] 복호화된 API Key 반환 (내부 서비스용) / [호출] UpbitClient, BybitClient, BitgetClient
     @Transactional(readOnly = true)
     public DecryptedKey getDecryptedKey(Long userId, ExchangeKey.Exchange exchange) {
         ExchangeKey key = exchangeKeyRepository.findByUserIdAndExchange(userId, exchange)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+        String passphrase = key.getPassphrase() != null ? aesUtil.decrypt(key.getPassphrase()) : null;
         return new DecryptedKey(
                 aesUtil.decrypt(key.getApiKey()),
-                aesUtil.decrypt(key.getSecretKey())
+                aesUtil.decrypt(key.getSecretKey()),
+                passphrase
         );
     }
 
-    public record DecryptedKey(String apiKey, String secretKey) {}
+    public record DecryptedKey(String apiKey, String secretKey, String passphrase) {}
 }
