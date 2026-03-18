@@ -41,13 +41,28 @@ public class ExchangeKeyService {
                 .build());
     }
 
-    // [용도] 사용자의 등록된 거래소 목록 조회 / [호출] ExchangeKeyController.getMyKeys()
+    // [용도] 사용자의 등록된 거래소 목록 + 마스킹된 API Key 조회 / [호출] ExchangeKeyController.getMyKeys()
     @Transactional(readOnly = true)
-    public List<String> getMyKeys(Long userId) {
+    public List<ExchangeKeyInfo> getMyKeys(Long userId) {
         return exchangeKeyRepository.findAllByUserId(userId).stream()
-                .map(key -> key.getExchange().name())
+                .map(key -> new ExchangeKeyInfo(
+                        key.getExchange().name(),
+                        maskApiKey(aesUtil.decrypt(key.getApiKey()))
+                ))
                 .toList();
     }
+
+    // [용도] API Key 앞 6자리만 남기고 마스킹 / [호출] getMyKeys()
+    private String maskApiKey(String apiKey) {
+        if (apiKey == null || apiKey.length() <= 6) return apiKey;
+        return apiKey.substring(0, 6) + "...";
+    }
+
+    // maskedApiKey: Jackson SNAKE_CASE 전략 우선순위보다 @JsonProperty가 높아 camelCase 유지
+    public record ExchangeKeyInfo(
+            String exchange,
+            @com.fasterxml.jackson.annotation.JsonProperty("maskedApiKey") String maskedApiKey
+    ) {}
 
     // [용도] API Key 삭제 / [호출] ExchangeKeyController.deleteKey()
     @Transactional

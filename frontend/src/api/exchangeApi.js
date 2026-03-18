@@ -26,3 +26,15 @@ export const syncBybitTrades = () =>
 // [용도] 거래 목록 조회 (exchange: 'UPBIT'|'BYBIT'|null=전체) / [호출] TradeListPage.jsx
 export const getTrades = (exchange = null) =>
   api.get('/api/trades', { params: exchange ? { exchange } : {} });
+
+// [용도] 포지션 목록 조회 (exchange: 'UPBIT'|'BYBIT'|null=전체) / [호출] PositionListPage.jsx
+export const getPositions = (exchange = null) =>
+  api.get('/api/positions', { params: exchange ? { exchange } : {} });
+
+// [용도] 포지션 수동 재계산 / [호출] PositionListPage.jsx
+export const rebuildPositions = (exchange) =>
+  api.post('/api/positions/rebuild', null, { params: { exchange } });
+
+// [용도] 성과 통계 조회 / [호출] StatsPage.jsx
+export const getStats = (exchange = null) =>
+  api.get('/api/stats', { params: exchange && exchange !== 'ALL' ? { exchange } : {} });

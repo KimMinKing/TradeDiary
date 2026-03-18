@@ -28,4 +28,8 @@ public interface TradeRepository extends JpaRepository<Trade, Long> {
     // [용도] 특정 거래소의 마지막 저장 거래 조회 (증분 동기화용 cursor 결정) / [호출] TradeService.syncUpbitTrades()
     Optional<Trade> findTopByUserIdAndExchangeOrderByTradedAtDesc(
             Long userId, ExchangeKey.Exchange exchange);
+
+    // [용도] 포지션 재계산용 거래 목록 (심볼 오름차순 → 시간 오름차순) / [호출] PositionService.rebuildPositions()
+    List<Trade> findByUserIdAndExchangeOrderBySymbolAscTradedAtAsc(
+            Long userId, ExchangeKey.Exchange exchange);
 }

@@ -15,6 +15,8 @@ const TradeListPage = () => {
     () => localStorage.getItem('displayCurrency') || 'KRW'
   );
   const [krwPerUsdt, setKrwPerUsdt] = useState(null);
+  // 거래소 신규 연동 직후 1분간 동기화 대기 중 여부
+  const [pendingSync, setPendingSync] = useState(false);
 
   // 날짜 필터
   const [datePreset, setDatePreset] = useState(null);
@@ -26,7 +28,37 @@ const TradeListPage = () => {
   useEffect(() => {
     fetchTrades();
     fetchExchangeRate();
+    checkPendingSync();
   }, []);
+
+  // [용도] 거래소 신규 연동 후 1분 대기 여부 확인 / [호출] useEffect
+  const checkPendingSync = () => {
+    const exchanges = ['UPBIT', 'BYBIT'];
+    const WAIT_MS = 60000; // 1분
+    let minRemaining = null;
+
+    for (const exchange of exchanges) {
+      const startTime = localStorage.getItem(`syncStartTime_${exchange}`);
+      if (!startTime) continue;
+      const elapsed = Date.now() - parseInt(startTime, 10);
+      if (elapsed < WAIT_MS) {
+        const remaining = WAIT_MS - elapsed;
+        if (minRemaining === null || remaining < minRemaining) {
+          minRemaining = remaining;
+        }
+      } else {
+        localStorage.removeItem(`syncStartTime_${exchange}`);
+      }
+    }
+
+    if (minRemaining !== null) {
+      setPendingSync(true);
+      setTimeout(() => {
+        setPendingSync(false);
+        fetchTrades();
+      }, minRemaining);
+    }
+  };
 
   // [용도] 달력 외부 클릭 시 닫기 / [호출] useEffect
   useEffect(() => {
@@ -40,11 +72,13 @@ const TradeListPage = () => {
   }, []);
 
   // [용도] 거래 목록 조회 / [호출] useEffect, handleSync
+  // 거래가 존재하면 pendingSync 즉시 해제 (1분 기다리지 않음)
   const fetchTrades = async () => {
     setLoading(true);
     try {
       const res = await getTrades();
       setAllTrades(res.data);
+      if (res.data.length > 0) setPendingSync(false);
     } catch (e) {
       console.error(e);
     } finally {
@@ -69,10 +103,18 @@ const TradeListPage = () => {
     setSyncMessage('');
     try {
       const res = exchange === 'UPBIT' ? await syncUpbitTrades() : await syncBybitTrades();
-      setSyncMessage(`${exchange} 동기화 완료 — ${res.data.savedCount}건 저장됨`);
-      fetchTrades();
-    } catch {
-      setSyncMessage('동기화 실패. API Key를 확인해주세요.');
+      if (res.data.error) {
+        // 백엔드가 에러 메시지를 반환한 경우 (IP 차단 등)
+        setSyncMessage(res.data.error);
+      } else {
+        setSyncMessage(`${exchange} 동기화 완료 — ${res.data.savedCount}건 저장됨`);
+        setPendingSync(false);
+        fetchTrades();
+      }
+    } catch (e) {
+      // HTTP 에러 응답에서 메시지 추출
+      const errorMsg = e.response?.data?.error;
+      setSyncMessage(errorMsg || '동기화 실패. API Key를 확인해주세요.');
     } finally {
       setSyncing(null);
     }
@@ -219,7 +261,11 @@ const TradeListPage = () => {
       {/* 동기화 메시지 */}
       {syncMessage && (
         <p
-          className={syncMessage.includes('실패') ? 'msg-error' : 'msg-success'}
+          className={
+            syncMessage.includes('실패') || syncMessage.includes('오류') || syncMessage.includes('IP') || syncMessage.includes('인증')
+              ? 'msg-error'
+              : 'msg-success'
+          }
           style={{ marginBottom: '12px' }}
         >
           {syncMessage}
@@ -310,7 +356,12 @@ const TradeListPage = () => {
       </div>
 
       {/* 거래 목록 */}
-      {loading ? (
+      {pendingSync && allTrades.length === 0 ? (
+        <div className="card empty-state">
+          <p className="empty-state-title">동기화 중입니다</p>
+          <p className="empty-state-desc">거래소 연동 후 데이터를 불러오고 있습니다. 잠시만 기다려주세요.</p>
+        </div>
+      ) : loading ? (
         <div className="empty-state">
           <div className="empty-state-icon" style={{ animation: 'spin 1s linear infinite' }}>◌</div>
           <p className="empty-state-title">불러오는 중...</p>

@@ -39,6 +39,7 @@ public class UpbitClient {
 
     // [용도] 체결 완료 주문 목록 조회 (7일 슬라이딩 윈도우) / [호출] TradeService.syncUpbitTrades()
     // startTime: 초기 동기화 = 1년 전, 증분 동기화 = DB 마지막 거래 시각
+    // API 오류(IP 차단 등) 발생 시 즉시 루프 중단하여 불필요한 추가 요청 방지
     public List<UpbitOrder> getClosedOrders(String accessKey, String secretKey, LocalDateTime startTime) {
         // 복호화된 Key 앞 6자리만 로그 (검증용)
         log.info("[Upbit] Access Key 앞 6자리: {}...", accessKey.length() > 6 ? accessKey.substring(0, 6) : accessKey);
@@ -54,11 +55,16 @@ public class UpbitClient {
             LocalDateTime windowEnd = windowStart.plusDays(WINDOW_DAYS);
             if (windowEnd.isAfter(now)) windowEnd = now;
 
-            List<UpbitOrder> windowOrders = fetchWindow(accessKey, secretKey, windowStart, windowEnd);
-            allOrders.addAll(windowOrders);
-
-            log.info("[Upbit] 윈도우 {} ~ {}: {}건 (누적 {}건)",
-                    windowStart, windowEnd, windowOrders.size(), allOrders.size());
+            try {
+                List<UpbitOrder> windowOrders = fetchWindow(accessKey, secretKey, windowStart, windowEnd);
+                allOrders.addAll(windowOrders);
+                log.info("[Upbit] 윈도우 {} ~ {}: {}건 (누적 {}건)",
+                        windowStart, windowEnd, windowOrders.size(), allOrders.size());
+            } catch (RuntimeException e) {
+                // API 오류(IP 차단, 인증 실패 등) 발생 시 즉시 동기화 중단
+                log.error("[Upbit] 동기화 중단 (API 오류): {}", e.getMessage());
+                throw e;
+            }
 
             windowStart = windowEnd;
 
@@ -104,17 +110,20 @@ public class UpbitClient {
                     response.code(), body.length() > 200 ? body.substring(0, 200) + "..." : body);
 
             if (!response.isSuccessful()) {
-                log.error("[Upbit] API 오류: {}", body);
-                return Collections.emptyList();
+                log.error("[Upbit] API 오류 (status={}): {}", response.code(), body);
+                // IP 차단, 인증 실패 등 모든 HTTP 오류 시 예외를 던져 동기화 즉시 중단
+                throw new RuntimeException("Upbit API 오류 (status=" + response.code() + "): " + body);
             }
 
             List<UpbitOrder> orders = gson.fromJson(body,
                     new TypeToken<List<UpbitOrder>>() {}.getType());
             return orders != null ? orders : Collections.emptyList();
 
+        } catch (RuntimeException e) {
+            throw e;
         } catch (Exception e) {
             log.error("[Upbit] 호출 실패: {}", e.getMessage());
-            return Collections.emptyList();
+            throw new RuntimeException("Upbit 호출 실패: " + e.getMessage(), e);
         }
     }
 

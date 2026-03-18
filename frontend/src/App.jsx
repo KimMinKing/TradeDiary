@@ -7,7 +7,9 @@ import SignupPage from './pages/SignupPage';
 import DashboardPage from './pages/DashboardPage';
 import ExchangeKeyPage from './pages/ExchangeKeyPage';
 import TradeListPage from './pages/TradeListPage';
+import PositionListPage from './pages/PositionListPage';
 import JournalPage from './pages/JournalPage';
+import StatsPage from './pages/StatsPage';
 import Layout from './components/Layout';
 import useAuthStore from './store/authStore';
 
@@ -51,8 +53,16 @@ const App = () => {
           element={<PrivateRoute><TradeListPage /></PrivateRoute>}
         />
         <Route
+          path="/positions"
+          element={<PrivateRoute><PositionListPage /></PrivateRoute>}
+        />
+        <Route
           path="/journal"
           element={<PrivateRoute><JournalPage /></PrivateRoute>}
+        />
+        <Route
+          path="/stats"
+          element={<PrivateRoute><StatsPage /></PrivateRoute>}
         />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>

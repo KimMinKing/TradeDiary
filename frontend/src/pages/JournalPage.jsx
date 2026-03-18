@@ -7,6 +7,31 @@ import {
 } from '../api/journalApi';
 import { getTrades } from '../api/exchangeApi';
 
+// [컴포넌트] 진입/청산 필드 위에 선택된 거래 참조 정보 표시 / [호출] JournalPage 폼
+const TradeRefBox = ({ trade, onClear }) => (
+  <div style={{
+    marginBottom: '6px', padding: '6px 10px', borderRadius: '6px',
+    background: trade.side === 'BUY' ? 'rgba(74,222,128,0.07)' : 'rgba(248,113,113,0.07)',
+    border: `1px solid ${trade.side === 'BUY' ? 'rgba(74,222,128,0.25)' : 'rgba(248,113,113,0.25)'}`,
+    fontSize: '12px', display: 'flex', alignItems: 'center', gap: '10px',
+    color: 'var(--text-secondary)',
+  }}>
+    <span className={`badge badge-${trade.side.toLowerCase()}`} style={{ fontSize: '10px' }}>
+      {trade.side === 'BUY' ? '매수' : '매도'}
+    </span>
+    <span className="mono" style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{trade.symbol}</span>
+    <span>가격 <span className="mono" style={{ color: 'var(--text-primary)' }}>{Number(trade.price).toLocaleString()}</span></span>
+    <span>수량 <span className="mono" style={{ color: 'var(--text-primary)' }}>{Number(trade.qty).toLocaleString()}</span></span>
+    <span className="mono" style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>
+      {trade.traded_at?.slice(11, 16)}
+    </span>
+    <button onClick={onClear} style={{
+      marginLeft: 'auto', background: 'none', border: 'none',
+      cursor: 'pointer', opacity: 0.5, color: 'inherit', padding: '0 2px',
+    }}>✕</button>
+  </div>
+);
+
 const WEEKDAYS  = ['일', '월', '화', '수', '목', '금', '토'];
 const MONTHS_KR = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
 
@@ -51,13 +76,16 @@ const JournalPage = () => {
 
   // 폼 상태
   const [form, setForm] = useState({
-    symbol: '', entryReason: '', exitReason: '', emotion: '', memo: '', tagIds: [],
+    symbol: '', exchange: '', entryReason: '', exitReason: '', emotion: '', memo: '', tagIds: [],
   });
-  const [saving,      setSaving]      = useState(false);
-  const [formError,   setFormError]   = useState('');
-  const [newTagName,  setNewTagName]  = useState('');
-  const [newTagColor, setNewTagColor] = useState('#00d4aa');
-  const [addingTag,   setAddingTag]   = useState(false);
+  const [saving,         setSaving]         = useState(false);
+  const [formError,      setFormError]      = useState('');
+  const [newTagName,     setNewTagName]     = useState('');
+  const [newTagColor,    setNewTagColor]    = useState('#00d4aa');
+  const [addingTag,      setAddingTag]      = useState(false);
+  const [showTagInput,    setShowTagInput]    = useState(false); // 태그 입력창 노출 여부
+  const [entryTrade,      setEntryTrade]      = useState(null);  // 선택된 진입(매수) 거래
+  const [exitTrade,       setExitTrade]       = useState(null);  // 선택된 청산(매도) 거래
 
   useEffect(() => { fetchAll(); }, []);
 
@@ -80,8 +108,8 @@ const JournalPage = () => {
 
   // ── 파생 데이터 ────────────────────────────────
   const selectedDateStr   = fmtDate(selectedDate);
-  const journalDateSet    = new Set(journals.map(j => j.created_at?.slice(0, 10)));
-  const journalsForDay    = journals.filter(j => j.created_at?.slice(0, 10) === selectedDateStr);
+  const journalDateSet    = new Set(journals.map(j => j.trade_date?.slice(0, 10)));
+  const journalsForDay    = journals.filter(j => j.trade_date?.slice(0, 10) === selectedDateStr);
   const tradesForDay      = trades.filter(t => t.traded_at?.slice(0, 10) === selectedDateStr);
 
   // ── 캘린더 계산 ────────────────────────────────
@@ -107,8 +135,11 @@ const JournalPage = () => {
   // [용도] 새 일기 작성 폼 열기 / [호출] 새 일기 버튼
   const openCreate = () => {
     setEditTarget(null);
-    setForm({ symbol: '', entryReason: '', exitReason: '', emotion: '', memo: '', tagIds: [] });
+    setForm({ symbol: '', exchange: '', entryReason: '', exitReason: '', emotion: '', memo: '', tagIds: [] });
     setFormError('');
+    setEntryTrade(null);
+    setExitTrade(null);
+    setShowTagInput(false);
     setMode('form');
   };
 
@@ -117,6 +148,7 @@ const JournalPage = () => {
     setEditTarget(journal);
     setForm({
       symbol:      journal.symbol       ?? '',
+      exchange:    '',
       entryReason: journal.entry_reason ?? '',
       exitReason:  journal.exit_reason  ?? '',
       emotion:     journal.emotion      ?? '',
@@ -124,7 +156,33 @@ const JournalPage = () => {
       tagIds:      journal.tags?.map(t => t.id) ?? [],
     });
     setFormError('');
+    setEntryTrade(null);
+    setExitTrade(null);
+    setShowTagInput(false);
     setMode('form');
+  };
+
+  // [용도] 거래 카드 클릭 / [호출] trade-ref-card onClick
+  // 매수 → 진입 거래로 선택 (재클릭 시 해제), 매도 → 청산 거래로 선택
+  // 선택된 거래의 종목·거래소를 폼에 자동 적용
+  const toggleTrade = (trade) => {
+    if (trade.side === 'BUY') {
+      const next = entryTrade?.id === trade.id ? null : trade;
+      setEntryTrade(next);
+      // 종목·거래소: 진입 거래 우선, 없으면 청산 거래
+      const symbol   = next ? trade.symbol   : (exitTrade?.symbol   ?? '');
+      const exchange = next ? trade.exchange : (exitTrade?.exchange ?? '');
+      setForm(p => ({ ...p, symbol, exchange }));
+    } else {
+      const next = exitTrade?.id === trade.id ? null : trade;
+      setExitTrade(next);
+      // 진입 거래가 이미 있으면 종목은 그대로 유지
+      if (!entryTrade) {
+        const symbol   = next ? trade.symbol   : '';
+        const exchange = next ? trade.exchange : '';
+        setForm(p => ({ ...p, symbol, exchange }));
+      }
+    }
   };
 
   // [용도] 일기 저장 (작성/수정) / [호출] 저장 버튼
@@ -133,6 +191,7 @@ const JournalPage = () => {
     setFormError('');
     try {
       const payload = {
+        trade_date:   selectedDateStr,
         symbol:       form.symbol.trim()      || null,
         entry_reason: form.entryReason.trim() || null,
         exit_reason:  form.exitReason.trim()  || null,
@@ -182,6 +241,7 @@ const JournalPage = () => {
       setTags(p => [...p, created]);
       setForm(p => ({ ...p, tagIds: [...p.tagIds, created.id] }));
       setNewTagName('');
+      setShowTagInput(false);
     } catch {
       setFormError('태그 생성 실패');
     } finally {
@@ -232,7 +292,7 @@ const JournalPage = () => {
                 const hasDot     = journalDateSet.has(ds);
                 const isSun      = date.getDay() === 0;
                 const isSat      = date.getDay() === 6;
-                const dotCount   = journals.filter(j => j.created_at?.slice(0, 10) === ds).length;
+                const dotCount   = journals.filter(j => j.trade_date?.slice(0, 10) === ds).length;
 
                 return (
                   <div
@@ -268,7 +328,7 @@ const JournalPage = () => {
             <div className="cal-summary">
               <div className="cal-summary-item">
                 <span className="cal-summary-num">
-                  {journals.filter(j => j.created_at?.slice(0, 7) === `${year}-${String(month + 1).padStart(2, '0')}`).length}
+                  {journals.filter(j => j.trade_date?.slice(0, 7) === `${year}-${String(month + 1).padStart(2, '0')}`).length}
                 </span>
                 <span className="cal-summary-label">이번달 일기</span>
               </div>
@@ -375,11 +435,19 @@ const JournalPage = () => {
                 {/* 왼쪽: 작성 폼 */}
                 <div className="form-split-left">
                   <div className="form-group">
-                    <label className="input-label">종목</label>
+                    <label className="input-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      종목
+                      {form.exchange && (
+                        <span className={`badge badge-${form.exchange.toLowerCase()}`}
+                              style={{ fontSize: '10px' }}>
+                          {form.exchange}
+                        </span>
+                      )}
+                    </label>
                     <input
                       type="text"
                       className="input"
-                      placeholder="예: BTC-KRW, BTCUSDT"
+                      placeholder="예: KRW-BTC, BTCUSDT  (오른쪽 거래 클릭 시 자동 입력)"
                       value={form.symbol}
                       onChange={e => setForm(p => ({ ...p, symbol: e.target.value }))}
                     />
@@ -405,10 +473,16 @@ const JournalPage = () => {
 
                   <div className="form-group">
                     <label className="input-label">진입 이유</label>
+                    {entryTrade && (
+                      <TradeRefBox trade={entryTrade} onClear={() => {
+                        setEntryTrade(null);
+                        if (!exitTrade) setForm(p => ({ ...p, symbol: '', exchange: '' }));
+                      }} />
+                    )}
                     <textarea
                       className="textarea"
                       rows={3}
-                      placeholder="왜 매수/진입했나요?"
+                      placeholder={entryTrade ? `${entryTrade.symbol} 매수 — 왜 진입했나요?` : '왜 매수/진입했나요?  (오른쪽에서 매수 거래 선택)'}
                       value={form.entryReason}
                       onChange={e => setForm(p => ({ ...p, entryReason: e.target.value }))}
                     />
@@ -416,17 +490,32 @@ const JournalPage = () => {
 
                   <div className="form-group">
                     <label className="input-label">청산 이유</label>
+                    {exitTrade && (
+                      <TradeRefBox trade={exitTrade} onClear={() => {
+                        setExitTrade(null);
+                        if (!entryTrade) setForm(p => ({ ...p, symbol: '', exchange: '' }));
+                      }} />
+                    )}
                     <textarea
                       className="textarea"
                       rows={3}
-                      placeholder="왜 매도/청산했나요?"
+                      placeholder={exitTrade ? `${exitTrade.symbol} 매도 — 왜 청산했나요?` : '왜 매도/청산했나요?  (오른쪽에서 매도 거래 선택)'}
                       value={form.exitReason}
                       onChange={e => setForm(p => ({ ...p, exitReason: e.target.value }))}
                     />
                   </div>
 
                   <div className="form-group">
-                    <label className="input-label">전략 태그</label>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                      <label className="input-label" style={{ margin: 0 }}>전략 태그</label>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-xs"
+                        onClick={() => { setShowTagInput(v => !v); setNewTagName(''); }}
+                      >
+                        {showTagInput ? '✕ 닫기' : '+ 새 태그'}
+                      </button>
+                    </div>
                     <div className="tag-grid">
                       {tags.map(tag => (
                         <button
@@ -440,31 +529,35 @@ const JournalPage = () => {
                         </button>
                       ))}
                     </div>
-                    <div className="tag-add-row">
-                      <input
-                        type="color"
-                        className="color-picker"
-                        value={newTagColor}
-                        onChange={e => setNewTagColor(e.target.value)}
-                        title="태그 색상"
-                      />
-                      <input
-                        type="text"
-                        className="input input-sm"
-                        placeholder="새 태그 이름"
-                        value={newTagName}
-                        onChange={e => setNewTagName(e.target.value)}
-                        onKeyDown={e => e.key === 'Enter' && handleAddTag()}
-                      />
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-sm"
-                        onClick={handleAddTag}
-                        disabled={addingTag || !newTagName.trim()}
-                      >
-                        + 추가
-                      </button>
-                    </div>
+                    {/* 태그 추가 버튼 클릭 시에만 노출 */}
+                    {showTagInput && (
+                      <div className="tag-add-row" style={{ marginTop: '8px' }}>
+                        <input
+                          type="color"
+                          className="color-picker"
+                          value={newTagColor}
+                          onChange={e => setNewTagColor(e.target.value)}
+                          title="태그 색상"
+                        />
+                        <input
+                          type="text"
+                          className="input input-sm"
+                          placeholder="태그 이름 입력 후 Enter"
+                          value={newTagName}
+                          onChange={e => setNewTagName(e.target.value)}
+                          onKeyDown={e => e.key === 'Enter' && handleAddTag()}
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-sm"
+                          onClick={handleAddTag}
+                          disabled={addingTag || !newTagName.trim()}
+                        >
+                          추가
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   <div className="form-group">
@@ -493,7 +586,7 @@ const JournalPage = () => {
                   <div className="trades-ref-header">
                     <span className="trades-ref-title">당일 거래 내역</span>
                     <span className="mono text-muted" style={{ fontSize: '11px' }}>
-                      {tradesForDay.length}건
+                      {tradesForDay.length}건 · 클릭하면 종목 적용
                     </span>
                   </div>
                   <div className="trades-ref-scroll">
@@ -503,7 +596,20 @@ const JournalPage = () => {
                       </div>
                     ) : (
                       tradesForDay.map(trade => (
-                        <div key={trade.id} className="trade-ref-card">
+                        <div
+                          key={trade.id}
+                          className="trade-ref-card"
+                          onClick={() => toggleTrade(trade)}
+                          style={{
+                            cursor: 'pointer',
+                            outline: (trade.side === 'BUY' && entryTrade?.id === trade.id)
+                              ? '2px solid var(--color-buy, #4ade80)'
+                              : (trade.side === 'SELL' && exitTrade?.id === trade.id)
+                              ? '2px solid var(--color-sell, #f87171)'
+                              : '2px solid transparent',
+                            transition: 'outline 0.15s',
+                          }}
+                        >
                           <div className="trade-ref-top">
                             <span className={`badge badge-${trade.exchange.toLowerCase()}`}
                               style={{ fontSize: '10px', padding: '2px 6px' }}>
@@ -537,6 +643,17 @@ const JournalPage = () => {
                               </span>
                             </div>
                           </div>
+                          {/* 선택 상태 표시 */}
+                          {(trade.side === 'BUY' && entryTrade?.id === trade.id) && (
+                            <div style={{ fontSize: '10px', color: 'var(--color-buy, #4ade80)', marginTop: '4px', textAlign: 'right' }}>
+                              ✓ 진입 거래로 선택됨
+                            </div>
+                          )}
+                          {(trade.side === 'SELL' && exitTrade?.id === trade.id) && (
+                            <div style={{ fontSize: '10px', color: 'var(--color-sell, #f87171)', marginTop: '4px', textAlign: 'right' }}>
+                              ✓ 청산 거래로 선택됨
+                            </div>
+                          )}
                         </div>
                       ))
                     )}

@@ -37,11 +37,14 @@ public class TradeJournalService {
                 ? LocalDate.parse(to).atTime(LocalTime.MAX) : null;
         String symbolFilter = (symbol != null && !symbol.isBlank()) ? symbol.toUpperCase() : null;
 
+        LocalDate fromD = fromDt != null ? fromDt.toLocalDate() : null;
+        LocalDate toD   = toDt   != null ? toDt.toLocalDate()   : null;
+
         return journalRepository.findAllByUserId(userId).stream()
                 .filter(j -> symbolFilter == null ||
                         (j.getSymbol() != null && j.getSymbol().toUpperCase().contains(symbolFilter)))
-                .filter(j -> fromDt == null || !j.getCreatedAt().isBefore(fromDt))
-                .filter(j -> toDt   == null || !j.getCreatedAt().isAfter(toDt))
+                .filter(j -> fromD == null || !j.getTradeDate().isBefore(fromD))
+                .filter(j -> toD   == null || !j.getTradeDate().isAfter(toD))
                 .map(JournalResponse::from)
                 .toList();
     }
@@ -68,9 +71,13 @@ public class TradeJournalService {
                     .orElseThrow(() -> new BusinessException(ErrorCode.TRADE_NOT_FOUND));
         }
 
+        LocalDate tradeDate = (request.tradeDate() != null && !request.tradeDate().isBlank())
+                ? LocalDate.parse(request.tradeDate()) : LocalDate.now();
+
         TradeJournal journal = TradeJournal.builder()
                 .user(user)
                 .trade(trade)
+                .tradeDate(tradeDate)
                 .symbol(request.symbol())
                 .entryReason(request.entryReason())
                 .exitReason(request.exitReason())
@@ -129,6 +136,7 @@ public class TradeJournalService {
     public record JournalResponse(
             Long id,
             Long tradeId,
+            String tradeDate,   // 거래 날짜 (캘린더 기준, 'YYYY-MM-DD')
             String symbol,
             String entryReason,
             String exitReason,
@@ -146,6 +154,7 @@ public class TradeJournalService {
             return new JournalResponse(
                     j.getId(),
                     j.getTrade() != null ? j.getTrade().getId() : null,
+                    j.getTradeDate().toString(),
                     j.getSymbol(),
                     j.getEntryReason(),
                     j.getExitReason(),
@@ -161,6 +170,7 @@ public class TradeJournalService {
     // 일기 작성 요청 DTO
     public record JournalCreateRequest(
             Long tradeId,
+            String tradeDate,   // 거래 날짜 ('YYYY-MM-DD'), 미전송 시 오늘
             String symbol,
             String entryReason,
             String exitReason,

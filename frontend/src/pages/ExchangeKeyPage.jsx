@@ -48,7 +48,11 @@ const ExchangeKeyPage = () => {
   const fetchRegisteredKeys = async () => {
     try {
       const res = await getMyExchangeKeys();
-      setRegisteredExchanges(res.data);
+      // API 응답이 구 형식(문자열 배열)이면 신형식(객체 배열)으로 변환
+      const data = res.data.map((item) =>
+        typeof item === 'string' ? { exchange: item, maskedApiKey: null } : item
+      );
+      setRegisteredExchanges(data);
     } catch (e) {
       console.error(e);
     }
@@ -65,6 +69,8 @@ const ExchangeKeyPage = () => {
       setMessage(`${EXCHANGE_CONFIG[selectedExchange].label} API Key가 등록되었습니다.`);
       setApiKey('');
       setSecretKey('');
+      // 연동 직후 1분간 동기화 대기 시작 시각 기록
+      localStorage.setItem(`syncStartTime_${selectedExchange}`, Date.now());
       fetchRegisteredKeys();
     } catch (err) {
       setError(err.response?.data?.message || '등록에 실패했습니다.');
@@ -86,7 +92,7 @@ const ExchangeKeyPage = () => {
   };
 
   const config       = EXCHANGE_CONFIG[selectedExchange];
-  const isRegistered = registeredExchanges.includes(selectedExchange);
+  const isRegistered = registeredExchanges.some((r) => r.exchange === selectedExchange);
 
   return (
     <div className="page" style={{ maxWidth: '600px' }}>
@@ -102,7 +108,7 @@ const ExchangeKeyPage = () => {
       {registeredExchanges.length > 0 && (
         <div className="anim-fade-up2" style={{ marginBottom: '24px' }}>
           <p className="section-title">연동된 거래소</p>
-          {registeredExchanges.map((exchange) => {
+          {registeredExchanges.map(({ exchange, maskedApiKey }) => {
             const cfg = EXCHANGE_CONFIG[exchange] || {};
             return (
               <div key={exchange} className="exchange-row">
@@ -115,9 +121,14 @@ const ExchangeKeyPage = () => {
                 >
                   {cfg.label || exchange}
                 </span>
-                <span className="text-sm" style={{ flex: 1, color: '#4ade80' }}>
+                <span className="text-sm mono" style={{ flex: 1, color: '#4ade80' }}>
                   ✓ 연동됨
                 </span>
+                {maskedApiKey && (
+                  <span className="text-xs mono text-muted" style={{ marginRight: '12px' }}>
+                    {maskedApiKey}
+                  </span>
+                )}
                 <button
                   className="btn btn-danger btn-sm"
                   onClick={() => handleDelete(exchange)}
@@ -141,7 +152,7 @@ const ExchangeKeyPage = () => {
               onClick={() => handleSelectExchange(key)}
             >
               {cfg.label}
-              {registeredExchanges.includes(key) && (
+              {registeredExchanges.some((r) => r.exchange === key) && (
                 <span
                   className="registered-dot"
                   style={{ background: cfg.color }}

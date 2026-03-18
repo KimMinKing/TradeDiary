@@ -30,7 +30,9 @@ import java.util.stream.Collectors;
 public class BybitClient {
 
     private static final String BASE_URL = "https://api.bybit.com";
-    private static final String RECV_WINDOW = "5000";
+    private static final String RECV_WINDOW    = "10000";
+    // 로컬 시계가 Bybit 서버보다 약간 앞서는 경우 10002 오류 방지 (500ms 보정)
+    private static final long   TIMESTAMP_OFFSET = 500L;
     // 각 카테고리별로 거래 내역 조회 (spot=현물, linear=USDT선물, inverse=코인선물)
     private static final String[] CATEGORIES = {"spot", "linear", "inverse"};
 
@@ -77,8 +79,17 @@ public class BybitClient {
 
             // 같은 윈도우 내 커서 페이지네이션
             String cursor = null;
+            boolean stopped = false;
             do {
-                BybitExecutionPage page = fetchPage(apiKey, secretKey, category, startMs, endMs, cursor);
+                BybitExecutionPage page;
+                try {
+                    page = fetchPage(apiKey, secretKey, category, startMs, endMs, cursor);
+                } catch (RuntimeException e) {
+                    // API 오류(IP 차단, 인증 실패 등) 발생 시 해당 카테고리 동기화 즉시 중단
+                    log.error("[Bybit] 동기화 중단 category={}: {}", category, e.getMessage());
+                    stopped = true;
+                    break;
+                }
                 if (page == null) break;
                 result.addAll(page.executions);
                 cursor = page.nextCursor;
@@ -87,6 +98,7 @@ public class BybitClient {
                     try { TimeUnit.MILLISECONDS.sleep(50); } catch (InterruptedException ignored) {}
                 }
             } while (cursor != null && !cursor.isEmpty());
+            if (stopped) break;
 
             windowStart = windowEnd;
             try { TimeUnit.MILLISECONDS.sleep(50); } catch (InterruptedException ignored) {}
@@ -107,7 +119,7 @@ public class BybitClient {
             qs.append("&cursor=").append(cursor);
         }
 
-        String timestamp = String.valueOf(System.currentTimeMillis());
+        String timestamp = String.valueOf(System.currentTimeMillis() - TIMESTAMP_OFFSET);
         String signature = sign(apiKey, secretKey, timestamp, qs.toString());
 
         Request request = new Request.Builder()
@@ -128,9 +140,10 @@ public class BybitClient {
             int retCode = json.get("retCode").getAsInt();
 
             if (retCode != 0) {
-                log.error("[Bybit] API 오류 category={}: retCode={}, msg={}",
-                        category, retCode, json.get("retMsg").getAsString());
-                return null;
+                String retMsg = json.get("retMsg").getAsString();
+                log.error("[Bybit] API 오류 category={}: retCode={}, msg={}", category, retCode, retMsg);
+                // IP 차단, 인증 실패 등 모든 API 오류 시 예외를 던져 동기화 즉시 중단
+                throw new RuntimeException("Bybit API 오류 (retCode=" + retCode + "): " + retMsg);
             }
 
             JsonObject resultObj = json.getAsJsonObject("result");

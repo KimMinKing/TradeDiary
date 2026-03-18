@@ -10,6 +10,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -33,6 +34,9 @@ public class TradeJournal {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "trade_id")
     private Trade trade;
+
+    @Column(nullable = false)
+    private LocalDate tradeDate;   // 거래 발생 날짜 (캘린더 기준, 작성일 createdAt과 구분)
 
     @Column(length = 30)
     private String symbol;
@@ -59,11 +63,12 @@ public class TradeJournal {
     private LocalDateTime updatedAt;
 
     @Builder
-    public TradeJournal(User user, Trade trade, String symbol,
+    public TradeJournal(User user, Trade trade, LocalDate tradeDate, String symbol,
                         String entryReason, String exitReason,
                         String emotion, String memo) {
         this.user = user;
         this.trade = trade;
+        this.tradeDate = tradeDate != null ? tradeDate : LocalDate.now();
         this.symbol = symbol;
         this.entryReason = entryReason;
         this.exitReason = exitReason;

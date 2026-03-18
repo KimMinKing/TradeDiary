@@ -29,9 +29,9 @@ public class ExchangeKeyController {
         return ResponseEntity.ok().build();
     }
 
-    // [용도] 등록된 거래소 목록 조회 / [호출] GET /api/exchange-keys
+    // [용도] 등록된 거래소 목록 + 마스킹된 API Key 조회 / [호출] GET /api/exchange-keys
     @GetMapping
-    public ResponseEntity<List<String>> getMyKeys(@AuthenticationPrincipal Long userId) {
+    public ResponseEntity<List<ExchangeKeyService.ExchangeKeyInfo>> getMyKeys(@AuthenticationPrincipal Long userId) {
         return ResponseEntity.ok(exchangeKeyService.getMyKeys(userId));
     }
 

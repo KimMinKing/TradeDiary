@@ -8,6 +8,7 @@ import com.tradediary.exchange.ExchangeKey;
 import com.tradediary.exchange.ExchangeKeyService;
 import com.tradediary.exchange.BybitClient;
 import com.tradediary.exchange.UpbitClient;
+import com.tradediary.position.PositionService;
 import com.tradediary.user.User;
 import com.tradediary.user.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +30,7 @@ public class TradeService {
     private final UserRepository userRepository;
     private final UpbitClient upbitClient;
     private final BybitClient bybitClient;
+    private final PositionService positionService;
 
     // [용도] Upbit 거래 내역 동기화 (신규 건만 저장) / [호출] TradeController.syncTrades()
     // - 초기 동기화: DB에 거래 없으면 최근 1년 전체 조회
@@ -83,6 +85,11 @@ public class TradeService {
 
         log.info("Upbit 거래 동기화 완료 - userId: {}, 조회: {}건, 신규 저장: {}건",
                 userId, orders.size(), savedCount);
+
+        // 신규 거래가 있을 때만 포지션 재계산
+        if (savedCount > 0) {
+            positionService.rebuildPositions(userId, ExchangeKey.Exchange.UPBIT);
+        }
         return savedCount;
     }
 
@@ -144,6 +151,11 @@ public class TradeService {
 
         log.info("Bybit 거래 동기화 완료 - userId: {}, 조회: {}건, 신규 저장: {}건",
                 userId, executions.size(), savedCount);
+
+        // 신규 거래가 있을 때만 포지션 재계산
+        if (savedCount > 0) {
+            positionService.rebuildPositions(userId, ExchangeKey.Exchange.BYBIT);
+        }
         return savedCount;
     }
 

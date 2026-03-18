@@ -63,13 +63,14 @@ CREATE TABLE IF NOT EXISTS positions (
     user_id         BIGINT         NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     exchange        VARCHAR(20)    NOT NULL,
     symbol          VARCHAR(30)    NOT NULL,
+    side            VARCHAR(5)     NOT NULL DEFAULT 'LONG',  -- LONG(매수), SHORT(매도)
     entry_price     DECIMAL(30,10) NOT NULL,  -- 평균 진입가
     exit_price      DECIMAL(30,10) NOT NULL,  -- 평균 청산가
     qty             DECIMAL(30,10) NOT NULL,
     pnl             DECIMAL(30,10) NOT NULL,  -- 손익 금액
     pnl_rate        DECIMAL(10,4)  NOT NULL,  -- 손익률 (%)
-    opened_at       TIMESTAMP      NOT NULL,  -- 첫 매수 시각
-    closed_at       TIMESTAMP      NOT NULL,  -- 마지막 매도 시각
+    opened_at       TIMESTAMP      NOT NULL,  -- 첫 거래 시각
+    closed_at       TIMESTAMP      NOT NULL,  -- 마지막 거래 시각
     created_at      TIMESTAMP      NOT NULL DEFAULT NOW()
 );
 
@@ -92,12 +93,13 @@ CREATE TABLE IF NOT EXISTS trade_journals (
     user_id         BIGINT       NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     position_id     BIGINT       REFERENCES positions(id) ON DELETE SET NULL,   -- 포지션 구현 후 연결
     trade_id        BIGINT       REFERENCES trades(id)    ON DELETE SET NULL,   -- 현재는 개별 거래에 연결
+    trade_date      DATE         NOT NULL DEFAULT CURRENT_DATE,  -- 거래 발생 날짜 (캘린더 기준)
     symbol          VARCHAR(30),
     entry_reason    TEXT,                   -- 진입 이유
     exit_reason     TEXT,                   -- 청산 이유
     emotion         VARCHAR(20),            -- CALM, CONFIDENT, FOMO, GREEDY, FEARFUL, ANXIOUS
     memo            TEXT,                   -- 자유 메모
-    created_at      TIMESTAMP    NOT NULL DEFAULT NOW(),
+    created_at      TIMESTAMP    NOT NULL DEFAULT NOW(),   -- 실제 작성일시
     updated_at      TIMESTAMP    NOT NULL DEFAULT NOW()
 );
 
