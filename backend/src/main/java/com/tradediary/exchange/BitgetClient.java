@@ -153,16 +153,24 @@ public class BitgetClient {
                     String priceStr = firstNonNull(o, "price", "fillPrice", "priceAvg");
                     if (priceStr == null) continue;
 
+                    // [디버그] 원본 필드 전체 출력
+                    log.info("[Bitget RAW] {}", o);
+
                     BitgetOrder order = new BitgetOrder();
                     // tradeId 또는 fillId를 exchangeTradeId로 사용
                     order.orderId   = firstNonNull(o, "tradeId", "fillId", "orderId");
                     order.symbol    = getStr(o, "symbol");
-                    // V2 fills: side = buy/sell (직접 사용 — tradeSide는 open/close/buy_single 등으로 별도 의미)
-                    order.side      = getStr(o, "side");
+                    // V2 fills hedge_mode: tradeSide(open/close)로 진입/청산 구분
+                    // one_way_mode: tradeSide(buy_single/sell_single) 또는 side(buy/sell) 사용
+                    String tradeSide = getStr(o, "tradeSide");
+                    order.side = tradeSide != null ? tradeSide : getStr(o, "side");
                     order.filledQty = qtyStr;
                     order.priceAvg  = priceStr;
                     order.fee       = extractFee(o);
                     order.cTime     = firstNonNull(o, "cTime", "createdTime", "uTime");
+                    log.info("[Bitget PARSED] orderId={}, symbol={}, side={}, qty={}, price={}, fee={}, cTime={}",
+                            order.orderId, order.symbol, order.side, order.filledQty,
+                            order.priceAvg, order.fee, order.cTime);
                     if (order.orderId == null || order.cTime == null) continue;
                     orders.add(order);
                 }
@@ -270,14 +278,15 @@ public class BitgetClient {
             );
         }
 
-        // [용도] Bitget side 문자열 → TradeSide 변환
-        // tradeSide 우선(open_long/close_long/open_short/close_short), 없으면 buy/sell 직접 사용
-        // open_long(롱 진입)=BUY, close_long(롱 청산)=SELL, open_short(숏 진입)=SELL, close_short(숏 청산)=BUY
+        // [용도] Bitget tradeSide/side 문자열 → TradeSide 변환
+        // hedge_mode: open(진입)=BUY, close(청산)=SELL
+        // one_way_mode: buy_single=BUY, sell_single=SELL
+        // fallback: buy=BUY, sell=SELL
         private static com.tradediary.trade.TradeSide mapSide(String side) {
             if (side == null) return com.tradediary.trade.TradeSide.BUY;
             return switch (side.toLowerCase()) {
-                case "buy", "open_long", "close_short" -> com.tradediary.trade.TradeSide.BUY;
-                case "sell", "close_long", "open_short" -> com.tradediary.trade.TradeSide.SELL;
+                case "open", "buy", "buy_single" -> com.tradediary.trade.TradeSide.BUY;
+                case "close", "sell", "sell_single" -> com.tradediary.trade.TradeSide.SELL;
                 default -> com.tradediary.trade.TradeSide.BUY;
             };
         }
