@@ -32,6 +32,14 @@ export const syncBitgetTrades = () =>
 export const syncOkxTrades = () =>
   api.post('/api/trades/sync/okx');
 
+// [용도] Binance 거래 내역 동기화 / [호출] TradeListPage.jsx
+export const syncBinanceTrades = () =>
+  api.post('/api/trades/sync/binance');
+
+// [용도] BingX 거래 내역 동기화 / [호출] TradeListPage.jsx
+export const syncBingxTrades = () =>
+  api.post('/api/trades/sync/bingx');
+
 // [용도] 거래 목록 조회 (exchange: 'UPBIT'|'BYBIT'|null=전체) / [호출] TradeListPage.jsx
 export const getTrades = (exchange = null) =>
   api.get('/api/trades', { params: exchange ? { exchange } : {} });
@@ -40,9 +48,17 @@ export const getTrades = (exchange = null) =>
 export const getPositions = (exchange = null) =>
   api.get('/api/positions', { params: exchange ? { exchange } : {} });
 
-// [용도] 포지션 수동 재계산 / [호출] PositionListPage.jsx
+// [용도] 포지션 수동 재계산 (특정 거래소) / [호출] PositionListPage.jsx
 export const rebuildPositions = (exchange) =>
   api.post('/api/positions/rebuild', null, { params: { exchange } });
+
+// [용도] 등록된 모든 거래소 포지션 일괄 재계산 / [호출] PositionListPage.jsx
+export const rebuildAllPositions = () =>
+  api.post('/api/positions/rebuild/all');
+
+// [용도] 미청산(오픈) 포지션 윈도우 조회 / [호출] PositionListPage.jsx
+export const getOpenWindows = (exchange) =>
+  api.get('/api/positions/open', { params: { exchange } });
 
 // [용도] 성과 통계 조회 / [호출] StatsPage.jsx
 export const getStats = (exchange = null) =>

@@ -79,6 +79,7 @@ public class TradeJournalService {
                 .trade(trade)
                 .tradeDate(tradeDate)
                 .symbol(request.symbol())
+                .tradeRefsJson(request.tradeRefsJson())
                 .entryReason(request.entryReason())
                 .exitReason(request.exitReason())
                 .emotion(request.emotion())
@@ -100,8 +101,8 @@ public class TradeJournalService {
         TradeJournal journal = journalRepository.findByIdAndUserId(journalId, userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.JOURNAL_NOT_FOUND));
 
-        journal.update(request.symbol(), request.entryReason(),
-                request.exitReason(), request.emotion(), request.memo());
+        journal.update(request.symbol(), request.tradeRefsJson(),
+                request.entryReason(), request.exitReason(), request.emotion(), request.memo());
 
         // 태그 전체 교체
         journal.clearTags();
@@ -136,8 +137,9 @@ public class TradeJournalService {
     public record JournalResponse(
             Long id,
             Long tradeId,
-            String tradeDate,   // 거래 날짜 (캘린더 기준, 'YYYY-MM-DD')
+            String tradeDate,       // 거래 날짜 (캘린더 기준, 'YYYY-MM-DD')
             String symbol,
+            String tradeRefsJson,   // 선택된 거래 스냅샷 JSON
             String entryReason,
             String exitReason,
             String emotion,
@@ -156,6 +158,7 @@ public class TradeJournalService {
                     j.getTrade() != null ? j.getTrade().getId() : null,
                     j.getTradeDate().toString(),
                     j.getSymbol(),
+                    j.getTradeRefsJson(),
                     j.getEntryReason(),
                     j.getExitReason(),
                     j.getEmotion(),
@@ -170,8 +173,9 @@ public class TradeJournalService {
     // 일기 작성 요청 DTO
     public record JournalCreateRequest(
             Long tradeId,
-            String tradeDate,   // 거래 날짜 ('YYYY-MM-DD'), 미전송 시 오늘
+            String tradeDate,       // 거래 날짜 ('YYYY-MM-DD'), 미전송 시 오늘
             String symbol,
+            String tradeRefsJson,   // 선택된 거래 스냅샷 JSON
             String entryReason,
             String exitReason,
             String emotion,
@@ -182,6 +186,7 @@ public class TradeJournalService {
     // 일기 수정 요청 DTO
     public record JournalUpdateRequest(
             String symbol,
+            String tradeRefsJson,   // 선택된 거래 스냅샷 JSON
             String entryReason,
             String exitReason,
             String emotion,

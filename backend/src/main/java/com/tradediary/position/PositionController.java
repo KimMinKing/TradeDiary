@@ -26,12 +26,28 @@ public class PositionController {
         return ResponseEntity.ok(positionService.getPositions(userId, exchange));
     }
 
-    // [용도] 포지션 수동 재계산 트리거 / [호출] POST /api/positions/rebuild?exchange=UPBIT|BYBIT
+    // [용도] 특정 거래소 포지션 수동 재계산 / [호출] POST /api/positions/rebuild?exchange=UPBIT|BYBIT
     @PostMapping("/rebuild")
     public ResponseEntity<Void> rebuild(
             @AuthenticationPrincipal Long userId,
             @RequestParam String exchange) {
         positionService.rebuildPositions(userId, ExchangeKey.Exchange.valueOf(exchange.toUpperCase()));
         return ResponseEntity.ok().build();
+    }
+
+    // [용도] 등록된 모든 거래소 포지션 일괄 재계산 / [호출] POST /api/positions/rebuild/all
+    @PostMapping("/rebuild/all")
+    public ResponseEntity<Void> rebuildAll(@AuthenticationPrincipal Long userId) {
+        positionService.rebuildAllPositions(userId);
+        return ResponseEntity.ok().build();
+    }
+
+    // [용도] 미청산(오픈) 포지션 윈도우 조회 / [호출] GET /api/positions/open?exchange=UPBIT
+    @GetMapping("/open")
+    public ResponseEntity<List<PositionService.OpenWindowResponse>> getOpenWindows(
+            @AuthenticationPrincipal Long userId,
+            @RequestParam String exchange) {
+        return ResponseEntity.ok(positionService.getOpenWindows(
+                userId, ExchangeKey.Exchange.valueOf(exchange.toUpperCase())));
     }
 }

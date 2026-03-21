@@ -1,4 +1,4 @@
-// [파일 용도] 거래소 API Key 등록 페이지 (Upbit / Bybit / Bitget 선택)
+// [파일 용도] 거래소 API Key 관리 페이지 (관리 → 선택 → 연결 3단계)
 
 import { useState, useEffect } from 'react';
 import { saveExchangeKey, getMyExchangeKeys, deleteExchangeKey } from '../api/exchangeApi';
@@ -41,11 +41,31 @@ const EXCHANGE_CONFIG = {
     secretKeyPlaceholder: 'Secret Key',
     hasPassphrase: true,
   },
+  BINANCE: {
+    label: 'Binance',
+    color: '#f0b90b',
+    activeClass: 'active-binance',
+    guide: 'Binance → 계정 → API 관리에서 읽기 권한(선물 거래 내역 조회)으로 발급하세요. IP 제한 설정을 권장합니다.',
+    apiKeyPlaceholder: 'API Key',
+    secretKeyPlaceholder: 'Secret Key',
+    hasPassphrase: false,
+  },
+  BINGX: {
+    label: 'BingX',
+    color: '#1db8c0',
+    activeClass: 'active-bingx',
+    guide: 'BingX → 사용자센터 → API 관리에서 읽기 전용 권한으로 발급하세요. IP 화이트리스트 설정을 권장합니다.',
+    apiKeyPlaceholder: 'API Key',
+    secretKeyPlaceholder: 'Secret Key',
+    hasPassphrase: false,
+  },
 };
 
-// [컴포넌트] 거래소 API Key 선택 및 등록 화면 / [호출] App.jsx 라우터
+// [컴포넌트] 거래소 API Key 관리 화면 / [호출] App.jsx 라우터
 const ExchangeKeyPage = () => {
-  const [selectedExchange,    setSelectedExchange]    = useState('UPBIT');
+  // step: 'manage' | 'select' | 'connect'
+  const [step,                setStep]                = useState('manage');
+  const [selectedExchange,    setSelectedExchange]    = useState(null);
   const [apiKey,              setApiKey]              = useState('');
   const [secretKey,           setSecretKey]           = useState('');
   const [passphrase,          setPassphrase]          = useState('');
@@ -56,21 +76,10 @@ const ExchangeKeyPage = () => {
 
   useEffect(() => { fetchRegisteredKeys(); }, []);
 
-  // [용도] 거래소 탭 전환 시 입력 초기화 / [호출] 탭 버튼 클릭
-  const handleSelectExchange = (exchange) => {
-    setSelectedExchange(exchange);
-    setApiKey('');
-    setSecretKey('');
-    setPassphrase('');
-    setMessage('');
-    setError('');
-  };
-
   // [용도] 등록된 거래소 목록 조회 / [호출] useEffect, handleSubmit, handleDelete
   const fetchRegisteredKeys = async () => {
     try {
       const res = await getMyExchangeKeys();
-      // API 응답이 구 형식(문자열 배열)이면 신형식(객체 배열)으로 변환
       const data = res.data.map((item) =>
         typeof item === 'string' ? { exchange: item, maskedApiKey: null } : item
       );
@@ -78,6 +87,17 @@ const ExchangeKeyPage = () => {
     } catch (e) {
       console.error(e);
     }
+  };
+
+  // [용도] 연결하기 버튼 클릭 → connect 단계로 / [호출] 선택 화면
+  const handleGoConnect = () => {
+    if (!selectedExchange) return;
+    setApiKey('');
+    setSecretKey('');
+    setPassphrase('');
+    setMessage('');
+    setError('');
+    setStep('connect');
   };
 
   // [용도] API Key 등록 제출 / [호출] form onSubmit
@@ -92,9 +112,10 @@ const ExchangeKeyPage = () => {
       setApiKey('');
       setSecretKey('');
       setPassphrase('');
-      // 연동 직후 1분간 동기화 대기 시작 시각 기록
       localStorage.setItem(`syncStartTime_${selectedExchange}`, Date.now());
       fetchRegisteredKeys();
+      // 등록 성공 후 1.2초 뒤 관리 화면으로 복귀
+      setTimeout(() => { setStep('manage'); setSelectedExchange(null); }, 1200);
     } catch (err) {
       setError(err.response?.data?.message || '등록에 실패했습니다.');
     } finally {
@@ -102,105 +123,158 @@ const ExchangeKeyPage = () => {
     }
   };
 
-  // [용도] API Key 삭제 / [호출] 삭제 버튼 클릭
+  // [용도] API Key 삭제 / [호출] 관리 화면 삭제 버튼
   const handleDelete = async (exchange) => {
     if (!window.confirm(`${exchange} API Key를 삭제할까요?`)) return;
     try {
       await deleteExchangeKey(exchange);
-      setMessage(`${exchange} API Key가 삭제되었습니다.`);
       fetchRegisteredKeys();
     } catch {
       setError('삭제에 실패했습니다.');
     }
   };
 
+  // ── 관리 화면 ──────────────────────────────────────────────────
+  if (step === 'manage') {
+    return (
+      <div className="page" style={{ maxWidth: '640px' }}>
+        <div style={{ marginBottom: '28px' }}>
+          <h1 className="syne page-title">거래소 관리</h1>
+          <p className="text-sm text-secondary" style={{ marginTop: '4px' }}>
+            연동된 거래소의 API Key를 관리합니다
+          </p>
+        </div>
+
+        {/* 연동된 거래소 목록 */}
+        <div className="card" style={{ marginBottom: '16px' }}>
+          <p className="section-title" style={{ marginBottom: '16px' }}>연동된 거래소</p>
+          {registeredExchanges.length === 0 ? (
+            <div className="empty-state" style={{ padding: '32px 20px' }}>
+              <div className="empty-state-icon">🔗</div>
+              <p className="empty-state-title">연동된 거래소가 없습니다</p>
+              <p className="empty-state-desc">아래 버튼을 눌러 거래소를 연결하세요</p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {registeredExchanges.map((item) => {
+                const cfg = EXCHANGE_CONFIG[item.exchange];
+                if (!cfg) return null;
+                return (
+                  <div key={item.exchange} className="exmgr-row">
+                    <div className="exmgr-dot" style={{ background: cfg.color }} />
+                    <div style={{ flex: 1 }}>
+                      <span className="syne" style={{ fontWeight: 700, fontSize: '15px' }}>{cfg.label}</span>
+                      {item.maskedApiKey && (
+                        <span className="mono text-muted" style={{ fontSize: '12px', marginLeft: '10px' }}>
+                          {item.maskedApiKey}
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      style={{ fontSize: '13px', padding: '4px 10px', color: 'var(--text-muted)' }}
+                      onClick={() => {
+                        setSelectedExchange(item.exchange);
+                        setStep('connect');
+                        setApiKey(''); setSecretKey(''); setPassphrase('');
+                        setMessage(''); setError('');
+                      }}
+                    >
+                      재연결
+                    </button>
+                    <button
+                      className="btn btn-danger btn-sm"
+                      style={{ fontSize: '13px', padding: '4px 10px' }}
+                      onClick={() => handleDelete(item.exchange)}
+                    >
+                      삭제
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* 거래소 연결 버튼 */}
+        <button
+          className="btn btn-primary btn-full"
+          onClick={() => { setSelectedExchange(null); setStep('select'); }}
+        >
+          + 거래소 연결
+        </button>
+      </div>
+    );
+  }
+
+  // ── 거래소 선택 화면 ──────────────────────────────────────────
+  if (step === 'select') {
+    return (
+      <div className="page" style={{ maxWidth: '640px' }}>
+        <div style={{ marginBottom: '28px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => setStep('manage')}>← 뒤로</button>
+          <div>
+            <h1 className="syne page-title">거래소 선택</h1>
+            <p className="text-sm text-secondary" style={{ marginTop: '2px' }}>연결할 거래소를 선택하세요</p>
+          </div>
+        </div>
+
+        {/* 2열 그리드 */}
+        <div className="exsel-grid" style={{ marginBottom: '24px' }}>
+          {Object.entries(EXCHANGE_CONFIG).map(([key, cfg]) => {
+            const isRegistered = registeredExchanges.some((r) => r.exchange === key);
+            const isSelected   = selectedExchange === key;
+            return (
+              <button
+                key={key}
+                className={`exsel-btn${isSelected ? ' exsel-selected' : ''}`}
+                style={isSelected ? { borderColor: cfg.color, background: `${cfg.color}18`, color: cfg.color } : {}}
+                onClick={() => setSelectedExchange(key)}
+              >
+                <span className="syne" style={{ fontSize: '16px', fontWeight: 700 }}>{cfg.label}</span>
+                {isRegistered && (
+                  <span className="exsel-badge" style={{ background: cfg.color }}>연동됨</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* 연결하기 버튼 */}
+        <button
+          className="btn btn-primary btn-full"
+          disabled={!selectedExchange}
+          onClick={handleGoConnect}
+        >
+          {selectedExchange
+            ? `${EXCHANGE_CONFIG[selectedExchange].label} 연결하기`
+            : '거래소를 선택하세요'}
+        </button>
+      </div>
+    );
+  }
+
+  // ── API Key 입력 화면 ─────────────────────────────────────────
   const config       = EXCHANGE_CONFIG[selectedExchange];
   const isRegistered = registeredExchanges.some((r) => r.exchange === selectedExchange);
 
   return (
-    <div className="page" style={{ maxWidth: '600px' }}>
-      {/* 페이지 제목 */}
-      <div className="anim-fade-up" style={{ marginBottom: '28px' }}>
-        <h1 className="syne page-title">거래소 연동</h1>
-        <p className="text-sm text-secondary" style={{ marginTop: '4px' }}>
-          API Key를 등록하면 거래 내역을 자동으로 동기화합니다
-        </p>
-      </div>
-
-      {/* 등록된 거래소 현황 */}
-      {registeredExchanges.length > 0 && (
-        <div className="anim-fade-up2" style={{ marginBottom: '24px' }}>
-          <p className="section-title">연동된 거래소</p>
-          {registeredExchanges.map(({ exchange, maskedApiKey }) => {
-            const cfg = EXCHANGE_CONFIG[exchange] || {};
-            return (
-              <div key={exchange} className="exchange-row">
-                <span
-                  className="badge"
-                  style={{
-                    background: `${cfg.color}1a`,
-                    color: cfg.color,
-                  }}
-                >
-                  {cfg.label || exchange}
-                </span>
-                <span className="text-sm mono" style={{ flex: 1, color: '#4ade80' }}>
-                  ✓ 연동됨
-                </span>
-                {maskedApiKey && (
-                  <span className="text-xs mono text-muted" style={{ marginRight: '12px' }}>
-                    {maskedApiKey}
-                  </span>
-                )}
-                <button
-                  className="btn btn-danger btn-sm"
-                  onClick={() => handleDelete(exchange)}
-                >
-                  삭제
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* 거래소 선택 탭 */}
-      <div className="anim-fade-up2" style={{ marginBottom: '24px' }}>
-        <p className="section-title">거래소 선택</p>
-        <div className="flex gap-3">
-          {Object.entries(EXCHANGE_CONFIG).map(([key, cfg]) => (
-            <button
-              key={key}
-              className={`exchange-tab-btn${selectedExchange === key ? ` ${cfg.activeClass}` : ''}`}
-              onClick={() => handleSelectExchange(key)}
-            >
-              {cfg.label}
-              {registeredExchanges.some((r) => r.exchange === key) && (
-                <span
-                  className="registered-dot"
-                  style={{ background: cfg.color }}
-                />
-              )}
-            </button>
-          ))}
+    <div className="page" style={{ maxWidth: '640px' }}>
+      <div style={{ marginBottom: '28px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <button className="btn btn-ghost btn-sm" onClick={() => setStep('select')}>← 뒤로</button>
+        <div>
+          <h1 className="syne page-title">{config.label} 연결</h1>
+          <p className="text-sm text-secondary" style={{ marginTop: '2px' }}>API Key를 입력하세요</p>
         </div>
       </div>
 
-      {/* API Key 입력 폼 */}
-      <div className="card anim-fade-up3">
-        <div className="flex items-center gap-2" style={{ marginBottom: '12px' }}>
-          <span className="syne" style={{ fontSize: '16px', fontWeight: 700 }}>
-            {config.label} API Key 등록
-          </span>
-          {isRegistered && (
-            <span
-              className="badge"
-              style={{ background: 'rgba(251,191,36,0.12)', color: '#fbbf24', fontSize: '10px' }}
-            >
-              덮어쓰기
-            </span>
-          )}
-        </div>
+      <div className="card">
+        {/* 이미 연동된 경우 안내 */}
+        {isRegistered && (
+          <div style={{ marginBottom: '16px', padding: '10px 14px', borderRadius: '8px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)' }}>
+            <span style={{ fontSize: '13px', color: '#fbbf24' }}>이미 연동된 거래소입니다. 입력 시 기존 Key를 덮어씁니다.</span>
+          </div>
+        )}
 
         <p className="text-xs text-muted" style={{ marginBottom: '16px', lineHeight: '1.7' }}>
           {config.guide}

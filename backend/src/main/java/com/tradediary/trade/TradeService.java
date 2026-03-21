@@ -6,6 +6,8 @@ import com.tradediary.common.exception.BusinessException;
 import com.tradediary.common.exception.ErrorCode;
 import com.tradediary.exchange.ExchangeKey;
 import com.tradediary.exchange.ExchangeKeyService;
+import com.tradediary.exchange.BinanceClient;
+import com.tradediary.exchange.BingxClient;
 import com.tradediary.exchange.BitgetClient;
 import com.tradediary.exchange.BybitClient;
 import com.tradediary.exchange.OkxClient;
@@ -21,7 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 
-// [클래스] Upbit/Bybit/Bitget 거래 내역 동기화 및 거래 목록 조회
+// [클래스] Upbit/Bybit/Bitget/OKX/Binance/BingX 거래 내역 동기화 및 거래 목록 조회
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -34,6 +36,8 @@ public class TradeService {
     private final BybitClient bybitClient;
     private final BitgetClient bitgetClient;
     private final OkxClient okxClient;
+    private final BinanceClient binanceClient;
+    private final BingxClient bingxClient;
     private final PositionService positionService;
 
     // [용도] Upbit 거래 내역 동기화 (신규 건만 저장) / [호출] TradeController.syncTrades()
@@ -273,6 +277,109 @@ public class TradeService {
 
         if (savedCount > 0) {
             positionService.rebuildPositions(userId, ExchangeKey.Exchange.OKX);
+        }
+        return savedCount;
+    }
+
+    // [용도] Binance USDT-M 선물 거래 내역 동기화 / [호출] TradeController.syncBinanceTrades()
+    // 1) income API로 거래된 심볼 파악 → 2) 심볼별 userTrades 조회 → 저장
+    @Transactional
+    public int syncBinanceTrades(Long userId) {
+        ExchangeKeyService.DecryptedKey keys =
+                exchangeKeyService.getDecryptedKey(userId, ExchangeKey.Exchange.BINANCE);
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+
+        LocalDateTime startTime = tradeRepository
+                .findTopByUserIdAndExchangeOrderByTradedAtDesc(userId, ExchangeKey.Exchange.BINANCE)
+                .map(Trade::getTradedAt)
+                .orElse(LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul")).minusYears(1));
+
+        log.info("Binance 동기화 시작 - userId: {}, startTime: {}", userId, startTime);
+
+        List<BinanceClient.BinanceTrade> trades =
+                binanceClient.getTrades(keys.apiKey(), keys.secretKey(), startTime);
+
+        int savedCount = 0;
+        for (BinanceClient.BinanceTrade raw : trades) {
+            if (tradeRepository.existsByUserIdAndExchangeAndExchangeTradeId(
+                    userId, ExchangeKey.Exchange.BINANCE, String.valueOf(raw.id))) continue;
+
+            BinanceClient.NormalizedTrade normalized = BinanceClient.NormalizedTrade.from(raw);
+            if (!normalized.isValid()) continue;
+
+            tradeRepository.save(Trade.builder()
+                    .user(user)
+                    .exchange(ExchangeKey.Exchange.BINANCE)
+                    .exchangeTradeId(normalized.exchangeTradeId())
+                    .symbol(normalized.symbol())
+                    .side(normalized.side())
+                    .qty(normalized.qty())
+                    .price(normalized.price())
+                    .fee(normalized.fee())
+                    .tradedAt(normalized.tradedAt())
+                    .build());
+            savedCount++;
+        }
+
+        log.info("Binance 거래 동기화 완료 - userId: {}, 조회: {}건, 신규 저장: {}건",
+                userId, trades.size(), savedCount);
+
+        if (savedCount > 0) {
+            positionService.rebuildPositions(userId, ExchangeKey.Exchange.BINANCE);
+        }
+        return savedCount;
+    }
+
+    // [용도] BingX USDT-M 선물 거래 내역 동기화 / [호출] TradeController.syncBingxTrades()
+    // - 초기 동기화: DB에 BingX 거래 없으면 최근 90일
+    // - 증분 동기화: DB 마지막 BingX 거래 이후
+    @Transactional
+    public int syncBingxTrades(Long userId) {
+        ExchangeKeyService.DecryptedKey keys =
+                exchangeKeyService.getDecryptedKey(userId, ExchangeKey.Exchange.BINGX);
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+
+        LocalDateTime startTime = tradeRepository
+                .findTopByUserIdAndExchangeOrderByTradedAtDesc(userId, ExchangeKey.Exchange.BINGX)
+                .map(Trade::getTradedAt)
+                .orElse(LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul")).minusDays(90));
+
+        log.info("BingX 동기화 시작 - userId: {}, startTime: {}", userId, startTime);
+
+        List<BingxClient.BingxOrder> orders =
+                bingxClient.getTrades(keys.apiKey(), keys.secretKey(), startTime);
+
+        int savedCount = 0;
+        for (BingxClient.BingxOrder raw : orders) {
+            if (tradeRepository.existsByUserIdAndExchangeAndExchangeTradeId(
+                    userId, ExchangeKey.Exchange.BINGX, String.valueOf(raw.orderId))) continue;
+
+            BingxClient.NormalizedTrade normalized = BingxClient.NormalizedTrade.from(raw);
+            if (!normalized.isValid()) continue;
+
+            tradeRepository.save(Trade.builder()
+                    .user(user)
+                    .exchange(ExchangeKey.Exchange.BINGX)
+                    .exchangeTradeId(normalized.exchangeTradeId())
+                    .symbol(normalized.symbol())
+                    .side(normalized.side())
+                    .qty(normalized.qty())
+                    .price(normalized.price())
+                    .fee(normalized.fee())
+                    .tradedAt(normalized.tradedAt())
+                    .build());
+            savedCount++;
+        }
+
+        log.info("BingX 거래 동기화 완료 - userId: {}, 조회: {}건, 신규 저장: {}건",
+                userId, orders.size(), savedCount);
+
+        if (savedCount > 0) {
+            positionService.rebuildPositions(userId, ExchangeKey.Exchange.BINGX);
         }
         return savedCount;
     }

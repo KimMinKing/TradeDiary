@@ -77,7 +77,35 @@ public class TradeController {
         }
     }
 
-    // [용도] 에러 메시지에서 사용자 친화적 메시지 추출 / [호출] syncUpbitTrades, syncBybitTrades, syncBitgetTrades, syncOkxTrades
+    // [용도] Binance 거래 내역 동기화 / [호출] POST /api/trades/sync/binance
+    @PostMapping("/sync/binance")
+    public ResponseEntity<Map<String, Object>> syncBinanceTrades(
+            @AuthenticationPrincipal Long userId) {
+        try {
+            int count = tradeService.syncBinanceTrades(userId);
+            return ResponseEntity.ok(Map.of("savedCount", count));
+        } catch (RuntimeException e) {
+            String message = resolveErrorMessage(e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body(Map.of("error", message));
+        }
+    }
+
+    // [용도] BingX 거래 내역 동기화 / [호출] POST /api/trades/sync/bingx
+    @PostMapping("/sync/bingx")
+    public ResponseEntity<Map<String, Object>> syncBingxTrades(
+            @AuthenticationPrincipal Long userId) {
+        try {
+            int count = tradeService.syncBingxTrades(userId);
+            return ResponseEntity.ok(Map.of("savedCount", count));
+        } catch (RuntimeException e) {
+            String message = resolveErrorMessage(e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body(Map.of("error", message));
+        }
+    }
+
+    // [용도] 에러 메시지에서 사용자 친화적 메시지 추출 / [호출] syncUpbitTrades, syncBybitTrades, syncBitgetTrades, syncOkxTrades, syncBinanceTrades, syncBingxTrades
     private String resolveErrorMessage(String rawMessage) {
         if (rawMessage == null) return "거래소 API 호출 실패";
         String lower = rawMessage.toLowerCase();

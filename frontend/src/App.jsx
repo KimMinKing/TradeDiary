@@ -2,9 +2,7 @@
 
 import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import LoginPage from './pages/LoginPage';
-import SignupPage from './pages/SignupPage';
-import DashboardPage from './pages/DashboardPage';
+import LandingPage from './pages/LandingPage';
 import ExchangeKeyPage from './pages/ExchangeKeyPage';
 import TradeListPage from './pages/TradeListPage';
 import PositionListPage from './pages/PositionListPage';
@@ -16,7 +14,7 @@ import useAuthStore from './store/authStore';
 // [컴포넌트] 로그인/토큰 유효 여부에 따라 접근 제한하는 라우트 / [호출] App
 const PrivateRoute = ({ children }) => {
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
-  if (!isLoggedIn) return <Navigate to="/login" replace />;
+  if (!isLoggedIn) return <Navigate to="/" replace />;
   return <Layout>{children}</Layout>;
 };
 
@@ -38,12 +36,8 @@ const App = () => {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/signup" element={<SignupPage />} />
-        <Route
-          path="/dashboard"
-          element={<PrivateRoute><DashboardPage /></PrivateRoute>}
-        />
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/dashboard" element={<Navigate to="/trades" replace />} />
         <Route
           path="/exchange-keys"
           element={<PrivateRoute><ExchangeKeyPage /></PrivateRoute>}
@@ -64,7 +58,7 @@ const App = () => {
           path="/stats"
           element={<PrivateRoute><StatsPage /></PrivateRoute>}
         />
-        <Route path="*" element={<Navigate to="/login" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   );

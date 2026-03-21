@@ -56,6 +56,7 @@ public class StatsService {
         return new StatsResponse(
                 calcSummary(positions),
                 calcMonthlyPnl(positions),
+                calcDailyPnl(positions),
                 calcSymbolStats(positions),
                 calcSideStats(positions, PositionSide.LONG),
                 calcSideStats(positions, PositionSide.SHORT),
@@ -131,6 +132,23 @@ public class StatsService {
                     BigDecimal pnl = g.stream().map(Position::getPnl).reduce(BigDecimal.ZERO, BigDecimal::add);
                     int w = (int) g.stream().filter(p -> p.getPnl().compareTo(BigDecimal.ZERO) > 0).count();
                     return new StatsResponse.MonthlyPnl(e.getKey(),
+                            pnl.setScale(2, RoundingMode.HALF_UP).toPlainString(), w, g.size() - w);
+                })
+                .toList();
+    }
+
+    // [용도] 일별 PnL 집계 / [호출] getStats()
+    private List<StatsResponse.DailyPnl> calcDailyPnl(List<Position> positions) {
+        Map<String, List<Position>> byDay = positions.stream()
+                .collect(Collectors.groupingBy(p -> p.getClosedAt().toLocalDate().toString()));
+
+        return byDay.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(e -> {
+                    List<Position> g = e.getValue();
+                    BigDecimal pnl = g.stream().map(Position::getPnl).reduce(BigDecimal.ZERO, BigDecimal::add);
+                    int w = (int) g.stream().filter(p -> p.getPnl().compareTo(BigDecimal.ZERO) > 0).count();
+                    return new StatsResponse.DailyPnl(e.getKey(),
                             pnl.setScale(2, RoundingMode.HALF_UP).toPlainString(), w, g.size() - w);
                 })
                 .toList();
@@ -277,9 +295,12 @@ public class StatsService {
 
         return IntStream.range(0, 24).mapToObj(h -> {
             List<Position> g = byHour.getOrDefault(h, List.of());
-            if (g.isEmpty()) return new StatsResponse.HourlyStats(h, 0, 0, 0);
+            if (g.isEmpty()) return new StatsResponse.HourlyStats(h, 0, 0, 0, "0");
             int wins = (int) g.stream().filter(p -> p.getPnl().compareTo(BigDecimal.ZERO) > 0).count();
-            return new StatsResponse.HourlyStats(h, g.size(), wins, round2((double) wins / g.size() * 100));
+            BigDecimal totalPnl = g.stream().map(Position::getPnl).reduce(BigDecimal.ZERO, BigDecimal::add);
+            return new StatsResponse.HourlyStats(h, g.size(), wins,
+                    round2((double) wins / g.size() * 100),
+                    totalPnl.setScale(2, RoundingMode.HALF_UP).toPlainString());
         }).toList();
     }
 
@@ -311,6 +332,7 @@ public class StatsService {
     public record StatsResponse(
             SummaryStats        summary,
             List<MonthlyPnl>    monthlyPnl,
+            List<DailyPnl>      dailyPnl,
             List<SymbolStats>   symbolStats,
             SideStats           longStats,
             SideStats           shortStats,
@@ -322,7 +344,7 @@ public class StatsService {
         public static StatsResponse empty() {
             return new StatsResponse(
                     new SummaryStats(0,0,0,0,0,0,0,0,0,0,"0","0"),
-                    List.of(), List.of(),
+                    List.of(), List.of(), List.of(),
                     new SideStats("LONG",0,0,0,"0","0"),
                     new SideStats("SHORT",0,0,0,"0","0"),
                     List.of(), List.of(), List.of(), List.of()
@@ -338,6 +360,8 @@ public class StatsService {
         ) {}
 
         public record MonthlyPnl(String month, String pnl, int winCount, int lossCount) {}
+
+        public record DailyPnl(String date, String pnl, int winCount, int lossCount) {}
 
         public record SymbolStats(
                 String symbol, int totalCount, int winCount,
@@ -361,7 +385,7 @@ public class StatsService {
                 double winRate, String totalPnl
         ) {}
 
-        public record HourlyStats(int hour, int totalCount, int winCount, double winRate) {}
+        public record HourlyStats(int hour, int totalCount, int winCount, double winRate, String pnl) {}
 
         public record DayOfWeekStats(
                 String dayName, int totalCount, int winCount,

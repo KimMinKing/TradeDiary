@@ -36,6 +36,44 @@ const rrDisplay = (ratio) => {
   return `1 : ${ratio}`;
 };
 
+// ── 공통 PnL 바 차트 ──────────────────────────────────────────────
+const PnlBarChart = ({ data, curr, labelSuffix = '' }) => (
+  <div className="stats-chart-card">
+    <ResponsiveContainer width="100%" height={220}>
+      <BarChart data={data} margin={{ top: 8, right: 8, left: 4, bottom: 0 }} barCategoryGap="20%">
+        <CartesianGrid strokeDasharray="2 4" stroke="rgba(255,255,255,0.06)" vertical={false} />
+        <ReferenceLine y={0} stroke="rgba(255,255,255,0.15)" strokeWidth={1} />
+        <XAxis
+          dataKey="label"
+          tick={{ fill: 'var(--text-muted)', fontSize: 11, fontFamily: 'monospace' }}
+          tickLine={false} axisLine={false}
+          tickFormatter={v => `${v}${labelSuffix}`}
+          interval="preserveStartEnd"
+        />
+        <YAxis
+          tick={{ fill: 'var(--text-muted)', fontSize: 10, fontFamily: 'monospace' }}
+          tickLine={false} axisLine={false}
+          tickFormatter={v => {
+            if (Math.abs(v) >= 1000000) return `${(v/1000000).toFixed(1)}M`;
+            if (Math.abs(v) >= 1000)    return `${(v/1000).toFixed(0)}K`;
+            return v;
+          }}
+          width={52}
+        />
+        <Tooltip
+          content={<ChartTooltip curr={curr} labelSuffix={labelSuffix} />}
+          cursor={{ fill: 'rgba(255,255,255,0.03)' }}
+        />
+        <Bar dataKey="pnl" radius={[3, 3, 0, 0]}>
+          {data.map((entry, i) => (
+            <Cell key={i} fill={entry.pnl >= 0 ? '#4ade80' : '#f87171'} fillOpacity={0.85} />
+          ))}
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  </div>
+);
+
 // ── 커스텀 셀렉트 ────────────────────────────────────────────────
 const ExchangeSelect = ({ value, onChange }) => (
   <div className="stats-select-wrap">
@@ -62,19 +100,21 @@ const KpiCard = ({ label, value, sub, color, glow }) => (
 );
 
 // ── 바 차트 툴팁 ─────────────────────────────────────────────────
-const ChartTooltip = ({ active, payload, curr }) => {
+const ChartTooltip = ({ active, payload, curr, labelSuffix = '' }) => {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   return (
     <div className="chart-tooltip">
-      <div className="chart-tooltip-month">{d.month}월</div>
+      <div className="chart-tooltip-month">{d.label}{labelSuffix}</div>
       <div style={{ color: pnlColor(d.pnl), fontFamily: 'monospace', fontSize: 14, fontWeight: 700 }}>
         {fmtSigned(d.pnl, curr)}
       </div>
-      <div className="chart-tooltip-meta">
-        <span style={{ color: '#4ade80' }}>▲ {d.winCount}승</span>
-        <span style={{ color: '#f87171' }}>▼ {d.lossCount}패</span>
-      </div>
+      {(d.winCount !== undefined) && (
+        <div className="chart-tooltip-meta">
+          <span style={{ color: '#4ade80' }}>▲ {d.winCount}승</span>
+          <span style={{ color: '#f87171' }}>▼ {d.lossCount}패</span>
+        </div>
+      )}
     </div>
   );
 };
@@ -120,12 +160,28 @@ const StatsPage = () => {
 
   const s = stats?.summary;
 
-  const chartData = (stats?.monthly_pnl ?? []).map(m => ({
-    month:     m.month.slice(5),
+  const monthlyChartData = (stats?.monthly_pnl ?? []).map(m => ({
+    label:     m.month.slice(5),
     pnl:       Number(m.pnl),
     winCount:  m.win_count,
     lossCount: m.loss_count,
   }));
+
+  const dailyChartData = (stats?.daily_pnl ?? []).map(d => ({
+    label:     d.date.slice(5),  // MM-DD
+    pnl:       Number(d.pnl),
+    winCount:  d.win_count,
+    lossCount: d.loss_count,
+  }));
+
+  const hourlyPnlData = (stats?.hourly_stats ?? [])
+    .filter(h => h.total_count > 0)
+    .map(h => ({
+      label:    String(h.hour).padStart(2, '0'),
+      pnl:      Number(h.pnl),
+      winCount: h.win_count,
+      lossCount: h.total_count - h.win_count,
+    }));
 
   const isEmpty = !s || s.total_positions === 0;
 
@@ -259,46 +315,26 @@ const StatsPage = () => {
           </section>
 
           {/* ── 월별 PnL 차트 ── */}
-          {chartData.length > 0 && (
+          {monthlyChartData.length > 0 && (
             <section className="stats-section">
               <div className="stats-section-label">월별 손익 추이</div>
-              <div className="stats-chart-card">
-                <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={chartData} margin={{ top: 8, right: 8, left: 4, bottom: 0 }} barCategoryGap="28%">
-                    <CartesianGrid strokeDasharray="2 4" stroke="rgba(255,255,255,0.06)" vertical={false} />
-                    <ReferenceLine y={0} stroke="rgba(255,255,255,0.15)" strokeWidth={1} />
-                    <XAxis
-                      dataKey="month"
-                      tick={{ fill: 'var(--text-muted)', fontSize: 11, fontFamily: 'monospace' }}
-                      tickLine={false} axisLine={false}
-                      tickFormatter={v => `${v}월`}
-                    />
-                    <YAxis
-                      tick={{ fill: 'var(--text-muted)', fontSize: 10, fontFamily: 'monospace' }}
-                      tickLine={false} axisLine={false}
-                      tickFormatter={v => {
-                        if (Math.abs(v) >= 1000000) return `${(v/1000000).toFixed(1)}M`;
-                        if (Math.abs(v) >= 1000)    return `${(v/1000).toFixed(0)}K`;
-                        return v;
-                      }}
-                      width={52}
-                    />
-                    <Tooltip
-                      content={<ChartTooltip curr={curr} />}
-                      cursor={{ fill: 'rgba(255,255,255,0.03)' }}
-                    />
-                    <Bar dataKey="pnl" radius={[3, 3, 0, 0]}>
-                      {chartData.map((entry, i) => (
-                        <Cell
-                          key={i}
-                          fill={entry.pnl >= 0 ? '#4ade80' : '#f87171'}
-                          fillOpacity={0.85}
-                        />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
+              <PnlBarChart data={monthlyChartData} curr={curr} labelSuffix="월" />
+            </section>
+          )}
+
+          {/* ── 일별 PnL 차트 ── */}
+          {dailyChartData.length > 0 && (
+            <section className="stats-section">
+              <div className="stats-section-label">일별 손익 추이</div>
+              <PnlBarChart data={dailyChartData} curr={curr} />
+            </section>
+          )}
+
+          {/* ── 시간별 PnL 차트 ── */}
+          {hourlyPnlData.length > 0 && (
+            <section className="stats-section">
+              <div className="stats-section-label">시간별 손익 추이 (청산 기준)</div>
+              <PnlBarChart data={hourlyPnlData} curr={curr} labelSuffix="시" />
             </section>
           )}
 
@@ -494,7 +530,7 @@ const StatsPage = () => {
                     : 'rgba(255,255,255,0.03)';
                   return (
                     <div key={h.hour} className="hourly-cell" style={{ background: bg }}
-                         title={active ? `${h.hour}시: ${h.win_rate}% (${h.win_count}W/${h.total_count-h.win_count}L)` : `${h.hour}시: 거래 없음`}>
+                         title={active ? `${h.hour}시: ${h.win_rate}% (${h.win_count}W/${h.total_count-h.win_count}L) / ${fmtSigned(h.pnl, curr)}` : `${h.hour}시: 거래 없음`}>
                       <div className="hourly-cell-hour">{String(h.hour).padStart(2,'0')}</div>
                       {active && (
                         <>

@@ -38,8 +38,12 @@ public class TradeJournal {
     @Column(nullable = false)
     private LocalDate tradeDate;   // 거래 발생 날짜 (캘린더 기준, 작성일 createdAt과 구분)
 
-    @Column(length = 30)
+    @Column(columnDefinition = "TEXT")
     private String symbol;
+
+    // 선택된 거래 스냅샷 목록 (JSON 배열: [{id, symbol, side, price, qty, tradedAt, exchange}])
+    @Column(columnDefinition = "TEXT")
+    private String tradeRefsJson;
 
     @Column(columnDefinition = "TEXT")
     private String entryReason;
@@ -64,12 +68,13 @@ public class TradeJournal {
 
     @Builder
     public TradeJournal(User user, Trade trade, LocalDate tradeDate, String symbol,
-                        String entryReason, String exitReason,
+                        String tradeRefsJson, String entryReason, String exitReason,
                         String emotion, String memo) {
         this.user = user;
         this.trade = trade;
         this.tradeDate = tradeDate != null ? tradeDate : LocalDate.now();
         this.symbol = symbol;
+        this.tradeRefsJson = tradeRefsJson;
         this.entryReason = entryReason;
         this.exitReason = exitReason;
         this.emotion = emotion;
@@ -79,9 +84,10 @@ public class TradeJournal {
     }
 
     // [용도] 일기 내용 수정 / [호출] TradeJournalService.updateJournal()
-    public void update(String symbol, String entryReason, String exitReason,
-                       String emotion, String memo) {
+    public void update(String symbol, String tradeRefsJson, String entryReason,
+                       String exitReason, String emotion, String memo) {
         this.symbol = symbol;
+        this.tradeRefsJson = tradeRefsJson;
         this.entryReason = entryReason;
         this.exitReason = exitReason;
         this.emotion = emotion;

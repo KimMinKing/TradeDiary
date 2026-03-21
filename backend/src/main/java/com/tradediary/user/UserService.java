@@ -100,6 +100,44 @@ public class UserService {
         refreshTokenRepository.deleteByUserId(userId);
     }
 
+    // [용도] 현재 사용자 정보 조회 / [호출] UserController.getMe()
+    @Transactional(readOnly = true)
+    public UserInfo getMe(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+        return new UserInfo(user.getEmail(), user.getNickname(), user.getAvatar());
+    }
+
+    // [용도] 닉네임 변경 / [호출] UserController.updateNickname()
+    @Transactional
+    public void updateNickname(Long userId, String nickname) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+        user.updateNickname(nickname);
+    }
+
+    // [용도] 비밀번호 변경 (현재 비밀번호 확인 후 변경) / [호출] UserController.updatePassword()
+    @Transactional
+    public void updatePassword(Long userId, String currentPassword, String newPassword) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+        if (!passwordEncoder.matches(currentPassword, user.getPassword())) {
+            throw new BusinessException(ErrorCode.INVALID_PASSWORD);
+        }
+        user.updatePassword(passwordEncoder.encode(newPassword));
+    }
+
     // [용도] 토큰 응답 DTO (내부 클래스)
     public record TokenResponse(String accessToken, String refreshToken) {}
+
+    // [용도] 프로필 아바타 변경 (base64 이미지) / [호출] UserController.updateAvatar()
+    @Transactional
+    public void updateAvatar(Long userId, String avatar) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+        user.updateAvatar(avatar);
+    }
+
+    // [용도] 사용자 정보 응답 DTO
+    public record UserInfo(String email, String nickname, String avatar) {}
 }

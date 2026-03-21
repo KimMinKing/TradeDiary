@@ -30,6 +30,9 @@ public class User {
     @Column(nullable = false, length = 50)
     private String nickname;
 
+    @Column(columnDefinition = "TEXT")
+    private String avatar;
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -42,6 +45,24 @@ public class User {
         this.password = password;
         this.nickname = nickname;
         this.createdAt = LocalDateTime.now();
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    // [용도] 닉네임 변경 / [호출] UserService.updateNickname()
+    public void updateNickname(String nickname) {
+        this.nickname = nickname;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    // [용도] 비밀번호 변경 (인코딩된 값으로 교체) / [호출] UserService.updatePassword()
+    public void updatePassword(String encodedPassword) {
+        this.password = encodedPassword;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    // [용도] 프로필 아바타 이미지 변경 (base64) / [호출] UserService.updateAvatar()
+    public void updateAvatar(String avatar) {
+        this.avatar = avatar;
         this.updatedAt = LocalDateTime.now();
     }
 }

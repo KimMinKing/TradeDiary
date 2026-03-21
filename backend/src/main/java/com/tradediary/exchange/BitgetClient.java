@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
+import com.tradediary.trade.TradeSide;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.Mac;
@@ -153,30 +154,24 @@ public class BitgetClient {
                     String priceStr = firstNonNull(o, "price", "fillPrice", "priceAvg");
                     if (priceStr == null) continue;
 
-                    // [디버그] 원본 필드 전체 출력
-                    log.info("[Bitget RAW] {}", o);
-
                     BitgetOrder order = new BitgetOrder();
-                    // tradeId 또는 fillId를 exchangeTradeId로 사용
-                    order.orderId   = firstNonNull(o, "tradeId", "fillId", "orderId");
+                    order.orderId   = getStr(o, "orderId");
+                    order.tradeId   = firstNonNull(o, "tradeId", "fillId");
                     order.symbol    = getStr(o, "symbol");
-                    // V2 fills hedge_mode: tradeSide(open/close)로 진입/청산 구분
-                    // one_way_mode: tradeSide(buy_single/sell_single) 또는 side(buy/sell) 사용
-                    String tradeSide = getStr(o, "tradeSide");
-                    order.side = tradeSide != null ? tradeSide : getStr(o, "side");
+                    order.side      = getStr(o, "side");      // buy(롱관련) / sell(숏관련)
+                    order.tradeSide = getStr(o, "tradeSide"); // open(진입) / close(청산)
                     order.filledQty = qtyStr;
                     order.priceAvg  = priceStr;
                     order.fee       = extractFee(o);
                     order.cTime     = firstNonNull(o, "cTime", "createdTime", "uTime");
-                    log.info("[Bitget PARSED] orderId={}, symbol={}, side={}, qty={}, price={}, fee={}, cTime={}",
-                            order.orderId, order.symbol, order.side, order.filledQty,
-                            order.priceAvg, order.fee, order.cTime);
                     if (order.orderId == null || order.cTime == null) continue;
                     orders.add(order);
                 }
             }
 
-            return new BitgetOrderPage(orders, endId);
+            // 같은 orderId의 부분 체결(fill)을 하나의 주문으로 합산
+            List<BitgetOrder> merged = mergeFills(orders);
+            return new BitgetOrderPage(merged, endId);
 
         } catch (Exception e) {
             if (e instanceof RuntimeException re) throw re;
@@ -215,6 +210,54 @@ public class BitgetClient {
         return fee != null ? new BigDecimal(fee).abs().toPlainString() : "0";
     }
 
+    // [용도] 같은 orderId의 부분 체결을 하나로 합산 (qty 합산, 가중평균 가격, fee 합산) / [호출] fetchPage()
+    private List<BitgetOrder> mergeFills(List<BitgetOrder> fills) {
+        // orderId 순서 보존을 위해 LinkedHashMap 사용
+        java.util.LinkedHashMap<String, BitgetOrder> map = new java.util.LinkedHashMap<>();
+        java.util.Map<String, BigDecimal> totalQtyMap = new java.util.HashMap<>();
+
+        for (BitgetOrder fill : fills) {
+            String key = fill.orderId;
+            if (!map.containsKey(key)) {
+                // 첫 fill → 그대로 등록 (tradeId 대신 orderId를 exchangeTradeId로 사용)
+                BitgetOrder merged = new BitgetOrder();
+                merged.orderId   = fill.orderId;
+                merged.tradeId   = fill.orderId; // exchangeTradeId = orderId
+                merged.symbol    = fill.symbol;
+                merged.side      = fill.side;
+                merged.tradeSide = fill.tradeSide;
+                merged.filledQty = fill.filledQty;
+                merged.priceAvg  = fill.priceAvg;
+                merged.fee       = fill.fee;
+                merged.cTime     = fill.cTime;
+                map.put(key, merged);
+                totalQtyMap.put(key, new BigDecimal(fill.filledQty));
+            } else {
+                // 추가 fill → qty 합산, 가중평균 가격, fee 합산
+                BitgetOrder base = map.get(key);
+                BigDecimal prevQty   = totalQtyMap.get(key);
+                BigDecimal addQty    = new BigDecimal(fill.filledQty);
+                BigDecimal prevPrice = new BigDecimal(base.priceAvg);
+                BigDecimal addPrice  = new BigDecimal(fill.priceAvg);
+                BigDecimal newQty    = prevQty.add(addQty);
+
+                // 가중평균 가격
+                BigDecimal newPrice = prevPrice.multiply(prevQty)
+                        .add(addPrice.multiply(addQty))
+                        .divide(newQty, 8, java.math.RoundingMode.HALF_UP);
+
+                base.filledQty = newQty.toPlainString();
+                base.priceAvg  = newPrice.toPlainString();
+                base.fee = new BigDecimal(base.fee != null ? base.fee : "0")
+                        .add(new BigDecimal(fill.fee != null ? fill.fee : "0"))
+                        .toPlainString();
+                totalQtyMap.put(key, newQty);
+                log.info("[Bitget MERGE] orderId={} fill합산 qty={}", key, newQty);
+            }
+        }
+        return new java.util.ArrayList<>(map.values());
+    }
+
     // [용도] HMAC-SHA256 + Base64 서명 생성 / [호출] fetchPage()
     private String sign(String secretKey, String timestamp, String method,
                         String requestPath, String queryString, String body) {
@@ -242,9 +285,11 @@ public class BitgetClient {
 
     // Bitget 체결 응답 DTO
     public static class BitgetOrder {
-        public String orderId;   // tradeId 또는 fillId
+        public String orderId;    // 주문 ID (부분 체결 합산 기준)
+        public String tradeId;    // exchangeTradeId로 사용 (합산 후 = orderId)
         public String symbol;
-        public String side;      // buy / sell
+        public String side;       // buy(롱관련) / sell(숏관련)
+        public String tradeSide;  // open(진입) / close(청산)
         public String filledQty;
         public String priceAvg;
         public String fee;
@@ -266,9 +311,9 @@ public class BitgetClient {
     ) {
         public static NormalizedTrade from(BitgetOrder order) {
             return new NormalizedTrade(
-                    order.orderId,
+                    order.tradeId != null ? order.tradeId : order.orderId,
                     order.symbol,
-                    mapSide(order.side),
+                    mapSide(order.side, order.tradeSide),
                     new BigDecimal(order.filledQty != null ? order.filledQty : "0"),
                     new BigDecimal(order.priceAvg != null ? order.priceAvg : "0"),
                     new BigDecimal(order.fee != null ? order.fee : "0"),
@@ -278,17 +323,18 @@ public class BitgetClient {
             );
         }
 
-        // [용도] Bitget tradeSide/side 문자열 → TradeSide 변환
-        // hedge_mode: open(진입)=BUY, close(청산)=SELL
-        // one_way_mode: buy_single=BUY, sell_single=SELL
-        // fallback: buy=BUY, sell=SELL
-        private static com.tradediary.trade.TradeSide mapSide(String side) {
+        // [용도] Bitget side + tradeSide → TradeSide 변환
+        // side: buy=롱관련, sell=숏관련
+        // tradeSide: open=진입, close=청산
+        // buy+open=롱오픈→BUY / buy+close=롱청산→SELL
+        // sell+open=숏오픈→SELL / sell+close=숏청산→BUY
+        private static com.tradediary.trade.TradeSide mapSide(String side, String tradeSide) {
             if (side == null) return com.tradediary.trade.TradeSide.BUY;
-            return switch (side.toLowerCase()) {
-                case "open", "buy", "buy_single" -> com.tradediary.trade.TradeSide.BUY;
-                case "close", "sell", "sell_single" -> com.tradediary.trade.TradeSide.SELL;
-                default -> com.tradediary.trade.TradeSide.BUY;
-            };
+            boolean isSell  = side.toLowerCase().contains("sell");
+            boolean isClose = "close".equalsIgnoreCase(tradeSide);
+            // open+buy=BUY, open+sell=SELL, close+buy=SELL, close+sell=BUY
+            if (isSell ^ isClose) return com.tradediary.trade.TradeSide.SELL;
+            return com.tradediary.trade.TradeSide.BUY;
         }
 
         // [용도] 저장 가능한 주문인지 확인 / [호출] TradeService.syncBitgetTrades()

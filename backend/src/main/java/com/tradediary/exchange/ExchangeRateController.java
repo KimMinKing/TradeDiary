@@ -17,7 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.math.BigDecimal;
 import java.util.Map;
 
-// [클래스] Upbit 공개 API로 KRW-USDT 환율 조회 (인증 불필요)
+// [클래스] 실시간 환율 조회 (KRW/CNY/JPY per USDT)
 @Slf4j
 @RestController
 @RequestMapping("/api/exchange-rate")
@@ -26,30 +26,53 @@ public class ExchangeRateController {
     private final OkHttpClient httpClient = new OkHttpClient();
     private final Gson gson = new Gson();
 
-    // [용도] 현재 KRW/USDT 환율 조회 / [호출] GET /api/exchange-rate
-    // Upbit 공개 ticker API 사용 (로그인 불필요)
+    // [용도] KRW·CNY·JPY per USDT 환율 조회 / [호출] GET /api/exchange-rate
+    // KRW: Upbit 공개 API / CNY·JPY: frankfurter.app 공개 API
     @GetMapping
     public ResponseEntity<Map<String, Object>> getExchangeRate() {
+        BigDecimal krwPerUsdt = fetchKrwPerUsdt();
+        BigDecimal cnyPerUsdt = new BigDecimal("7.2");
+        BigDecimal jpyPerUsdt = new BigDecimal("150");
+
         try {
-            Request request = new Request.Builder()
-                    .url("https://api.upbit.com/v1/ticker?markets=KRW-USDT")
-                    .get()
-                    .addHeader("Accept", "application/json")
-                    .build();
-
-            try (Response response = httpClient.newCall(request).execute()) {
-                String body = response.body().string();
-                JsonArray arr = gson.fromJson(body, JsonArray.class);
-                JsonObject ticker = arr.get(0).getAsJsonObject();
-                BigDecimal rate = ticker.get("trade_price").getAsBigDecimal();
-
-                log.debug("환율 조회 완료: 1 USDT = {} KRW", rate);
-                return ResponseEntity.ok(Map.of("krwPerUsdt", rate));
+            Request req = new Request.Builder()
+                    .url("https://api.frankfurter.app/latest?from=USD&to=CNY,JPY")
+                    .get().build();
+            try (Response resp = httpClient.newCall(req).execute()) {
+                if (resp.isSuccessful() && resp.body() != null) {
+                    JsonObject root = gson.fromJson(resp.body().string(), JsonObject.class);
+                    JsonObject rates = root.getAsJsonObject("rates");
+                    if (rates != null) {
+                        if (rates.has("CNY")) cnyPerUsdt = rates.get("CNY").getAsBigDecimal();
+                        if (rates.has("JPY")) jpyPerUsdt = rates.get("JPY").getAsBigDecimal();
+                    }
+                }
             }
         } catch (Exception e) {
-            log.error("환율 조회 실패: {}", e.getMessage());
-            // 조회 실패 시 기본값 반환
-            return ResponseEntity.ok(Map.of("krwPerUsdt", new BigDecimal("1400")));
+            log.warn("CNY/JPY 환율 조회 실패, 기본값 사용: {}", e.getMessage());
+        }
+
+        return ResponseEntity.ok(Map.of(
+                "krwPerUsdt", krwPerUsdt,
+                "cnyPerUsdt", cnyPerUsdt,
+                "jpyPerUsdt", jpyPerUsdt
+        ));
+    }
+
+    // [용도] Upbit에서 KRW/USDT 환율 조회 / [호출] getExchangeRate()
+    private BigDecimal fetchKrwPerUsdt() {
+        try {
+            Request req = new Request.Builder()
+                    .url("https://api.upbit.com/v1/ticker?markets=KRW-USDT")
+                    .get().addHeader("Accept", "application/json").build();
+            try (Response resp = httpClient.newCall(req).execute()) {
+                String body = resp.body().string();
+                JsonArray arr = gson.fromJson(body, JsonArray.class);
+                return arr.get(0).getAsJsonObject().get("trade_price").getAsBigDecimal();
+            }
+        } catch (Exception e) {
+            log.error("KRW 환율 조회 실패: {}", e.getMessage());
+            return new BigDecimal("1400");
         }
     }
 }

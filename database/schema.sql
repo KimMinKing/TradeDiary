@@ -9,9 +9,12 @@ CREATE TABLE IF NOT EXISTS users (
     email           VARCHAR(100) NOT NULL UNIQUE,
     password        VARCHAR(255) NOT NULL,
     nickname        VARCHAR(50)  NOT NULL,
+    avatar          TEXT,                                 -- base64 프로필 이미지 (~5KB 압축)
     created_at      TIMESTAMP    NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMP    NOT NULL DEFAULT NOW()
 );
+-- 기존 DB 마이그레이션
+ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT;
 
 -- =============================================
 -- JWT RefreshToken 저장

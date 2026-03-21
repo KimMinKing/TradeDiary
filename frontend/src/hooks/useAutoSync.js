@@ -1,13 +1,15 @@
 // [파일 용도] 거래소 자동 동기화 훅 (등록된 거래소 주기적 동기화)
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { getMyExchangeKeys, syncUpbitTrades, syncBybitTrades, syncBitgetTrades, syncOkxTrades } from '../api/exchangeApi';
+import { getMyExchangeKeys, syncUpbitTrades, syncBybitTrades, syncBitgetTrades, syncOkxTrades, syncBinanceTrades, syncBingxTrades } from '../api/exchangeApi';
 
 const SYNC_FN = {
-  UPBIT:  syncUpbitTrades,
-  BYBIT:  syncBybitTrades,
-  BITGET: syncBitgetTrades,
-  OKX:    syncOkxTrades,
+  UPBIT:   syncUpbitTrades,
+  BYBIT:   syncBybitTrades,
+  BITGET:  syncBitgetTrades,
+  OKX:     syncOkxTrades,
+  BINANCE: syncBinanceTrades,
+  BINGX:   syncBingxTrades,
 };
 
 const INTERVAL_KEY = 'autoSyncInterval';
@@ -52,18 +54,28 @@ const useAutoSync = () => {
           // 개별 거래소 실패는 무시하고 다음 거래소로
         }
       }
-      setLastSyncAt(new Date());
+      const now = new Date();
+      setLastSyncAt(now);
+      // 동기화 완료 후 열려있는 페이지가 데이터를 다시 조회하도록 이벤트 발행
+      window.dispatchEvent(new CustomEvent('autoSyncComplete', { detail: { syncedAt: now } }));
     } finally {
       syncingRef.current = false;
       setIsSyncing(false);
     }
   }, []);
 
-  // [용도] interval 설정 변경 및 타이머 재등록 / [호출] setIntervalSec
+  // [용도] interval 설정 변경 및 타이머 재등록 / [호출] setIntervalSec, syncIntervalChange 이벤트
   const setIntervalSec = useCallback((sec) => {
     localStorage.setItem(INTERVAL_KEY, sec);
     setIntervalSecState(sec);
   }, []);
+
+  // [용도] SettingsPanel에서 발행하는 syncIntervalChange 이벤트 수신 / [호출] useEffect
+  useEffect(() => {
+    const handler = (e) => setIntervalSec(e.detail);
+    window.addEventListener('syncIntervalChange', handler);
+    return () => window.removeEventListener('syncIntervalChange', handler);
+  }, [setIntervalSec]);
 
   // [용도] intervalSec 변경 시 타이머 재등록 / [호출] useEffect
   useEffect(() => {

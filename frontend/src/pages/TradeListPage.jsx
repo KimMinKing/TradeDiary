@@ -1,7 +1,7 @@
 // [파일 용도] 거래 내역 목록 페이지 (거래소 필터 탭 + 날짜 필터 + KRW/USD 통화 토글)
 
 import { useState, useEffect, useRef } from 'react';
-import { getTrades, syncUpbitTrades, syncBybitTrades, syncBitgetTrades, syncOkxTrades } from '../api/exchangeApi';
+import { getTrades, syncUpbitTrades, syncBybitTrades, syncBitgetTrades, syncOkxTrades, syncBinanceTrades, syncBingxTrades, getMyExchangeKeys } from '../api/exchangeApi';
 import api from '../api/authApi';
 
 // [컴포넌트] 거래 내역 목록 및 거래소별 동기화 화면 / [호출] App.jsx 라우터
@@ -14,7 +14,7 @@ const TradeListPage = () => {
   const [displayCurrency, setDisplayCurrency] = useState(
     () => localStorage.getItem('displayCurrency') || 'KRW'
   );
-  const [krwPerUsdt, setKrwPerUsdt] = useState(null);
+  const [rates, setRates] = useState({ KRW: 1400, USD: 1, CNY: 7.2, JPY: 150 });
   // 거래소 신규 연동 직후 1분간 동기화 대기 중 여부
   const [pendingSync, setPendingSync] = useState(false);
 
@@ -29,6 +29,18 @@ const TradeListPage = () => {
     fetchTrades();
     fetchExchangeRate();
     checkPendingSync();
+
+    const onAutoSync = () => fetchTrades(true);
+    window.addEventListener('autoSyncComplete', onAutoSync);
+
+    // 내비게이션 바 통화 변경 이벤트 수신
+    const onCurrencyChange = (e) => setDisplayCurrency(e.detail);
+    window.addEventListener('currencyChange', onCurrencyChange);
+
+    return () => {
+      window.removeEventListener('autoSyncComplete', onAutoSync);
+      window.removeEventListener('currencyChange', onCurrencyChange);
+    };
   }, []);
 
   // [용도] 거래소 신규 연동 후 1분 대기 여부 확인 / [호출] useEffect
@@ -72,9 +84,9 @@ const TradeListPage = () => {
   }, []);
 
   // [용도] 거래 목록 조회 / [호출] useEffect, handleSync
-  // 거래가 존재하면 pendingSync 즉시 해제 (1분 기다리지 않음)
-  const fetchTrades = async () => {
-    setLoading(true);
+  // silent=true 이면 로딩 스피너 없이 데이터만 갱신 (자동 동기화 후 호출 시)
+  const fetchTrades = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await getTrades();
       setAllTrades(res.data);
@@ -82,7 +94,7 @@ const TradeListPage = () => {
     } catch (e) {
       console.error(e);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -90,45 +102,62 @@ const TradeListPage = () => {
   const fetchExchangeRate = async () => {
     try {
       const res = await api.get('/api/exchange-rate');
-      setKrwPerUsdt(Number(res.data.krwPerUsdt));
+      setRates({
+        KRW: Number(res.data.krwPerUsdt),
+        USD: 1,
+        CNY: Number(res.data.cnyPerUsdt),
+        JPY: Number(res.data.jpyPerUsdt),
+      });
     } catch (e) {
       console.error('환율 조회 실패', e);
     }
   };
 
-  // [용도] 동기화 버튼 핸들러 / [호출] 동기화 버튼 클릭
-  const handleSync = async (exchange) => {
+  // [용도] 등록된 거래소 전체 동기화 / [호출] 전체 동기화 버튼 클릭
+  const handleSyncAll = async () => {
     if (syncing) return;
-    setSyncing(exchange);
+    setSyncing('ALL');
     setSyncMessage('');
+
+    const SYNC_FN = {
+      UPBIT: syncUpbitTrades, BYBIT: syncBybitTrades, BITGET: syncBitgetTrades,
+      OKX: syncOkxTrades, BINANCE: syncBinanceTrades, BINGX: syncBingxTrades,
+    };
+
+    let exchanges = [];
     try {
-      const res = exchange === 'UPBIT'  ? await syncUpbitTrades()
-        : exchange === 'BYBIT'          ? await syncBybitTrades()
-        : exchange === 'BITGET'         ? await syncBitgetTrades()
-        :                                 await syncOkxTrades();
-      if (res.data.error) {
-        // 백엔드가 에러 메시지를 반환한 경우 (IP 차단 등)
-        setSyncMessage(res.data.error);
-      } else {
-        setSyncMessage(`${exchange} 동기화 완료 — ${res.data.savedCount}건 저장됨`);
-        setPendingSync(false);
-        fetchTrades();
-      }
-    } catch (e) {
-      // HTTP 에러 응답에서 메시지 추출
-      const errorMsg = e.response?.data?.error;
-      setSyncMessage(errorMsg || '동기화 실패. API Key를 확인해주세요.');
-    } finally {
+      const res = await getMyExchangeKeys();
+      exchanges = res.data.map(item => typeof item === 'string' ? item : item.exchange);
+    } catch {
+      setSyncMessage('거래소 목록 조회 실패');
       setSyncing(null);
+      return;
     }
+
+    let totalSaved = 0;
+    const errors = [];
+    for (const exchange of exchanges) {
+      const fn = SYNC_FN[exchange];
+      if (!fn) continue;
+      try {
+        const res = await fn();
+        if (res.data.error) errors.push(`${exchange}: ${res.data.error}`);
+        else totalSaved += res.data.savedCount ?? 0;
+      } catch (e) {
+        errors.push(`${exchange}: ${e.response?.data?.error || '실패'}`);
+      }
+    }
+
+    if (errors.length > 0) {
+      setSyncMessage(errors.join(' / '));
+    } else {
+      setSyncMessage(`전체 동기화 완료 — ${totalSaved}건 저장됨`);
+      setPendingSync(false);
+      fetchTrades();
+    }
+    setSyncing(null);
   };
 
-  // [용도] KRW/USD 토글 / [호출] 통화 버튼 클릭
-  const toggleCurrency = () => {
-    const next = displayCurrency === 'KRW' ? 'USD' : 'KRW';
-    setDisplayCurrency(next);
-    localStorage.setItem('displayCurrency', next);
-  };
 
   // [용도] 날짜 프리셋 선택/해제 / [호출] 날짜 버튼 클릭
   const handleDatePreset = (preset) => {
@@ -156,24 +185,35 @@ const TradeListPage = () => {
     setShowCalendar(false);
   };
 
-  // [용도] 가격 통화 변환 / [호출] formatPrice
+  // [용도] 수량 포맷 (소수점 작은 값도 정확히 표시) / [호출] 테이블/카드 렌더
+  const formatQty = (qty) => {
+    const num = Number(qty);
+    if (num === 0) return '0';
+    if (num >= 1) return num.toLocaleString(undefined, { maximumFractionDigits: 4 });
+    // 0.001 미만은 소수점 8자리까지 표시 후 후행 0 제거
+    return parseFloat(num.toFixed(8)).toString();
+  };
+
+  const CURRENCY_SYMBOL = { KRW: '₩', USD: '$', CNY: '¥', JPY: '¥' };
+  const CURRENCY_SUFFIX = { KRW: '원', USD: '$', CNY: '¥', JPY: '¥' };
+
+  // [용도] 가격을 선택된 통화로 변환 / [호출] formatPrice
   const convertPrice = (price, exchange) => {
     const num = Number(price);
-    if (!krwPerUsdt) return num;
     const isKrw = exchange === 'UPBIT';
-    if (displayCurrency === 'KRW') {
-      return isKrw ? num : Math.round(num * krwPerUsdt);
-    } else {
-      return isKrw ? (num / krwPerUsdt).toFixed(2) : num;
-    }
+    const targetRate = rates[displayCurrency] ?? 1;
+    // UPBIT은 KRW 기준, 나머지는 USDT 기준
+    return isKrw ? (num / rates.KRW * targetRate) : (num * targetRate);
   };
 
   // [용도] 가격 포맷 (통화 기호 포함) / [호출] 테이블/카드 렌더
   const formatPrice = (price, exchange) => {
     const converted = convertPrice(price, exchange);
-    return displayCurrency === 'KRW'
-      ? Number(converted).toLocaleString() + '원'
-      : '$' + Number(converted).toLocaleString();
+    const sym = CURRENCY_SYMBOL[displayCurrency] ?? '';
+    if (displayCurrency === 'KRW') {
+      return Math.round(converted).toLocaleString() + '원';
+    }
+    return sym + Number(converted).toLocaleString(undefined, { maximumFractionDigits: 2 });
   };
 
   // [용도] 날짜 필터 범위 계산 / [호출] 필터링 로직
@@ -211,11 +251,13 @@ const TradeListPage = () => {
     ).length;
 
   const tabs = [
-    { key: 'ALL',    label: '전체' },
-    { key: 'UPBIT',  label: 'Upbit' },
-    { key: 'BYBIT',  label: 'Bybit' },
-    { key: 'BITGET', label: 'Bitget' },
-    { key: 'OKX',    label: 'OKX' },
+    { key: 'ALL',     label: '전체' },
+    { key: 'UPBIT',   label: 'Upbit' },
+    { key: 'BYBIT',   label: 'Bybit' },
+    { key: 'BITGET',  label: 'Bitget' },
+    { key: 'OKX',     label: 'OKX' },
+    { key: 'BINANCE', label: 'Binance' },
+    { key: 'BINGX',   label: 'BingX' },
   ];
 
   const datePresets = [
@@ -235,44 +277,13 @@ const TradeListPage = () => {
       <div className="page-header anim-fade-up">
         <h1 className="page-title">거래 내역</h1>
         <div className="header-actions">
-          {/* 환율 + 통화 토글 */}
-          <div className="rate-box">
-            {krwPerUsdt && (
-              <span className="rate-text">1 USDT ≈ {krwPerUsdt.toLocaleString()}원</span>
-            )}
-            <button className="currency-toggle" onClick={toggleCurrency}>
-              {displayCurrency === 'KRW' ? '₩ KRW' : '$ USD'}
-            </button>
-          </div>
-
           {/* 동기화 버튼 */}
           <button
-            className="btn btn-upbit btn-sm"
-            onClick={() => handleSync('UPBIT')}
+            className="btn btn-primary btn-sm"
+            onClick={handleSyncAll}
             disabled={syncing !== null}
           >
-            {syncing === 'UPBIT' ? '동기화 중...' : 'Upbit 동기화'}
-          </button>
-          <button
-            className="btn btn-bybit btn-sm"
-            onClick={() => handleSync('BYBIT')}
-            disabled={syncing !== null}
-          >
-            {syncing === 'BYBIT' ? '동기화 중...' : 'Bybit 동기화'}
-          </button>
-          <button
-            className="btn btn-bitget btn-sm"
-            onClick={() => handleSync('BITGET')}
-            disabled={syncing !== null}
-          >
-            {syncing === 'BITGET' ? '동기화 중...' : 'Bitget 동기화'}
-          </button>
-          <button
-            className="btn btn-okx btn-sm"
-            onClick={() => handleSync('OKX')}
-            disabled={syncing !== null}
-          >
-            {syncing === 'OKX' ? '동기화 중...' : 'OKX 동기화'}
+            {syncing === 'ALL' ? '동기화 중...' : '전체 동기화'}
           </button>
         </div>
       </div>
@@ -292,7 +303,7 @@ const TradeListPage = () => {
       )}
 
       {/* 필터 바 */}
-      <div className="filter-bar anim-fade-up2">
+      <div className="filter-bar anim-fade-up2" style={{ position: 'relative', zIndex: 10 }}>
         {/* 거래소 탭 */}
         <div className="tabs">
           {tabs.map((tab) => (
@@ -430,7 +441,7 @@ const TradeListPage = () => {
                         {trade.side === 'BUY' ? '매수' : '매도'}
                       </span>
                     </td>
-                    <td className="mono">{Number(trade.qty).toLocaleString()}</td>
+                    <td className="mono">{formatQty(trade.qty)}</td>
                     <td className="mono">{formatPrice(trade.price, trade.exchange)}</td>
                     <td className="mono text-muted">{formatPrice(trade.fee, trade.exchange)}</td>
                     <td className="mono text-secondary" style={{ fontSize: '12px' }}>
@@ -465,7 +476,7 @@ const TradeListPage = () => {
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <div className="trade-card-label">수량</div>
-                    <div className="trade-card-value">{Number(trade.qty).toLocaleString()}</div>
+                    <div className="trade-card-value">{formatQty(trade.qty)}</div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <div className="trade-card-label">수수료</div>

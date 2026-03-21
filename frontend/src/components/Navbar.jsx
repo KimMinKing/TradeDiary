@@ -1,13 +1,16 @@
 // [파일 용도] 네비게이션 바 (데스크탑: 상단 고정 / 모바일: 하단 탭)
 
+import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import useAuthStore from '../store/authStore';
+import SettingsPanel from './SettingsPanel';
+import { getMe } from '../api/userApi';
 
-const INTERVAL_OPTIONS = [
-  { value: 30,  label: '30초' },
-  { value: 60,  label: '1분' },
-  { value: 300, label: '5분' },
-  { value: 0,   label: 'OFF' },
+const CURRENCY_OPTIONS = [
+  { value: 'KRW', label: '₩ 원화' },
+  { value: 'USD', label: '$ 달러' },
+  { value: 'CNY', label: '¥ 위안화' },
+  { value: 'JPY', label: '¥ 엔화' },
 ];
 
 // [컴포넌트] 인증된 페이지 공통 네비게이션 / [호출] Layout.jsx
@@ -15,37 +18,59 @@ const Navbar = ({ autoSync }) => {
   const navigate  = useNavigate();
   const location  = useLocation();
   const { isLoggedIn, logout } = useAuthStore();
+  const [currency, setCurrency] = useState(
+    () => localStorage.getItem('displayCurrency') || 'KRW'
+  );
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [profile, setProfile] = useState({ nickname: '', avatar: null });
 
-  const handleLogout = async () => {
-    await logout();
-    navigate('/login');
+  // [용도] 로그인 시 프로필 정보 로드 / [호출] 마운트 + profileUpdated 이벤트
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    getMe().then((res) => setProfile(res.data)).catch(() => {});
+    const onUpdate = (e) => setProfile((prev) => ({ ...prev, ...e.detail }));
+    window.addEventListener('profileUpdated', onUpdate);
+    return () => window.removeEventListener('profileUpdated', onUpdate);
+  }, [isLoggedIn]);
+
+  // [용도] 로그아웃 요청 이벤트 수신 (SettingsPanel에서 발행) / [호출] useEffect
+  useEffect(() => {
+    const handleLogoutRequest = async () => {
+      await logout();
+      navigate('/');
+    };
+    window.addEventListener('requestLogout', handleLogoutRequest);
+    return () => window.removeEventListener('requestLogout', handleLogoutRequest);
+  }, [logout, navigate]);
+
+  // [용도] 통화 변경 후 localStorage 저장 및 전역 이벤트 발행 / [호출] 통화 셀렉트 onChange
+  const handleCurrencyChange = (val) => {
+    setCurrency(val);
+    localStorage.setItem('displayCurrency', val);
+    window.dispatchEvent(new CustomEvent('currencyChange', { detail: val }));
   };
 
   const navItems = [
-    { path: '/dashboard',    label: '대시보드', icon: '⊞' },
-    { path: '/trades',       label: '거래 내역', icon: '≡' },
-    { path: '/positions',    label: '포지션',    icon: '◈' },
-    { path: '/stats',        label: '통계',      icon: '📊' },
-    { path: '/journal',      label: '매매 일기', icon: '📓' },
+    { path: '/trades',        label: '거래 내역',  icon: '≡' },
+    { path: '/positions',     label: '포지션',     icon: '◈' },
+    { path: '/stats',         label: '통계',       icon: '📊' },
+    { path: '/journal',       label: '매매 일기',  icon: '📓' },
     { path: '/exchange-keys', label: '거래소 연동', icon: '⚙' },
   ];
 
   const isActive = (path) => location.pathname === path;
 
-  // [용도] 마지막 동기화 시각을 "HH:MM:SS" 형식으로 표시
-  const fmtTime = (date) => {
-    if (!date) return null;
-    return date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  };
-
-  const { isSyncing, lastSyncAt, intervalSec, setIntervalSec } = autoSync ?? {};
+  // [용도] 아바타 버튼 내용 (이미지 또는 닉네임 첫 글자) / [호출] 렌더링
+  const avatarContent = profile.avatar
+    ? <img src={profile.avatar} alt="프로필" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
+    : (profile.nickname ? profile.nickname.charAt(0).toUpperCase() : '?');
 
   return (
     <>
       {/* ── 데스크탑 상단 바 ── */}
       <nav className="top-nav">
         <div className="top-nav-inner">
-          <span className="nav-logo" onClick={() => navigate('/dashboard')}>
+          <span className="nav-logo" onClick={() => navigate('/')}>
             TradeDiary
           </span>
 
@@ -62,43 +87,54 @@ const Navbar = ({ autoSync }) => {
           </div>
 
           <div className="nav-right">
-            {/* 자동 동기화 상태 */}
-            {autoSync && (
-              <div className="auto-sync-wrap">
-                {/* 주기 선택 드롭다운 */}
+            {isLoggedIn && (
+              <>
                 <select
-                  className="auto-sync-select"
-                  value={intervalSec}
-                  onChange={(e) => setIntervalSec(Number(e.target.value))}
-                  title="자동 동기화 주기"
+                  className="currency-select"
+                  value={currency}
+                  onChange={(e) => handleCurrencyChange(e.target.value)}
                 >
-                  {INTERVAL_OPTIONS.map((opt) => (
+                  {CURRENCY_OPTIONS.map((opt) => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
                 </select>
-
-                {/* 동기화 상태 표시 */}
-                {intervalSec > 0 && (
-                  <span className={`auto-sync-status ${isSyncing ? 'syncing' : 'idle'}`}>
-                    {isSyncing ? '동기화 중...' : lastSyncAt ? `${fmtTime(lastSyncAt)} 동기화됨` : '자동 동기화 ON'}
-                  </span>
-                )}
-              </div>
-            )}
-
-            {isLoggedIn ? (
-              <>
-                <span className="nav-status-online">● 로그인 중</span>
-                <button className="nav-logout" onClick={handleLogout}>
-                  로그아웃
+                <button
+                  className="avatar-btn"
+                  onClick={() => setSettingsOpen((v) => !v)}
+                  title="설정"
+                >
+                  {avatarContent}
                 </button>
               </>
-            ) : (
-              <span className="nav-status-offline">● 세션 만료</span>
             )}
           </div>
         </div>
       </nav>
+
+      {/* ── 모바일 상단 바 (로고 + 통화 + 아바타) ── */}
+      <div className="mobile-top-bar">
+        <span className="nav-logo" onClick={() => navigate('/')}>TradeDiary</span>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <select
+            className="currency-select"
+            value={currency}
+            onChange={(e) => handleCurrencyChange(e.target.value)}
+          >
+            {CURRENCY_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+          {isLoggedIn && (
+            <button
+              className="avatar-btn"
+              onClick={() => setSettingsOpen((v) => !v)}
+              title="설정"
+            >
+              {avatarContent}
+            </button>
+          )}
+        </div>
+      </div>
 
       {/* ── 모바일 하단 탭 바 ── */}
       <nav className="bottom-nav">
@@ -113,12 +149,13 @@ const Navbar = ({ autoSync }) => {
               <span>{item.label}</span>
             </button>
           ))}
-          <button className="bottom-nav-item" onClick={handleLogout}>
-            <span className="bottom-nav-icon">⎋</span>
-            <span>로그아웃</span>
-          </button>
         </div>
       </nav>
+
+      {/* ── 설정 패널 (단일 인스턴스, fixed 위치) ── */}
+      {isLoggedIn && settingsOpen && (
+        <SettingsPanel onClose={() => setSettingsOpen(false)} />
+      )}
     </>
   );
 };

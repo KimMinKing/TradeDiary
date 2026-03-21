@@ -1,61 +1,149 @@
 // [파일 용도] 포지션 목록 페이지 (거래소 필터 탭 + 수익률/수익금 표시)
 
 import { useState, useEffect } from 'react';
-import { getPositions, rebuildPositions } from '../api/exchangeApi';
+import { getPositions, rebuildAllPositions, getOpenWindows, getTrades } from '../api/exchangeApi';
+import api from '../api/authApi';
 
 // [컴포넌트] 완결된 포지션 목록 및 통계 표시 / [호출] App.jsx 라우터
 const PositionListPage = () => {
-  const [positions,   setPositions]   = useState([]);
-  const [activeTab,   setActiveTab]   = useState('ALL');
-  const [loading,     setLoading]     = useState(true);
-  const [rebuilding,  setRebuilding]  = useState(null);
-  const [message,     setMessage]     = useState('');
+  const [positions,    setPositions]    = useState([]);
+  const [openWindows,  setOpenWindows]  = useState([]);  // 미청산 포지션 윈도우
+  const [activeTab,    setActiveTab]    = useState('ALL');
+  const [loading,      setLoading]      = useState(true);
+  const [rebuilding,   setRebuilding]   = useState(false);
+  const [message,      setMessage]      = useState('');
+  const [tradesModal,  setTradesModal]  = useState(null); // { symbol, exchange, trades[] }
+  const [displayCurrency, setDisplayCurrency] = useState(
+    () => localStorage.getItem('displayCurrency') || 'KRW'
+  );
+  const [rates, setRates] = useState({ KRW: 1400, USD: 1, CNY: 7.2, JPY: 150 });
 
-  useEffect(() => { fetchPositions(); }, []);
+  useEffect(() => {
+    fetchPositions();
+    fetchExchangeRate();
+    const onAutoSync = () => fetchPositions(true);
+    const onCurrencyChange = (e) => setDisplayCurrency(e.detail);
+    window.addEventListener('autoSyncComplete', onAutoSync);
+    window.addEventListener('currencyChange', onCurrencyChange);
+    return () => {
+      window.removeEventListener('autoSyncComplete', onAutoSync);
+      window.removeEventListener('currencyChange', onCurrencyChange);
+    };
+  }, []);
 
-  // [용도] 포지션 목록 조회 / [호출] useEffect, rebuild 완료 후
-  const fetchPositions = async () => {
-    setLoading(true);
+  // [용도] 포지션 목록 + 미청산 윈도우 조회 / [호출] useEffect, rebuild 완료 후
+  // silent=true 이면 로딩 스피너 없이 데이터만 갱신 (자동 동기화 후 호출 시)
+  const fetchPositions = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await getPositions();
       setPositions(res.data);
+      // Upbit 미청산 포지션 윈도우 조회 (진단용)
+      const [upbitOpen, bybitOpen, bitgetOpen, okxOpen, binanceOpen, bingxOpen] = await Promise.allSettled([
+        getOpenWindows('UPBIT'),
+        getOpenWindows('BYBIT'),
+        getOpenWindows('BITGET'),
+        getOpenWindows('OKX'),
+        getOpenWindows('BINANCE'),
+        getOpenWindows('BINGX'),
+      ]);
+      const allOpen = [
+        ...(upbitOpen.status   === 'fulfilled' ? upbitOpen.value.data.map(w   => ({ ...w, exchange: 'UPBIT'   })) : []),
+        ...(bybitOpen.status   === 'fulfilled' ? bybitOpen.value.data.map(w   => ({ ...w, exchange: 'BYBIT'   })) : []),
+        ...(bitgetOpen.status  === 'fulfilled' ? bitgetOpen.value.data.map(w  => ({ ...w, exchange: 'BITGET'  })) : []),
+        ...(okxOpen.status     === 'fulfilled' ? okxOpen.value.data.map(w     => ({ ...w, exchange: 'OKX'     })) : []),
+        ...(binanceOpen.status === 'fulfilled' ? binanceOpen.value.data.map(w => ({ ...w, exchange: 'BINANCE' })) : []),
+        ...(bingxOpen.status   === 'fulfilled' ? bingxOpen.value.data.map(w   => ({ ...w, exchange: 'BINGX'   })) : []),
+      ];
+      setOpenWindows(allOpen);
     } catch (e) {
       console.error(e);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
-  // [용도] 포지션 수동 재계산 버튼 / [호출] 재계산 버튼 클릭
-  const handleRebuild = async (exchange) => {
+  // [용도] 미청산 포지션 거래 내역 모달 열기 / [호출] 보기 버튼 클릭
+  const handleViewWindow = async (w) => {
+    const res = await getTrades(w.exchange);
+    const filtered = res.data.filter(t => t.symbol === w.symbol);
+    setTradesModal({ symbol: w.symbol, exchange: w.exchange, trades: filtered });
+  };
+
+  // [용도] 전체 포지션 일괄 재계산 / [호출] 재계산 버튼 클릭
+  const handleRebuildAll = async () => {
     if (rebuilding) return;
-    setRebuilding(exchange);
+    setRebuilding(true);
     setMessage('');
     try {
-      await rebuildPositions(exchange);
-      setMessage(`${exchange} 포지션 재계산 완료`);
+      await rebuildAllPositions();
+      setMessage('전체 포지션 재계산 완료');
       fetchPositions();
     } catch {
       setMessage('포지션 재계산 실패');
     } finally {
-      setRebuilding(null);
+      setRebuilding(false);
     }
   };
 
   const tabs = [
-    { key: 'ALL',    label: '전체' },
-    { key: 'UPBIT',  label: 'Upbit' },
-    { key: 'BYBIT',  label: 'Bybit' },
-    { key: 'BITGET', label: 'Bitget' },
-    { key: 'OKX',    label: 'OKX' },
+    { key: 'ALL',     label: '전체' },
+    { key: 'UPBIT',   label: 'Upbit' },
+    { key: 'BYBIT',   label: 'Bybit' },
+    { key: 'BITGET',  label: 'Bitget' },
+    { key: 'OKX',     label: 'OKX' },
+    { key: 'BINANCE', label: 'Binance' },
+    { key: 'BINGX',   label: 'BingX' },
   ];
 
   const filtered = activeTab === 'ALL'
     ? positions
     : positions.filter((p) => p.exchange === activeTab);
 
-  // [용도] 숫자 포맷 (소수점 정리) / [호출] 테이블/카드 렌더
-  const fmt = (val, digits = 2) => {
+  // [용도] 환율 조회 / [호출] useEffect
+  const fetchExchangeRate = async () => {
+    try {
+      const res = await api.get('/api/exchange-rate');
+      setRates({
+        KRW: Number(res.data.krwPerUsdt),
+        USD: 1,
+        CNY: Number(res.data.cnyPerUsdt),
+        JPY: Number(res.data.jpyPerUsdt),
+      });
+    } catch (e) {
+      console.error('환율 조회 실패', e);
+    }
+  };
+
+  const CURRENCY_SYMBOL = { KRW: '₩', USD: '$', CNY: '¥', JPY: '¥' };
+
+  // [용도] 가격을 선택된 통화로 변환 / [호출] formatPrice
+  const convertPrice = (price, exchange) => {
+    const num = Number(price);
+    const isKrw = exchange === 'UPBIT';
+    const targetRate = rates[displayCurrency] ?? 1;
+    return isKrw ? (num / rates.KRW * targetRate) : (num * targetRate);
+  };
+
+  // [용도] 가격 포맷 (통화 기호 포함) / [호출] 테이블/카드 렌더
+  const formatPrice = (price, exchange) => {
+    const converted = convertPrice(price, exchange);
+    if (displayCurrency === 'KRW') return Math.round(converted).toLocaleString() + '원';
+    const sym = CURRENCY_SYMBOL[displayCurrency] ?? '';
+    return sym + Number(converted).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  };
+
+  // [용도] PnL 포맷 (부호 포함) / [호출] 테이블/카드 렌더
+  const formatPnl = (pnl, exchange) => {
+    const converted = convertPrice(pnl, exchange);
+    const sign = converted >= 0 ? '+' : '';
+    if (displayCurrency === 'KRW') return sign + Math.round(converted).toLocaleString() + '원';
+    const sym = CURRENCY_SYMBOL[displayCurrency] ?? '';
+    return sign + sym + Math.abs(converted).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  };
+
+  // [용도] 숫자 포맷 (소수점 정리) / [호출] 수량 렌더
+  const fmt = (val, digits = 6) => {
     const num = Number(val);
     return isNaN(num) ? '-' : num.toLocaleString(undefined, {
       minimumFractionDigits: 0,
@@ -66,9 +154,6 @@ const PositionListPage = () => {
   // [용도] PnL 부호에 따른 색상 클래스 / [호출] 렌더
   const pnlClass = (pnl) => Number(pnl) >= 0 ? 'text-buy' : 'text-sell';
 
-  // [용도] 거래소별 통화 기호 / [호출] 렌더
-  const currency = (exchange) => exchange === 'UPBIT' ? '원' : ' USDT';
-
   // [용도] 날짜 포맷 (T 제거, 초 이하 제거) / [호출] 렌더
   const fmtDate = (dt) => dt?.replace('T', ' ').slice(0, 16) ?? '-';
 
@@ -76,9 +161,8 @@ const PositionListPage = () => {
   const wins  = filtered.filter((p) => Number(p.pnl) >= 0).length;
   const total = filtered.length;
   const winRate = total > 0 ? Math.round((wins / total) * 100) : 0;
-  const totalPnlByExchange = (exchange) =>
-    filtered.filter((p) => exchange === 'ALL' || p.exchange === exchange)
-      .reduce((sum, p) => sum + Number(p.pnl), 0);
+  // 거래소별 환율 변환을 적용한 총 손익
+  const totalPnl = filtered.reduce((sum, p) => sum + convertPrice(Number(p.pnl), p.exchange), 0);
 
   return (
     <div className="page">
@@ -87,35 +171,62 @@ const PositionListPage = () => {
         <h1 className="page-title">포지션</h1>
         <div className="header-actions">
           <button
-            className="btn btn-upbit btn-sm"
-            onClick={() => handleRebuild('UPBIT')}
-            disabled={rebuilding !== null}
+            className="btn btn-sm"
+            onClick={handleRebuildAll}
+            disabled={rebuilding}
+            style={{
+              background: 'rgba(255,255,255,0.06)',
+              border: '1px solid rgba(255,255,255,0.12)',
+              color: 'var(--text-secondary)',
+            }}
           >
-            {rebuilding === 'UPBIT' ? '계산 중...' : 'Upbit 재계산'}
-          </button>
-          <button
-            className="btn btn-bybit btn-sm"
-            onClick={() => handleRebuild('BYBIT')}
-            disabled={rebuilding !== null}
-          >
-            {rebuilding === 'BYBIT' ? '계산 중...' : 'Bybit 재계산'}
-          </button>
-          <button
-            className="btn btn-bitget btn-sm"
-            onClick={() => handleRebuild('BITGET')}
-            disabled={rebuilding !== null}
-          >
-            {rebuilding === 'BITGET' ? '계산 중...' : 'Bitget 재계산'}
-          </button>
-          <button
-            className="btn btn-okx btn-sm"
-            onClick={() => handleRebuild('OKX')}
-            disabled={rebuilding !== null}
-          >
-            {rebuilding === 'OKX' ? '계산 중...' : 'OKX 재계산'}
+            {rebuilding ? '재계산 중...' : '전체 재계산'}
           </button>
         </div>
       </div>
+
+      {/* 미청산 포지션 안내 (포지션으로 잡히지 않는 이유 진단) */}
+      {openWindows.length > 0 && (
+        <div className="card anim-fade-up2" style={{ marginBottom: '16px', borderLeft: '3px solid #facc15' }}>
+          <p className="section-title" style={{ color: '#facc15', marginBottom: '8px' }}>
+            미청산 포지션 ({openWindows.length}개 심볼)
+          </p>
+          <p className="text-xs text-muted" style={{ marginBottom: '8px' }}>
+            아래 종목은 매수/매도 수량이 일치하지 않아 포지션으로 잡히지 않습니다.
+            잔여 수량이 모두 청산되면 포지션으로 기록됩니다.
+          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+            {openWindows.map((w, i) => (
+              <div key={i} style={{
+                display: 'flex', alignItems: 'center', gap: '8px',
+                padding: '6px 12px', borderRadius: '6px',
+                background: 'rgba(250,204,21,0.08)', border: '1px solid rgba(250,204,21,0.2)',
+                fontSize: '12px',
+              }}>
+                <span className={`badge badge-${w.exchange.toLowerCase()}`} style={{ fontSize: '10px' }}>
+                  {w.exchange}
+                </span>
+                <span className="mono" style={{ fontWeight: 600 }}>{w.symbol}</span>
+                <span className="text-muted">
+                  잔여 <span className="mono" style={{ color: '#facc15' }}>
+                    {parseFloat(Number(w.net_qty).toFixed(8)).toString()}
+                  </span>
+                </span>
+                <span className="text-muted" style={{ fontSize: '11px' }}>
+                  ({w.trade_count}건)
+                </span>
+                <button
+                  className="btn btn-ghost btn-xs"
+                  style={{ marginLeft: 'auto', fontSize: '11px' }}
+                  onClick={() => handleViewWindow(w)}
+                >
+                  보기
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {message && (
         <p className={message.includes('실패') ? 'msg-error' : 'msg-success'}
@@ -166,6 +277,15 @@ const PositionListPage = () => {
               <span className="text-sell">{total - wins}</span>
             </div>
           </div>
+          <div className="card" style={{ flex: 1, minWidth: '120px', padding: '16px' }}>
+            <div className="text-xs text-muted" style={{ marginBottom: '4px' }}>총 손익 ({displayCurrency})</div>
+            <div className={`syne ${pnlClass(totalPnl)}`} style={{ fontSize: '22px', fontWeight: 700 }}>
+              {totalPnl >= 0 ? '+' : ''}
+              {displayCurrency === 'KRW'
+                ? Math.round(totalPnl).toLocaleString() + '원'
+                : (CURRENCY_SYMBOL[displayCurrency] ?? '') + Math.abs(totalPnl).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+            </div>
+          </div>
         </div>
       )}
 
@@ -197,9 +317,9 @@ const PositionListPage = () => {
                   <th>종목</th>
                   <th>방향</th>
                   <th>수량</th>
-                  <th>진입가</th>
-                  <th>청산가</th>
-                  <th>손익</th>
+                  <th>진입가 ({displayCurrency})</th>
+                  <th>청산가 ({displayCurrency})</th>
+                  <th>손익 ({displayCurrency})</th>
                   <th>수익률</th>
                   <th>청산일시</th>
                 </tr>
@@ -218,11 +338,11 @@ const PositionListPage = () => {
                         {pos.side === 'LONG' ? '롱' : '숏'}
                       </span>
                     </td>
-                    <td className="mono">{fmt(pos.qty, 6)}</td>
-                    <td className="mono">{fmt(pos.entry_price)}{currency(pos.exchange)}</td>
-                    <td className="mono">{fmt(pos.exit_price)}{currency(pos.exchange)}</td>
+                    <td className="mono">{fmt(pos.qty)}</td>
+                    <td className="mono">{formatPrice(pos.entry_price, pos.exchange)}</td>
+                    <td className="mono">{formatPrice(pos.exit_price, pos.exchange)}</td>
                     <td className={`mono ${pnlClass(pos.pnl)}`}>
-                      {Number(pos.pnl) >= 0 ? '+' : ''}{fmt(pos.pnl)}{currency(pos.exchange)}
+                      {formatPnl(pos.pnl, pos.exchange)}
                     </td>
                     <td className={`mono ${pnlClass(pos.pnl)}`} style={{ fontWeight: 600 }}>
                       {Number(pos.pnl_rate) >= 0 ? '+' : ''}{fmt(pos.pnl_rate, 2)}%
@@ -253,16 +373,16 @@ const PositionListPage = () => {
                 <div className="trade-card-row">
                   <div>
                     <div className="trade-card-label">진입가</div>
-                    <div className="trade-card-value mono">{fmt(pos.entry_price)}</div>
+                    <div className="trade-card-value mono">{formatPrice(pos.entry_price, pos.exchange)}</div>
                   </div>
                   <div style={{ textAlign: 'center' }}>
                     <div className="trade-card-label">청산가</div>
-                    <div className="trade-card-value mono">{fmt(pos.exit_price)}</div>
+                    <div className="trade-card-value mono">{formatPrice(pos.exit_price, pos.exchange)}</div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <div className="trade-card-label">손익</div>
                     <div className={`trade-card-value mono ${pnlClass(pos.pnl)}`}>
-                      {Number(pos.pnl) >= 0 ? '+' : ''}{fmt(pos.pnl)}
+                      {formatPnl(pos.pnl, pos.exchange)}
                     </div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
@@ -275,6 +395,58 @@ const PositionListPage = () => {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* 미청산 거래 내역 모달 */}
+      {tradesModal && (
+        <div className="modal-overlay" onClick={() => setTradesModal(null)}>
+          <div className="modal" style={{ maxWidth: '600px', width: '90%' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 className="modal-title">
+                <span className={`badge badge-${tradesModal.exchange.toLowerCase()}`} style={{ marginRight: '8px' }}>
+                  {tradesModal.exchange}
+                </span>
+                {tradesModal.symbol} 미완결 거래 내역
+              </h2>
+              <button className="btn btn-ghost btn-xs" onClick={() => setTradesModal(null)}>✕</button>
+            </div>
+            <div className="modal-body" style={{ maxHeight: '420px', overflowY: 'auto' }}>
+              {tradesModal.trades.length === 0 ? (
+                <p className="text-muted" style={{ textAlign: 'center', padding: '24px 0' }}>거래 내역이 없습니다</p>
+              ) : (
+                <table className="trade-table" style={{ fontSize: '12px' }}>
+                  <thead>
+                    <tr>
+                      <th>방향</th>
+                      <th>수량</th>
+                      <th>가격</th>
+                      <th>체결시각</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tradesModal.trades.map(t => (
+                      <tr key={t.id}>
+                        <td>
+                          <span className={`badge badge-${t.side.toLowerCase()}`}>
+                            {t.side === 'BUY' ? '매수' : '매도'}
+                          </span>
+                        </td>
+                        <td className="mono">{parseFloat(Number(t.qty).toFixed(8)).toString()}</td>
+                        <td className="mono">{Number(t.price).toLocaleString()}</td>
+                        <td className="mono text-secondary" style={{ fontSize: '11px' }}>
+                          {t.traded_at?.replace('T', ' ').slice(0, 19)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={() => setTradesModal(null)}>닫기</button>
+            </div>
           </div>
         </div>
       )}
