@@ -66,12 +66,12 @@ const LandingPage = () => {
 
       {/* ── 상단 네비 ── */}
       <nav className="landing-nav">
-        <span className="landing-nav-logo">TradeDiary</span>
+        <span className="landing-nav-logo" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <img src="/favicon.svg" alt="logo" style={{ width: '24px', height: '24px' }} />
+          TradeDiary
+        </span>
         {!isLoggedIn && (
           <div className="landing-nav-actions">
-            <button className="btn btn-ghost btn-sm" onClick={() => setModal('login')}>
-              로그인
-            </button>
             <button className="btn btn-primary btn-sm" onClick={() => setModal('signup')}>
               무료 시작
             </button>

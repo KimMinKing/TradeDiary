@@ -196,6 +196,38 @@ const ExchangeKeyPage = () => {
           )}
         </div>
 
+        {/* IP 화이트리스트 안내 */}
+        <div style={{
+          margin: '16px 0',
+          padding: '14px 16px',
+          borderRadius: '10px',
+          background: 'rgba(251,191,36,0.1)',
+          border: '2px solid rgba(251,191,36,0.6)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+            <span style={{ fontSize: '16px' }}>⚠️</span>
+            <span style={{ fontWeight: 700, fontSize: '14px', color: '#fbbf24' }}>IP 화이트리스트 설정 필수</span>
+          </div>
+          <p style={{ fontSize: '13px', color: '#fde68a', lineHeight: '1.7', margin: 0 }}>
+            거래소 API Key 발급 시 <strong style={{ color: '#fbbf24' }}>IP 제한(화이트리스트)</strong> 설정이 있다면
+            아래 서버 IP를 반드시 추가하세요.<br />
+            추가하지 않으면 데이터 동기화가 되지 않습니다.
+          </p>
+          <div style={{
+            marginTop: '10px',
+            padding: '8px 12px',
+            background: 'rgba(0,0,0,0.3)',
+            borderRadius: '6px',
+            fontFamily: 'monospace',
+            fontSize: '15px',
+            color: '#fbbf24',
+            fontWeight: 700,
+            letterSpacing: '0.05em',
+          }}>
+            152.69.206.56
+          </div>
+        </div>
+
         {/* 거래소 연결 버튼 */}
         <button
           className="btn btn-primary btn-full"

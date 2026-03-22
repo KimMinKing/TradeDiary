@@ -70,7 +70,8 @@ const Navbar = ({ autoSync }) => {
       {/* ── 데스크탑 상단 바 ── */}
       <nav className="top-nav">
         <div className="top-nav-inner">
-          <span className="nav-logo" onClick={() => navigate('/')}>
+          <span className="nav-logo" onClick={() => navigate('/')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <img src="/favicon.svg" alt="logo" style={{ width: '26px', height: '26px' }} />
             TradeDiary
           </span>
 
@@ -113,7 +114,10 @@ const Navbar = ({ autoSync }) => {
 
       {/* ── 모바일 상단 바 (로고 + 통화 + 아바타) ── */}
       <div className="mobile-top-bar">
-        <span className="nav-logo" onClick={() => navigate('/')}>TradeDiary</span>
+        <span className="nav-logo" onClick={() => navigate('/')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <img src="/favicon.svg" alt="logo" style={{ width: '22px', height: '22px' }} />
+          TradeDiary
+        </span>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <select
             className="currency-select"
