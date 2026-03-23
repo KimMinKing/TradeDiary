@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import LandingPage from './pages/LandingPage';
+import OAuthCallbackPage from './pages/OAuthCallbackPage';
 import ExchangeKeyPage from './pages/ExchangeKeyPage';
 import TradeListPage from './pages/TradeListPage';
 import PositionListPage from './pages/PositionListPage';
@@ -58,6 +59,7 @@ const App = () => {
           path="/stats"
           element={<PrivateRoute><StatsPage /></PrivateRoute>}
         />
+        <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

@@ -14,4 +14,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     // [용도] 이메일 중복 확인 / [호출] UserService.signup()
     boolean existsByEmail(String email);
+
+    // [용도] Google ID로 사용자 조회 / [호출] GoogleOAuth2UserService.loadUser()
+    Optional<User> findByGoogleId(String googleId);
 }

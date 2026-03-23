@@ -2,6 +2,7 @@
 .env
 .env.*
 *.env
+backend/src/main/resources/application-local.yml
 # 템플릿 파일은 커밋 허용
 !.env.example
 

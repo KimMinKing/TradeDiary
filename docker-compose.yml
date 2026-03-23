@@ -34,6 +34,9 @@ services:
       DB_PASSWORD: tradediary
       JWT_SECRET: ${JWT_SECRET}
       AES_SECRET: ${AES_SECRET}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      FRONTEND_URL: https://tradediary.site
       AI_SERVER_URL: http://ai-server:8000
       TZ: Asia/Seoul
     ports:

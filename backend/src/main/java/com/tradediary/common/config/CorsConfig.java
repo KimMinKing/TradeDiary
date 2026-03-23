@@ -17,6 +17,8 @@ public class CorsConfig {
     public CorsFilter corsFilter() {
         CorsConfiguration config = new CorsConfiguration();
         config.addAllowedOriginPattern("http://localhost:*");
+        config.addAllowedOriginPattern("https://tradediary.site");
+        config.addAllowedOriginPattern("https://www.tradediary.site");
         config.addAllowedMethod("*");
         config.addAllowedHeader("*");
         config.setAllowCredentials(true);

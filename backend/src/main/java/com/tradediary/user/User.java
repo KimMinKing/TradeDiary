@@ -24,11 +24,14 @@ public class User {
     @Column(nullable = false, unique = true, length = 100)
     private String email;
 
-    @Column(nullable = false)
+    @Column(nullable = true)
     private String password;
 
     @Column(nullable = false, length = 50)
     private String nickname;
+
+    @Column(unique = true, length = 100)
+    private String googleId;
 
     @Column(columnDefinition = "TEXT")
     private String avatar;
@@ -40,11 +43,18 @@ public class User {
     private LocalDateTime updatedAt;
 
     @Builder
-    public User(String email, String password, String nickname) {
+    public User(String email, String password, String nickname, String googleId) {
         this.email = email;
         this.password = password;
         this.nickname = nickname;
+        this.googleId = googleId;
         this.createdAt = LocalDateTime.now();
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    // [용도] 기존 이메일 계정에 Google ID 연동 / [호출] GoogleOAuth2UserService.loadUser()
+    public void linkGoogleId(String googleId) {
+        this.googleId = googleId;
         this.updatedAt = LocalDateTime.now();
     }
 

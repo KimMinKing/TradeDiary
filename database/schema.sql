@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS users (
 );
 -- 기존 DB 마이그레이션
 ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(100) UNIQUE;
+ALTER TABLE users ALTER COLUMN password DROP NOT NULL;
 
 -- =============================================
 -- JWT RefreshToken 저장
