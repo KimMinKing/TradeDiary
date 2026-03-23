@@ -1,9 +1,11 @@
 // [파일 용도] 메인 랜딩 페이지 (서비스 소개 + 로그인/회원가입 모달)
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AuthModal from '../components/AuthModal';
 import useAuthStore from '../store/authStore';
+import SettingsPanel from '../components/SettingsPanel';
+import { getMe } from '../api/userApi';
 
 const FEATURES = [
   {
@@ -58,8 +60,19 @@ const STEPS = [
 // [컴포넌트] 서비스 메인 랜딩 페이지 / [호출] App.jsx 라우터
 const LandingPage = () => {
   const [modal, setModal] = useState(null); // null | 'login' | 'signup'
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [profile, setProfile] = useState({ nickname: '', avatar: null });
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    getMe().then((res) => setProfile(res.data)).catch(() => {});
+  }, [isLoggedIn]);
+
+  const avatarContent = profile.avatar
+    ? <img src={profile.avatar} alt="프로필" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
+    : (profile.nickname ? profile.nickname.charAt(0).toUpperCase() : '?');
 
   return (
     <div className="landing-wrap">
@@ -67,16 +80,24 @@ const LandingPage = () => {
       {/* ── 상단 네비 ── */}
       <nav className="landing-nav">
         <span className="landing-nav-logo" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <img src="/favicon.svg" alt="logo" style={{ width: '24px', height: '24px' }} />
-          TradeDiary
+          <img src="/favicon.svg" alt="logo" style={{ width: '17px', height: '17px' }} />
+          Trade Diary
         </span>
-        {!isLoggedIn && (
-          <div className="landing-nav-actions">
+        <div className="landing-nav-actions">
+          {isLoggedIn ? (
+            <button
+              className="avatar-btn"
+              onClick={() => setSettingsOpen((v) => !v)}
+              title="설정"
+            >
+              {avatarContent}
+            </button>
+          ) : (
             <button className="btn btn-primary btn-sm" onClick={() => setModal('signup')}>
               무료 시작
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </nav>
 
       {/* ── 히어로 ── */}
@@ -120,11 +141,13 @@ const LandingPage = () => {
           <div className="landing-exchanges-grid">
             {EXCHANGES.map((ex) => (
               <div key={ex.name} className="landing-exchange-card">
-                <span
-                  className="landing-exchange-dot"
-                  style={{ background: ex.color }}
+                <img
+                  src={`/exchanges/${ex.name.toLowerCase()}_logo.png`}
+                  alt={ex.name}
+                  style={{ height: '20px', width: 'auto', objectFit: 'contain', maxWidth: '80px', marginBottom: '2px' }}
+                  onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'inline'; }}
                 />
-                <span className="landing-exchange-name">{ex.name}</span>
+                <span className="landing-exchange-name" style={{ display: 'none' }}>{ex.name}</span>
                 <span className="landing-exchange-desc">{ex.desc}</span>
               </div>
             ))}
@@ -196,15 +219,18 @@ const LandingPage = () => {
 
       {/* ── 푸터 ── */}
       <footer className="landing-footer">
-        <span className="landing-nav-logo" style={{ fontSize: '14px' }}>TradeDiary</span>
+        <span className="landing-nav-logo" style={{ fontSize: '14px' }}>Trade Diary</span>
         <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
-          © 2025 TradeDiary. 투자의 책임은 본인에게 있습니다.
+          © 2025 Trade Diary. 투자의 책임은 본인에게 있습니다.
         </span>
       </footer>
 
       {/* ── 인증 모달 ── */}
       {modal && (
         <AuthModal initialMode={modal} onClose={() => setModal(null)} />
+      )}
+      {isLoggedIn && settingsOpen && (
+        <SettingsPanel onClose={() => setSettingsOpen(false)} />
       )}
     </div>
   );

@@ -18,18 +18,60 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// [용도] 401 응답 시 토큰 삭제 후 로그인 페이지로 이동 / [호출] axios 인터셉터 자동 실행
-// 로그인/회원가입 API 자체의 401은 제외 (잘못된 비밀번호 등)
+// [용도] 토큰 갱신 중복 방지용 플래그 및 대기 큐 / [호출] 응답 인터셉터
+let isRefreshing = false;
+let refreshQueue = [];
+
+const processQueue = (error, token = null) => {
+  refreshQueue.forEach(({ resolve, reject }) => error ? reject(error) : resolve(token));
+  refreshQueue = [];
+};
+
+// [용도] 401 응답 시 RefreshToken으로 AccessToken 재발급 후 원래 요청 재시도 / [호출] axios 인터셉터 자동 실행
+// 재발급 실패 또는 로그인/회원가입 API 401은 로그아웃 처리
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
     const isAuthEndpoint = error.config?.url?.includes('/api/auth/');
-    if (error.response?.status === 401 && !isAuthEndpoint) {
+    if (error.response?.status !== 401 || isAuthEndpoint) {
+      return Promise.reject(error);
+    }
+
+    const refreshToken = localStorage.getItem('refreshToken');
+    if (!refreshToken) {
+      localStorage.removeItem('accessToken');
+      window.location.href = '/';
+      return Promise.reject(error);
+    }
+
+    // 이미 갱신 중이면 큐에 대기
+    if (isRefreshing) {
+      return new Promise((resolve, reject) => {
+        refreshQueue.push({ resolve, reject });
+      }).then(token => {
+        error.config.headers.Authorization = `Bearer ${token}`;
+        return api(error.config);
+      });
+    }
+
+    isRefreshing = true;
+    try {
+      const res = await axios.post('/api/auth/refresh', { refreshToken });
+      const newAccess = res.data.access_token;
+      localStorage.setItem('accessToken', newAccess);
+      if (res.data.refresh_token) localStorage.setItem('refreshToken', res.data.refresh_token);
+      processQueue(null, newAccess);
+      error.config.headers.Authorization = `Bearer ${newAccess}`;
+      return api(error.config);
+    } catch (refreshError) {
+      processQueue(refreshError);
       localStorage.removeItem('accessToken');
       localStorage.removeItem('refreshToken');
-      window.location.href = '/login';
+      window.location.href = '/';
+      return Promise.reject(refreshError);
+    } finally {
+      isRefreshing = false;
     }
-    return Promise.reject(error);
   }
 );
 

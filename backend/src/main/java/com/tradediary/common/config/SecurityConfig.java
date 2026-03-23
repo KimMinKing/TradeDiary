@@ -6,6 +6,7 @@ import com.tradediary.common.security.GoogleOAuth2UserService;
 import com.tradediary.common.security.JwtFilter;
 import com.tradediary.common.security.OAuth2SuccessHandler;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -29,6 +30,9 @@ public class SecurityConfig {
     private final GoogleOAuth2UserService googleOAuth2UserService;
     private final OAuth2SuccessHandler oAuth2SuccessHandler;
 
+    @Value("${frontend.url}")
+    private String frontendUrl;
+
     // [용도] Security 필터 체인 설정 / [호출] Spring Security 자동 감지
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -46,6 +50,9 @@ public class SecurityConfig {
                 .oauth2Login(oauth2 -> oauth2
                         .userInfoEndpoint(userInfo -> userInfo.userService(googleOAuth2UserService))
                         .successHandler(oAuth2SuccessHandler)
+                        // 취소/오류 시 프론트엔드 홈으로 리다이렉트
+                        .failureHandler((request, response, exception) ->
+                                response.sendRedirect(frontendUrl))
                 )
                 // /api/** 인증 실패 시 Spring 기본 /login 리다이렉트 대신 401 반환
                 .exceptionHandling(ex -> ex

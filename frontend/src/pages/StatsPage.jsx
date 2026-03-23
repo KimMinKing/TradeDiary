@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Cell, ReferenceLine,
+  AreaChart, Area,
 } from 'recharts';
 import { getStats, generateAiReport } from '../api/exchangeApi';
 
@@ -34,6 +35,251 @@ const rrDisplay = (ratio) => {
   if (!ratio || ratio === 0) return '—';
   if (ratio > 99) return '99+';
   return `1 : ${ratio}`;
+};
+
+// ── 누적 수익 곡선 차트 ───────────────────────────────────────────
+const PERIOD_OPTIONS = [
+  { key: 'all', label: '전체' },
+  { key: '1y',  label: '1년' },
+  { key: '180', label: '180일' },
+  { key: '90',  label: '90일' },
+  { key: '30',  label: '30일' },
+  { key: '7',   label: '7일' },
+];
+
+// [용도] 두 날짜 사이 모든 날짜(YYYY-MM-DD) 배열 생성 / [호출] CumulativePnlChart
+const fillDateRange = (startStr, endStr) => {
+  const result = [];
+  const cur = new Date(startStr);
+  const end = new Date(endStr);
+  while (cur <= end) {
+    result.push(cur.toISOString().slice(0, 10));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return result;
+};
+
+const CumulativePnlChart = ({ dailyPnl, curr, exchange }) => {
+  const capitalKey = `initCapital_${exchange}`;
+  const [period,      setPeriod]      = useState('all');
+  const [viewMode,    setViewMode]    = useState('pnl'); // 'pnl' | 'asset' | 'rate'
+  const [initCapital, setInitCapital] = useState(() => Number(localStorage.getItem(capitalKey) || 0));
+  const [capitalInput, setCapitalInput] = useState(() => localStorage.getItem(capitalKey) || '');
+  const [editingCapital, setEditingCapital] = useState(false);
+
+  const saveCapital = () => {
+    const val = Number(capitalInput.replace(/,/g, ''));
+    if (!isNaN(val) && val >= 0) {
+      setInitCapital(val);
+      localStorage.setItem(capitalKey, val);
+    }
+    setEditingCapital(false);
+  };
+
+  // [용도] 기간 필터 + 빈 날짜 채우기 + 누적 PnL 계산 / [호출] 렌더
+  const chartData = (() => {
+    const pnlMap = {};
+    dailyPnl.forEach(d => { pnlMap[d.date] = Number(d.pnl); });
+    const allDates = Object.keys(pnlMap).sort();
+    if (allDates.length === 0) return [];
+
+    let startDate = allDates[0];
+    if (period !== 'all') {
+      const days = period === '1y' ? 365 : Number(period);
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - days);
+      startDate = cutoff.toISOString().slice(0, 10);
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    const dates = fillDateRange(startDate, today);
+
+    // 선택 기간 시작 시점의 전체 누적 PnL (자산 기준점으로만 사용)
+    const cumBeforeStart = allDates
+      .filter(d => d < startDate)
+      .reduce((acc, d) => acc + (pnlMap[d] ?? 0), 0);
+
+    // 기간 내 누적 (항상 0부터 시작)
+    let cumInPeriod = 0;
+
+    return dates.map(date => {
+      const pnl = pnlMap[date] ?? 0;
+      cumInPeriod = Math.round((cumInPeriod + pnl) * 100) / 100;
+
+      // 자산 = 초기자본금 + 전체기간 누적손익 (기간 필터와 무관하게 실제 자산)
+      const totalCum = Math.round((cumBeforeStart + cumInPeriod) * 100) / 100;
+      const asset    = Math.round((initCapital + totalCum) * 100) / 100;
+
+      // 수익률 = 기간 내 누적손익 / 초기자본금 * 100 (League of Traders 방식)
+      const rate = initCapital > 0
+        ? Math.round((cumInPeriod / initCapital) * 10000) / 100
+        : null;
+
+      return { date, label: date.slice(5), cumPnl: cumInPeriod, asset, rate, hasTrade: !!pnlMap[date] };
+    });
+  })();
+
+  const last = chartData.at(-1);
+  const needCapital = (viewMode === 'asset' || viewMode === 'rate') && initCapital === 0;
+
+  const finalPnl   = last?.cumPnl  ?? 0;
+  const finalAsset = last?.asset   ?? initCapital;
+  const finalRate  = last?.rate    ?? null;
+
+  const displayVal = viewMode === 'pnl' ? finalPnl : viewMode === 'asset' ? finalAsset : finalRate;
+  const isPositive  = (displayVal ?? 0) >= 0;
+  const lineColor   = viewMode === 'asset'
+    ? (finalPnl >= 0 ? '#4ade80' : '#f87171')
+    : (isPositive ? '#4ade80' : '#f87171');
+  const gradId  = 'cumGrad';
+  const dataKey = viewMode === 'pnl' ? 'cumPnl' : viewMode === 'asset' ? 'asset' : 'rate';
+
+  if (chartData.length === 0) return null;
+
+  const fmtVal = (v) => {
+    if (v === null) return '—';
+    if (viewMode === 'rate') return `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
+    const prefix = viewMode === 'pnl' ? (v >= 0 ? '+' : '') : '';
+    const abs = Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 2 });
+    const sign = v < 0 ? '-' : prefix;
+    const suffix = curr.suffix ? ' ' + curr.suffix.trim() : '';
+    return `${sign}${abs}${suffix}`;
+  };
+
+  return (
+    <div className="stats-chart-card">
+      {/* 상단 컨트롤 */}
+      <div style={{ display: 'flex', gap: '6px', marginBottom: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+        {PERIOD_OPTIONS.map(opt => (
+          <button key={opt.key} onClick={() => setPeriod(opt.key)} style={{
+            padding: '3px 10px', borderRadius: '6px', fontSize: '12px',
+            border: period === opt.key ? `1px solid ${lineColor}80` : '1px solid rgba(255,255,255,0.1)',
+            background: period === opt.key ? `${lineColor}15` : 'transparent',
+            color: period === opt.key ? lineColor : 'var(--text-muted)',
+            cursor: 'pointer', transition: 'all 0.15s',
+          }}>{opt.label}</button>
+        ))}
+
+        {/* 뷰 모드 토글 */}
+        <div style={{ display: 'flex', borderRadius: '6px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)', marginLeft: '2px' }}>
+          {[{ k: 'pnl', l: '수익금' }, { k: 'asset', l: '자산' }, { k: 'rate', l: '수익률' }].map(v => (
+            <button key={v.k} onClick={() => setViewMode(v.k)} style={{
+              padding: '3px 10px', fontSize: '12px', border: 'none',
+              background: viewMode === v.k ? 'rgba(255,255,255,0.1)' : 'transparent',
+              color: viewMode === v.k ? 'var(--text-primary)' : 'var(--text-muted)',
+              cursor: 'pointer',
+            }}>{v.l}</button>
+          ))}
+        </div>
+
+        {/* 우상단 최종 수치 */}
+        <span className="mono" style={{ marginLeft: 'auto', fontSize: '14px', fontWeight: 700, color: needCapital ? 'var(--text-muted)' : lineColor }}>
+          {needCapital ? '초기자본금 필요' : fmtVal(displayVal)}
+        </span>
+      </div>
+
+      {/* 초기자본금 설정 바 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>초기자본금</span>
+        {editingCapital ? (
+          <>
+            <input
+              autoFocus
+              className="input"
+              style={{ width: '140px', padding: '3px 8px', fontSize: '12px', height: 'auto' }}
+              value={capitalInput}
+              onChange={e => setCapitalInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') saveCapital(); if (e.key === 'Escape') setEditingCapital(false); }}
+              placeholder={`예: 10000 (${curr.suffix?.trim() || 'USDT'})`}
+            />
+            <button className="btn btn-primary btn-xs" onClick={saveCapital}>저장</button>
+            <button className="btn btn-ghost btn-xs" onClick={() => setEditingCapital(false)}>취소</button>
+          </>
+        ) : (
+          <button
+            className="btn btn-ghost btn-xs"
+            onClick={() => { setCapitalInput(initCapital > 0 ? String(initCapital) : ''); setEditingCapital(true); }}
+            style={{ fontSize: '12px' }}
+          >
+            {initCapital > 0
+              ? `${initCapital.toLocaleString()} ${curr.suffix?.trim() || ''} ✎`
+              : '+ 설정'}
+          </button>
+        )}
+        {(viewMode === 'asset' || viewMode === 'rate') && initCapital === 0 && (
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+            자산·수익률 표시를 위해 초기자본금을 입력하세요
+          </span>
+        )}
+      </div>
+
+      {needCapital ? (
+        <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>초기자본금을 설정하면 {viewMode === 'asset' ? '자산' : '수익률'} 차트가 표시됩니다</span>
+        </div>
+      ) : (
+        <ResponsiveContainer width="100%" height={200}>
+          <AreaChart data={chartData} margin={{ top: 8, right: 8, left: 4, bottom: 0 }}>
+            <defs>
+              <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%"  stopColor={lineColor} stopOpacity={0.22} />
+                <stop offset="95%" stopColor={lineColor} stopOpacity={0.02} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="2 4" stroke="rgba(255,255,255,0.05)" vertical={false} />
+            <ReferenceLine y={viewMode === 'pnl' ? 0 : viewMode === 'rate' ? 0 : initCapital}
+              stroke="rgba(255,255,255,0.15)" strokeWidth={1} />
+            <XAxis
+              dataKey="label"
+              tick={{ fill: 'var(--text-muted)', fontSize: 10, fontFamily: 'monospace' }}
+              tickLine={false} axisLine={false}
+              interval="preserveStartEnd"
+            />
+            <YAxis
+              tick={{ fill: 'var(--text-muted)', fontSize: 10, fontFamily: 'monospace' }}
+              tickLine={false} axisLine={false}
+              tickFormatter={v => {
+                if (viewMode === 'rate') return `${v}%`;
+                if (Math.abs(v) >= 1000000) return `${(v/1000000).toFixed(1)}M`;
+                if (Math.abs(v) >= 1000)    return `${(v/1000).toFixed(0)}K`;
+                return v;
+              }}
+              width={54}
+            />
+            <Tooltip
+              content={({ active, payload }) => {
+                if (!active || !payload?.length) return null;
+                const d = payload[0].payload;
+                return (
+                  <div className="chart-tooltip">
+                    <div className="chart-tooltip-month">{d.date}</div>
+                    <div style={{ color: lineColor, fontFamily: 'monospace', fontSize: 14, fontWeight: 700 }}>
+                      {fmtVal(viewMode === 'pnl' ? d.cumPnl : viewMode === 'asset' ? d.asset : d.rate)}
+                    </div>
+                    {viewMode === 'asset' && (
+                      <div style={{ fontSize: '11px', color: pnlColor(d.cumPnl), fontFamily: 'monospace', marginTop: 2 }}>
+                        손익 {d.cumPnl >= 0 ? '+' : ''}{d.cumPnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      </div>
+                    )}
+                    {!d.hasTrade && <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: 2 }}>거래 없음</div>}
+                  </div>
+                );
+              }}
+              cursor={{ stroke: 'rgba(255,255,255,0.12)', strokeWidth: 1 }}
+            />
+            <Area
+              type="monotone"
+              dataKey={dataKey}
+              stroke={lineColor}
+              strokeWidth={2}
+              fill={`url(#${gradId})`}
+              dot={false}
+              activeDot={{ r: 4, fill: lineColor, stroke: 'var(--bg)', strokeWidth: 2 }}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      )}
+    </div>
+  );
 };
 
 // ── 공통 PnL 바 차트 ──────────────────────────────────────────────
@@ -313,6 +559,14 @@ const StatsPage = () => {
               />
             </div>
           </section>
+
+          {/* ── 누적 수익 곡선 ── */}
+          {(stats?.daily_pnl?.length ?? 0) > 1 && (
+            <section className="stats-section">
+              <div className="stats-section-label">누적 손익 추이</div>
+              <CumulativePnlChart dailyPnl={stats.daily_pnl} curr={curr} exchange={exchange} />
+            </section>
+          )}
 
           {/* ── 월별 PnL 차트 ── */}
           {monthlyChartData.length > 0 && (

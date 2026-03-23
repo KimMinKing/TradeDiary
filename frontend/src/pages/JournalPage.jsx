@@ -191,7 +191,7 @@ const JournalPage = () => {
     setFormError('');
     setSelectedTrades([]);
     setShowTagInput(false);
-    setCalOpen(false);
+    if (window.innerWidth < 768) setCalOpen(false);
     setMode('form');
   };
 
@@ -214,7 +214,7 @@ const JournalPage = () => {
       setSelectedTrades([]);
     }
     setShowTagInput(false);
-    setCalOpen(false);
+    if (window.innerWidth < 768) setCalOpen(false);
     setMode('form');
   };
 
@@ -483,9 +483,12 @@ const JournalPage = () => {
               )}
             </div>
 
-            {/* ── 뷰 모드: 일기 목록 ── */}
+            {/* ── 뷰 모드: 일기 목록 + 당일 거래 내역 ── */}
             {mode === 'view' && (
-              <div className="day-journal-list">
+              <div className="form-split">
+                {/* 왼쪽: 일기 목록 */}
+                <div className="form-split-left">
+                <div className="day-journal-list">
                 {journalsForDay.length === 0 ? (
                   <div className="day-empty">
                     <span style={{ fontSize: '32px' }}>📓</span>
@@ -555,6 +558,58 @@ const JournalPage = () => {
                     </div>
                   ))
                 )}
+                </div>
+                </div>
+
+                {/* 오른쪽: 당일 거래 내역 (읽기 전용) */}
+                <div className="form-split-right">
+                  <div className="trades-ref-header">
+                    <span className="trades-ref-title">당일 거래 내역</span>
+                    <span className="mono text-muted" style={{ fontSize: '11px' }}>
+                      {tradesForDay.length}건
+                    </span>
+                  </div>
+                  <div className="trades-ref-scroll">
+                    {tradesForDay.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '24px 0' }}>
+                        <p className="text-muted" style={{ fontSize: '13px' }}>이 날 거래 내역이 없습니다</p>
+                      </div>
+                    ) : (
+                      tradesForDay.map(trade => (
+                        <div key={trade.id} className="trade-ref-card">
+                          <div className="trade-ref-top">
+                            <span className={`badge badge-${trade.side.toLowerCase()}`}
+                              style={{ fontSize: '10px', padding: '2px 6px' }}>
+                              {trade.side === 'BUY' ? '매수' : '매도'}
+                            </span>
+                            <span className="mono" style={{ fontSize: '13px', fontWeight: 600 }}>
+                              {trade.symbol}
+                            </span>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: 'auto' }}>
+                              {trade.exchange.charAt(0) + trade.exchange.slice(1).toLowerCase()}
+                            </span>
+                          </div>
+                          <div className="trade-ref-rows">
+                            <div className="trade-ref-row">
+                              <span className="trade-ref-label">가격</span>
+                              <span className="mono trade-ref-val">{Number(trade.price).toLocaleString()}</span>
+                            </div>
+                            <div className="trade-ref-row">
+                              <span className="trade-ref-label">수량</span>
+                              <span className="mono trade-ref-val">{parseFloat(Number(trade.qty).toFixed(8)).toString()}</span>
+                            </div>
+                            <div className="trade-ref-row">
+                              <span className="trade-ref-label">시각</span>
+                              <span className="mono trade-ref-val" style={{ color: 'var(--text-secondary)' }}>
+                                {trade.traded_at?.slice(11, 16)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
               </div>
             )}
 
@@ -717,7 +772,7 @@ const JournalPage = () => {
                       </div>
                     ) : (
                       tradesForDay.map(trade => {
-                        const isSelected = selectedTrades.some(t => t.id === trade.id);
+                        const isSel = selectedTrades.some(t => t.id === trade.id);
                         const selColor = trade.side === 'BUY' ? '#4ade80' : '#f87171';
                         return (
                           <div
@@ -726,17 +781,25 @@ const JournalPage = () => {
                             onClick={() => toggleTrade(trade)}
                             style={{
                               cursor: 'pointer',
-                              outline: isSelected ? `2px solid ${selColor}` : '2px solid transparent',
-                              transition: 'outline 0.15s',
+                              position: 'relative',
+                              outline: isSel ? `2px solid ${selColor}60` : '2px solid transparent',
+                              background: isSel ? `${selColor}18` : `${selColor}06`,
+                              transition: 'outline 0.15s, background 0.15s',
                             }}
                           >
+                            {isSel && (
+                              <span style={{
+                                position: 'absolute', top: '6px', right: '8px',
+                                fontSize: '10px', color: selColor, opacity: 0.8,
+                              }}>✓</span>
+                            )}
                             <div className="trade-ref-top">
                               <span className={`badge badge-${trade.exchange.toLowerCase()}`}
-                                style={{ fontSize: '10px', padding: '2px 6px' }}>
+                                style={{ fontSize: '10px', padding: '2px 6px', opacity: 0.7 }}>
                                 {trade.exchange}
                               </span>
                               <span className={`badge badge-${trade.side.toLowerCase()}`}
-                                style={{ fontSize: '10px', padding: '2px 6px' }}>
+                                style={{ fontSize: '10px', padding: '2px 6px', opacity: 0.7 }}>
                                 {trade.side === 'BUY' ? '매수' : '매도'}
                               </span>
                               <span className="mono" style={{ fontSize: '13px', fontWeight: 600 }}>
@@ -763,11 +826,6 @@ const JournalPage = () => {
                                 </span>
                               </div>
                             </div>
-                            {isSelected && (
-                              <div style={{ fontSize: '10px', color: selColor, marginTop: '4px', textAlign: 'right' }}>
-                                ✓ 선택됨
-                              </div>
-                            )}
                           </div>
                         );
                       })

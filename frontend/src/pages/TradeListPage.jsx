@@ -418,7 +418,6 @@ const TradeListPage = () => {
             <table className="trade-table">
               <thead>
                 <tr>
-                  <th>거래소</th>
                   <th>종목</th>
                   <th>구분</th>
                   <th>수량</th>
@@ -430,11 +429,6 @@ const TradeListPage = () => {
               <tbody>
                 {trades.map((trade) => (
                   <tr key={trade.id}>
-                    <td>
-                      <span className={`badge badge-${trade.exchange.toLowerCase()}`}>
-                        {trade.exchange}
-                      </span>
-                    </td>
                     <td className="mono" style={{ fontWeight: 500 }}>{trade.symbol}</td>
                     <td>
                       <span className={`badge badge-${trade.side.toLowerCase()}`}>
@@ -444,8 +438,19 @@ const TradeListPage = () => {
                     <td className="mono">{formatQty(trade.qty)}</td>
                     <td className="mono">{formatPrice(trade.price, trade.exchange)}</td>
                     <td className="mono text-muted">{formatPrice(trade.fee, trade.exchange)}</td>
-                    <td className="mono text-secondary" style={{ fontSize: '12px' }}>
-                      {trade.traded_at?.replace('T', ' ').slice(0, 16)}
+                    <td className="mono text-secondary" style={{ fontSize: '12px', lineHeight: 1.3 }}>
+                      <div>{trade.traded_at?.replace('T', ' ').slice(0, 16)}</div>
+                      <div style={{ marginTop: '3px', textAlign: 'right' }}>
+                        <img
+                          src={`/exchanges/${trade.exchange.toLowerCase()}_logo.png`}
+                          alt={trade.exchange}
+                          style={{ height: '11px', width: 'auto', objectFit: 'contain', opacity: 0.6 }}
+                          onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'inline'; }}
+                        />
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'none' }}>
+                          {trade.exchange.charAt(0) + trade.exchange.slice(1).toLowerCase()}
+                        </span>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -456,13 +461,21 @@ const TradeListPage = () => {
             {trades.map((trade) => (
               <div key={`card-${trade.id}`} className="trade-card">
                 <div className="trade-card-top">
-                  <span className={`badge badge-${trade.exchange.toLowerCase()}`}>
-                    {trade.exchange}
-                  </span>
                   <span className={`badge badge-${trade.side.toLowerCase()}`}>
                     {trade.side === 'BUY' ? '매수' : '매도'}
                   </span>
-                  <span className="trade-card-symbol">{trade.symbol}</span>
+                  <span className="trade-card-symbol" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    {trade.symbol}
+                    <img
+                      src={`/exchanges/${trade.exchange.toLowerCase()}_logo.png`}
+                      alt={trade.exchange}
+                      style={{ height: '12px', width: 'auto', objectFit: 'contain', opacity: 0.55 }}
+                      onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'inline'; }}
+                    />
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400, display: 'none' }}>
+                      {trade.exchange.charAt(0) + trade.exchange.slice(1).toLowerCase()}
+                    </span>
+                  </span>
                   <span className="trade-card-time" style={{ marginLeft: 'auto' }}>
                     {trade.traded_at?.replace('T', ' ').slice(0, 16)}
                   </span>

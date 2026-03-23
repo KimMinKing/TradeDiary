@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { getMe, updateNickname, updatePassword, updateAvatar } from '../api/userApi';
+import useTheme from '../hooks/useTheme';
 
 const SYNC_OPTIONS = [
   { value: 30,  label: '30초' },
@@ -14,6 +15,7 @@ const INTERVAL_KEY = 'autoSyncInterval';
 
 // [컴포넌트] 프로필 설정 드롭다운 패널 / [호출] Navbar.jsx
 const SettingsPanel = ({ onClose }) => {
+  const { theme, toggleTheme } = useTheme();
   const panelRef = useRef(null);
 
   const [userInfo, setUserInfo]   = useState({ email: '', nickname: '' });
@@ -284,6 +286,13 @@ const SettingsPanel = ({ onClose }) => {
             </div>
           </div>
         )}
+      </div>
+
+      {/* 섹션: 테마 */}
+      <div className="settings-section">
+        <button className="settings-section-toggle" onClick={toggleTheme}>
+          <span>{theme === 'dark' ? '☀️ 라이트 모드로 전환' : '🌙 다크 모드로 전환'}</span>
+        </button>
       </div>
 
       <div className="settings-divider" />

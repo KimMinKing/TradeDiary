@@ -161,9 +161,14 @@ const ExchangeKeyPage = () => {
                 if (!cfg) return null;
                 return (
                   <div key={item.exchange} className="exmgr-row">
-                    <div className="exmgr-dot" style={{ background: cfg.color }} />
-                    <div style={{ flex: 1 }}>
-                      <span className="syne" style={{ fontWeight: 700, fontSize: '15px' }}>{cfg.label}</span>
+                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <img
+                        src={`/exchanges/${item.exchange.toLowerCase()}_logo.png`}
+                        alt={cfg.label}
+                        style={{ height: '20px', width: 'auto', objectFit: 'contain', opacity: 0.9 }}
+                        onError={e => { e.target.style.display='none'; e.target.nextSibling.style.display='inline'; }}
+                      />
+                      <span className="syne" style={{ fontWeight: 700, fontSize: '15px', display: 'none' }}>{cfg.label}</span>
                       {item.maskedApiKey && (
                         <span className="mono text-muted" style={{ fontSize: '12px', marginLeft: '10px' }}>
                           {item.maskedApiKey}
@@ -201,26 +206,26 @@ const ExchangeKeyPage = () => {
           margin: '16px 0',
           padding: '14px 16px',
           borderRadius: '10px',
-          background: 'rgba(251,191,36,0.1)',
-          border: '2px solid rgba(251,191,36,0.6)',
+          background: 'var(--warning-bg)',
+          border: '2px solid var(--warning-border)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
             <span style={{ fontSize: '16px' }}>⚠️</span>
-            <span style={{ fontWeight: 700, fontSize: '14px', color: '#fbbf24' }}>IP 화이트리스트 설정 필수</span>
+            <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--warning)' }}>IP 화이트리스트 설정 필수</span>
           </div>
-          <p style={{ fontSize: '13px', color: '#fde68a', lineHeight: '1.7', margin: 0 }}>
-            거래소 API Key 발급 시 <strong style={{ color: '#fbbf24' }}>IP 제한(화이트리스트)</strong> 설정이 있다면
+          <p style={{ fontSize: '13px', color: 'var(--warning-text)', lineHeight: '1.7', margin: 0 }}>
+            거래소 API Key 발급 시 <strong style={{ color: 'var(--warning)' }}>IP 제한(화이트리스트)</strong> 설정이 있다면
             아래 서버 IP를 반드시 추가하세요.<br />
             추가하지 않으면 데이터 동기화가 되지 않습니다.
           </p>
           <div style={{
             marginTop: '10px',
             padding: '8px 12px',
-            background: 'rgba(0,0,0,0.3)',
+            background: 'rgba(0,0,0,0.15)',
             borderRadius: '6px',
             fontFamily: 'monospace',
             fontSize: '15px',
-            color: '#fbbf24',
+            color: 'var(--warning)',
             fontWeight: 700,
             letterSpacing: '0.05em',
           }}>
@@ -260,10 +265,16 @@ const ExchangeKeyPage = () => {
               <button
                 key={key}
                 className={`exsel-btn${isSelected ? ' exsel-selected' : ''}`}
-                style={isSelected ? { borderColor: cfg.color, background: `${cfg.color}18`, color: cfg.color } : {}}
+                style={isSelected ? { borderColor: cfg.color, background: `${cfg.color}18` } : {}}
                 onClick={() => setSelectedExchange(key)}
               >
-                <span className="syne" style={{ fontSize: '16px', fontWeight: 700 }}>{cfg.label}</span>
+                <img
+                  src={`/exchanges/${key.toLowerCase()}_logo.png`}
+                  alt={cfg.label}
+                  style={{ height: '22px', width: 'auto', objectFit: 'contain', maxWidth: '90px' }}
+                  onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'inline'; }}
+                />
+                <span className="syne" style={{ fontSize: '16px', fontWeight: 700, display: 'none' }}>{cfg.label}</span>
                 {isRegistered && (
                   <span className="exsel-badge" style={{ background: cfg.color }}>연동됨</span>
                 )}

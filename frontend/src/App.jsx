@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import useTheme from './hooks/useTheme';
 import LandingPage from './pages/LandingPage';
 import OAuthCallbackPage from './pages/OAuthCallbackPage';
 import ExchangeKeyPage from './pages/ExchangeKeyPage';
@@ -22,6 +23,7 @@ const PrivateRoute = ({ children }) => {
 // [컴포넌트] 전체 라우터 설정 / [호출] main.jsx
 const App = () => {
   const checkAuth = useAuthStore((state) => state.checkAuth);
+  useTheme(); // 앱 초기 로드 시 저장된 테마 적용
 
   useEffect(() => {
     // 절전모드 복귀 / 탭 포커스 복귀 시 토큰 만료 여부 재확인 → 만료면 /login으로 이동
