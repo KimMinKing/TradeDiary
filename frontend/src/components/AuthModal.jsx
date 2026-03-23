@@ -189,10 +189,12 @@ const AuthModal = ({ initialMode = 'login', onClose }) => {
         </button>
 
         {/* 카카오 */}
-        <button className="auth-social-btn auth-kakao-btn" disabled>
+        <button
+          className="auth-social-btn auth-kakao-btn"
+          onClick={() => { window.location.href = '/oauth2/authorization/kakao'; }}
+        >
           <span className="auth-social-icon" style={{ fontSize: '18px' }}>💬</span>
           카카오로 {mode === 'login' ? '로그인' : '계속하기'}
-          <span className="auth-coming-soon">준비중</span>
         </button>
 
         {/* 하단 모드 전환 */}

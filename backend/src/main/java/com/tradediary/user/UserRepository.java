@@ -17,4 +17,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     // [용도] Google ID로 사용자 조회 / [호출] GoogleOAuth2UserService.loadUser()
     Optional<User> findByGoogleId(String googleId);
+
+    // [용도] Kakao ID로 사용자 조회 / [호출] GoogleOAuth2UserService.loadUser()
+    Optional<User> findByKakaoId(String kakaoId);
 }

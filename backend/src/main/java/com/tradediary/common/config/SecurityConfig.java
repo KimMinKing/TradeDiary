@@ -12,10 +12,12 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 
 // [클래스] Spring Security 설정 (JWT Stateless, CORS, OAuth2 Google 로그인)
 @Configuration
@@ -44,6 +46,13 @@ public class SecurityConfig {
                 .oauth2Login(oauth2 -> oauth2
                         .userInfoEndpoint(userInfo -> userInfo.userService(googleOAuth2UserService))
                         .successHandler(oAuth2SuccessHandler)
+                )
+                // /api/** 인증 실패 시 Spring 기본 /login 리다이렉트 대신 401 반환
+                .exceptionHandling(ex -> ex
+                        .defaultAuthenticationEntryPointFor(
+                                (request, response, e) -> response.sendError(HttpServletResponse.SC_UNAUTHORIZED),
+                                new AntPathRequestMatcher("/api/**")
+                        )
                 )
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
 

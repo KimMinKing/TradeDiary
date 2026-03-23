@@ -33,6 +33,9 @@ public class User {
     @Column(unique = true, length = 100)
     private String googleId;
 
+    @Column(unique = true, length = 100)
+    private String kakaoId;
+
     @Column(columnDefinition = "TEXT")
     private String avatar;
 
@@ -43,12 +46,19 @@ public class User {
     private LocalDateTime updatedAt;
 
     @Builder
-    public User(String email, String password, String nickname, String googleId) {
+    public User(String email, String password, String nickname, String googleId, String kakaoId) {
         this.email = email;
         this.password = password;
         this.nickname = nickname;
         this.googleId = googleId;
+        this.kakaoId = kakaoId;
         this.createdAt = LocalDateTime.now();
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    // [용도] 카카오 ID 연동 / [호출] GoogleOAuth2UserService.loadUser()
+    public void linkKakaoId(String kakaoId) {
+        this.kakaoId = kakaoId;
         this.updatedAt = LocalDateTime.now();
     }
 
