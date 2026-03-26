@@ -410,7 +410,9 @@ const TradeListPage = () => {
         <div className="table-wrap anim-fade-up3">
           {/* 테이블 헤더 */}
           <div className="table-header">
-            <span className="mono text-xs text-muted">총 {trades.length}건</span>
+            <span style={{ fontSize: '14px', fontFamily: 'var(--font-ui)', color: 'var(--text-secondary)' }}>
+              총 <strong style={{ color: 'var(--text)', fontWeight: 600 }}>{trades.length}</strong>건
+            </span>
           </div>
 
           {/* ── 데스크탑 테이블 ── */}

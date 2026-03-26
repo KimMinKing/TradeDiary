@@ -1,18 +1,21 @@
 // [파일 용도] 포지션 목록 페이지 (거래소 필터 탭 + 수익률/수익금 표시)
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { getPositions, rebuildAllPositions, getOpenWindows, getTrades } from '../api/exchangeApi';
 import api from '../api/authApi';
 
 // [컴포넌트] 완결된 포지션 목록 및 통계 표시 / [호출] App.jsx 라우터
 const PositionListPage = () => {
-  const [positions,    setPositions]    = useState([]);
-  const [openWindows,  setOpenWindows]  = useState([]);  // 미청산 포지션 윈도우
-  const [activeTab,    setActiveTab]    = useState('ALL');
-  const [loading,      setLoading]      = useState(true);
-  const [rebuilding,   setRebuilding]   = useState(false);
-  const [message,      setMessage]      = useState('');
-  const [tradesModal,  setTradesModal]  = useState(null); // { symbol, exchange, trades[] }
+  const [positions,       setPositions]       = useState([]);
+  const [openWindows,     setOpenWindows]     = useState([]);  // 미청산 포지션 윈도우
+  const [openWindowsOpen, setOpenWindowsOpen] = useState(false); // 미청산 섹션 펼침 여부
+  const [selectedExchanges, setSelectedExchanges] = useState([]); // [] = 전체
+  const [exFilterOpen,    setExFilterOpen]    = useState(false); // 거래소 필터 팝업
+  const [loading,         setLoading]         = useState(true);
+  const [rebuilding,      setRebuilding]      = useState(false);
+  const [message,         setMessage]         = useState('');
+  const [tradesModal,     setTradesModal]      = useState(null); // { symbol, exchange, trades[] }
+  const exFilterRef = useRef(null);
   const [displayCurrency, setDisplayCurrency] = useState(
     () => localStorage.getItem('displayCurrency') || 'KRW'
   );
@@ -86,8 +89,7 @@ const PositionListPage = () => {
     }
   };
 
-  const tabs = [
-    { key: 'ALL',     label: '전체' },
+  const EXCHANGES = [
     { key: 'UPBIT',   label: 'Upbit' },
     { key: 'BYBIT',   label: 'Bybit' },
     { key: 'BITGET',  label: 'Bitget' },
@@ -96,9 +98,28 @@ const PositionListPage = () => {
     { key: 'BINGX',   label: 'BingX' },
   ];
 
-  const filtered = activeTab === 'ALL'
+  // [용도] 거래소 필터 토글 (다중 선택) / [호출] 팝업 버튼 클릭
+  const toggleExchange = (key) => {
+    setSelectedExchanges((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    );
+  };
+
+  // [용도] 거래소 필터 팝업 외부 클릭 시 닫기 / [호출] mousedown
+  useEffect(() => {
+    if (!exFilterOpen) return;
+    const handler = (e) => {
+      if (exFilterRef.current && !exFilterRef.current.contains(e.target)) {
+        setExFilterOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [exFilterOpen]);
+
+  const filtered = selectedExchanges.length === 0
     ? positions
-    : positions.filter((p) => p.exchange === activeTab);
+    : positions.filter((p) => selectedExchanges.includes(p.exchange));
 
   // [용도] 환율 조회 / [호출] useEffect
   const fetchExchangeRate = async () => {
@@ -185,49 +206,6 @@ const PositionListPage = () => {
         </div>
       </div>
 
-      {/* 미청산 포지션 안내 (포지션으로 잡히지 않는 이유 진단) */}
-      {openWindows.length > 0 && (
-        <div className="card anim-fade-up2" style={{ marginBottom: '16px', borderLeft: '3px solid #facc15' }}>
-          <p className="section-title" style={{ color: '#facc15', marginBottom: '8px' }}>
-            미청산 포지션 ({openWindows.length}개 심볼)
-          </p>
-          <p className="text-xs text-muted" style={{ marginBottom: '8px' }}>
-            아래 종목은 매수/매도 수량이 일치하지 않아 포지션으로 잡히지 않습니다.
-            잔여 수량이 모두 청산되면 포지션으로 기록됩니다.
-          </p>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-            {openWindows.map((w, i) => (
-              <div key={i} style={{
-                display: 'flex', alignItems: 'center', gap: '8px',
-                padding: '6px 12px', borderRadius: '6px',
-                background: 'rgba(250,204,21,0.08)', border: '1px solid rgba(250,204,21,0.2)',
-                fontSize: '12px',
-              }}>
-                <span className={`badge badge-${w.exchange.toLowerCase()}`} style={{ fontSize: '10px' }}>
-                  {w.exchange}
-                </span>
-                <span className="mono" style={{ fontWeight: 600 }}>{w.symbol}</span>
-                <span className="text-muted">
-                  잔여 <span className="mono" style={{ color: '#facc15' }}>
-                    {parseFloat(Number(w.net_qty).toFixed(8)).toString()}
-                  </span>
-                </span>
-                <span className="text-muted" style={{ fontSize: '11px' }}>
-                  ({w.trade_count}건)
-                </span>
-                <button
-                  className="btn btn-ghost btn-xs"
-                  style={{ marginLeft: 'auto', fontSize: '11px' }}
-                  onClick={() => handleViewWindow(w)}
-                >
-                  보기
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {message && (
         <p className={message.includes('실패') ? 'msg-error' : 'msg-success'}
            style={{ marginBottom: '12px' }}>
@@ -235,23 +213,105 @@ const PositionListPage = () => {
         </p>
       )}
 
-      {/* 거래소 탭 */}
+      {/* 거래소 필터 */}
       <div className="filter-bar anim-fade-up2">
         <div className="tabs">
-          {tabs.map((tab) => {
-            const count = tab.key === 'ALL' ? positions.length
-              : positions.filter((p) => p.exchange === tab.key).length;
-            return (
-              <button
-                key={tab.key}
-                className={`tab${activeTab === tab.key ? ' active' : ''}`}
-                onClick={() => setActiveTab(tab.key)}
-              >
-                {tab.label}
-                <span className="tab-count">{count}</span>
-              </button>
-            );
-          })}
+          {/* 전체 탭 */}
+          <button
+            className={`tab${selectedExchanges.length === 0 ? ' active' : ''}`}
+            onClick={() => setSelectedExchanges([])}
+          >
+            전체
+            <span className="tab-count">{positions.length}</span>
+          </button>
+
+          {/* 거래소 필터 팝업 */}
+          <div style={{ position: 'relative' }} ref={exFilterRef}>
+            <button
+              className={`tab${selectedExchanges.length > 0 ? ' active' : ''}`}
+              onClick={() => setExFilterOpen((v) => !v)}
+            >
+              거래소
+              {selectedExchanges.length > 0 && (
+                <span className="tab-count">{selectedExchanges.length}</span>
+              )}
+              <span style={{ fontSize: '9px', marginLeft: '2px', opacity: 0.6 }}>
+                {exFilterOpen ? '▲' : '▼'}
+              </span>
+            </button>
+
+            {exFilterOpen && (
+              <div style={{
+                position: 'absolute',
+                top: 'calc(100% + 6px)',
+                left: 0,
+                zIndex: 500,
+                background: 'var(--bg-elevated)',
+                border: '1px solid var(--border-glow)',
+                borderRadius: 'var(--radius)',
+                padding: '12px',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
+                gap: '6px',
+                minWidth: '240px',
+              }}>
+                {EXCHANGES.map((ex) => {
+                  const count = positions.filter((p) => p.exchange === ex.key).length;
+                  const isSelected = selectedExchanges.includes(ex.key);
+                  return (
+                    <button
+                      key={ex.key}
+                      onClick={() => toggleExchange(ex.key)}
+                      style={{
+                        width: '100%',
+                        height: '52px',
+                        padding: '0',
+                        background: isSelected ? 'var(--accent-soft)' : 'var(--bg-card)',
+                        border: `1px solid ${isSelected ? 'var(--accent)' : 'var(--border)'}`,
+                        borderRadius: 'var(--radius-sm)',
+                        color: isSelected ? 'var(--accent)' : 'var(--text-secondary)',
+                        fontFamily: 'var(--font-ui)',
+                        fontSize: '13px',
+                        fontWeight: isSelected ? 600 : 400,
+                        cursor: 'pointer',
+                        transition: 'all 0.12s',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '3px',
+                      }}
+                    >
+                      <span>{ex.label}</span>
+                      <span style={{ fontSize: '10px', opacity: 0.55, fontFamily: 'var(--font-ui)' }}>
+                        {count}건
+                      </span>
+                    </button>
+                  );
+                })}
+                {selectedExchanges.length > 0 && (
+                  <button
+                    onClick={() => { setSelectedExchanges([]); setExFilterOpen(false); }}
+                    style={{
+                      gridColumn: '1 / -1',
+                      marginTop: '4px',
+                      padding: '5px',
+                      background: 'transparent',
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--radius-sm)',
+                      color: 'var(--text-muted)',
+                      fontFamily: 'var(--font-ui)',
+                      fontSize: '11px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    선택 초기화
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -304,9 +364,6 @@ const PositionListPage = () => {
         </div>
       ) : (
         <div className="table-wrap anim-fade-up3">
-          <div className="table-header">
-            <span className="mono text-xs text-muted">총 {total}건</span>
-          </div>
 
           {/* ── 데스크탑 테이블 ── */}
           <div className="trade-table-wrap">
@@ -396,6 +453,97 @@ const PositionListPage = () => {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* 미청산 포지션 (접힘/펼침) */}
+      {openWindows.length > 0 && (
+        <div style={{ marginTop: '24px' }}>
+          <button
+            onClick={() => setOpenWindowsOpen((v) => !v)}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '11px 16px',
+              background: 'rgba(250,204,21,0.05)',
+              border: '1px solid rgba(250,204,21,0.2)',
+              borderRadius: openWindowsOpen ? 'var(--radius) var(--radius) 0 0' : 'var(--radius)',
+              cursor: 'pointer',
+              transition: 'background 0.15s',
+              color: '#facc15',
+              fontFamily: 'var(--font-ui)',
+              fontSize: '13px',
+              fontWeight: 500,
+            }}
+          >
+            <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '12px', opacity: 0.7 }}>⏳</span>
+              미청산 포지션
+              <span style={{
+                fontSize: '11px',
+                fontFamily: 'var(--font-mono)',
+                background: 'rgba(250,204,21,0.15)',
+                border: '1px solid rgba(250,204,21,0.25)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '1px 7px',
+                color: '#facc15',
+              }}>
+                {openWindows.length}
+              </span>
+            </span>
+            <span style={{ fontSize: '11px', opacity: 0.6 }}>
+              {openWindowsOpen ? '▲' : '▼'}
+            </span>
+          </button>
+
+          {openWindowsOpen && (
+            <div style={{
+              border: '1px solid rgba(250,204,21,0.2)',
+              borderTop: 'none',
+              borderRadius: '0 0 var(--radius) var(--radius)',
+              padding: '14px 16px',
+              background: 'rgba(250,204,21,0.03)',
+            }}>
+              <p className="text-xs text-muted" style={{ marginBottom: '12px' }}>
+                매수/매도 수량이 일치하지 않아 포지션으로 확정되지 않은 종목입니다.
+                잔여 수량이 모두 청산되면 포지션으로 기록됩니다.
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                {openWindows.map((w, i) => (
+                  <div key={i} style={{
+                    display: 'flex', alignItems: 'center', gap: '8px',
+                    padding: '6px 12px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'rgba(250,204,21,0.07)',
+                    border: '1px solid rgba(250,204,21,0.18)',
+                    fontSize: '12px',
+                  }}>
+                    <span className={`badge badge-${w.exchange.toLowerCase()}`} style={{ fontSize: '10px' }}>
+                      {w.exchange}
+                    </span>
+                    <span className="mono" style={{ fontWeight: 500 }}>{w.symbol}</span>
+                    <span className="text-muted">
+                      잔여 <span className="mono" style={{ color: '#facc15' }}>
+                        {parseFloat(Number(w.net_qty).toFixed(8)).toString()}
+                      </span>
+                    </span>
+                    <span className="text-muted" style={{ fontSize: '11px' }}>
+                      ({w.trade_count}건)
+                    </span>
+                    <button
+                      className="btn btn-ghost btn-xs"
+                      style={{ marginLeft: 'auto', fontSize: '11px' }}
+                      onClick={() => handleViewWindow(w)}
+                    >
+                      보기
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

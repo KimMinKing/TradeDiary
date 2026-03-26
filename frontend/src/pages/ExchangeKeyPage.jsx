@@ -1,6 +1,6 @@
 // [파일 용도] 거래소 API Key 관리 페이지 (관리 → 선택 → 연결 3단계)
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { saveExchangeKey, getMyExchangeKeys, deleteExchangeKey } from '../api/exchangeApi';
 
 // [상수] 거래소별 설정
@@ -61,6 +61,8 @@ const EXCHANGE_CONFIG = {
   },
 };
 
+const SERVER_IP = '152.69.206.56';
+
 // [컴포넌트] 거래소 API Key 관리 화면 / [호출] App.jsx 라우터
 const ExchangeKeyPage = () => {
   // step: 'manage' | 'select' | 'connect'
@@ -73,6 +75,7 @@ const ExchangeKeyPage = () => {
   const [loading,             setLoading]             = useState(false);
   const [message,             setMessage]             = useState('');
   const [error,               setError]               = useState('');
+  const [ipCopied,            setIpCopied]            = useState(false);
 
   useEffect(() => { fetchRegisteredKeys(); }, []);
 
@@ -223,13 +226,44 @@ const ExchangeKeyPage = () => {
             padding: '8px 12px',
             background: 'rgba(0,0,0,0.15)',
             borderRadius: '6px',
-            fontFamily: 'monospace',
-            fontSize: '15px',
-            color: 'var(--warning)',
-            fontWeight: 700,
-            letterSpacing: '0.05em',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '10px',
           }}>
-            152.69.206.56
+            <span style={{
+              fontFamily: 'monospace',
+              fontSize: '15px',
+              color: 'var(--warning)',
+              fontWeight: 700,
+              letterSpacing: '0.05em',
+            }}>
+              {SERVER_IP}
+            </span>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(SERVER_IP).then(() => {
+                  setIpCopied(true);
+                  setTimeout(() => setIpCopied(false), 2000);
+                });
+              }}
+              style={{
+                padding: '3px 10px',
+                background: ipCopied ? 'rgba(34,197,94,0.15)' : 'rgba(210,153,34,0.15)',
+                border: `1px solid ${ipCopied ? 'rgba(34,197,94,0.4)' : 'rgba(210,153,34,0.4)'}`,
+                borderRadius: 'var(--radius-sm)',
+                color: ipCopied ? '#4ade80' : 'var(--warning)',
+                fontFamily: 'var(--font-ui)',
+                fontSize: '11px',
+                fontWeight: 500,
+                cursor: 'pointer',
+                transition: 'all 0.15s',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+              }}
+            >
+              {ipCopied ? '복사됨 ✓' : '복사'}
+            </button>
           </div>
         </div>
 

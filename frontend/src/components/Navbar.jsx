@@ -6,13 +6,6 @@ import useAuthStore from '../store/authStore';
 import SettingsPanel from './SettingsPanel';
 import { getMe } from '../api/userApi';
 
-const CURRENCY_OPTIONS = [
-  { value: 'KRW', label: '₩ 원화' },
-  { value: 'USD', label: '$ 달러' },
-  { value: 'CNY', label: '¥ 위안화' },
-  { value: 'JPY', label: '¥ 엔화' },
-];
-
 // [컴포넌트] 인증된 페이지 공통 네비게이션 / [호출] Layout.jsx
 const Navbar = ({ autoSync }) => {
   const navigate  = useNavigate();
@@ -21,7 +14,9 @@ const Navbar = ({ autoSync }) => {
   const [currency, setCurrency] = useState(
     () => localStorage.getItem('displayCurrency') || 'KRW'
   );
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsOpen,  setSettingsOpen]  = useState(false);
+  const [settingsTab,   setSettingsTab]   = useState('profile'); // 'profile' | 'preferences'
+  const [notifications, setNotifications] = useState([]); // 알림 목록 (추후 연동)
   const [profile, setProfile] = useState({ nickname: '', avatar: null });
 
   // [용도] 로그인 시 프로필 정보 로드 / [호출] 마운트 + profileUpdated 이벤트
@@ -43,12 +38,12 @@ const Navbar = ({ autoSync }) => {
     return () => window.removeEventListener('requestLogout', handleLogoutRequest);
   }, [logout, navigate]);
 
-  // [용도] 통화 변경 후 localStorage 저장 및 전역 이벤트 발행 / [호출] 통화 셀렉트 onChange
-  const handleCurrencyChange = (val) => {
-    setCurrency(val);
-    localStorage.setItem('displayCurrency', val);
-    window.dispatchEvent(new CustomEvent('currencyChange', { detail: val }));
-  };
+  // [용도] 설정 패널에서 통화 변경 시 표시 동기화 / [호출] currencyChange 이벤트
+  useEffect(() => {
+    const handler = (e) => setCurrency(e.detail);
+    window.addEventListener('currencyChange', handler);
+    return () => window.removeEventListener('currencyChange', handler);
+  }, []);
 
   const navItems = [
     { path: '/trades',        label: '거래 내역',  icon: '≡' },
@@ -71,7 +66,7 @@ const Navbar = ({ autoSync }) => {
       <nav className="top-nav">
         <div className="top-nav-inner">
           <span className="nav-logo" onClick={() => navigate('/')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <img src="/favicon.svg" alt="logo" style={{ width: '18px', height: '18px' }} />
+            <img src="/favicon.svg" alt="logo" style={{ width: '21px', height: '21px' }} />
             Trade Diary
           </span>
 
@@ -90,21 +85,23 @@ const Navbar = ({ autoSync }) => {
           <div className="nav-right">
             {isLoggedIn && (
               <>
-                <select
-                  className="currency-select"
-                  value={currency}
-                  onChange={(e) => handleCurrencyChange(e.target.value)}
-                >
-                  {CURRENCY_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
                 <button
                   className="avatar-btn"
-                  onClick={() => setSettingsOpen((v) => !v)}
-                  title="설정"
+                  onClick={() => { setSettingsTab('profile'); setSettingsOpen((v) => !v); }}
+                  title="프로필"
                 >
                   {avatarContent}
+                </button>
+                <button className="nav-bell-btn" title="알림">
+                  🔔
+                  {notifications.length > 0 && <span className="nav-bell-dot" />}
+                </button>
+                <button
+                  className="nav-gear-btn"
+                  onClick={() => { setSettingsTab('preferences'); setSettingsOpen(true); }}
+                  title="환경설정"
+                >
+                  ⚙
                 </button>
               </>
             )}
@@ -119,15 +116,6 @@ const Navbar = ({ autoSync }) => {
           Trade Diary
         </span>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <select
-            className="currency-select"
-            value={currency}
-            onChange={(e) => handleCurrencyChange(e.target.value)}
-          >
-            {CURRENCY_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
           {isLoggedIn && (
             <button
               className="avatar-btn"
@@ -158,7 +146,7 @@ const Navbar = ({ autoSync }) => {
 
       {/* ── 설정 패널 (단일 인스턴스, fixed 위치) ── */}
       {isLoggedIn && settingsOpen && (
-        <SettingsPanel onClose={() => setSettingsOpen(false)} />
+        <SettingsPanel initialTab={settingsTab} onClose={() => setSettingsOpen(false)} />
       )}
     </>
   );

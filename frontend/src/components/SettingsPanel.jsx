@@ -1,4 +1,4 @@
-// [파일 용도] 프로필 아바타 클릭 시 열리는 설정 드롭다운 패널
+// [파일 용도] 프로필 아바타 클릭 시 열리는 설정 드롭다운 패널 (프로필 / 환경설정 탭)
 
 import { useState, useEffect, useRef } from 'react';
 import { getMe, updateNickname, updatePassword, updateAvatar } from '../api/userApi';
@@ -11,12 +11,23 @@ const SYNC_OPTIONS = [
   { value: 0,   label: 'OFF' },
 ];
 
-const INTERVAL_KEY = 'autoSyncInterval';
+const CURRENCY_OPTIONS = [
+  { value: 'KRW', label: '₩ 원화 (KRW)' },
+  { value: 'USD', label: '$ 달러 (USD)' },
+  { value: 'CNY', label: '¥ 위안 (CNY)' },
+  { value: 'JPY', label: '¥ 엔화 (JPY)' },
+];
 
-// [컴포넌트] 프로필 설정 드롭다운 패널 / [호출] Navbar.jsx
-const SettingsPanel = ({ onClose }) => {
+const INTERVAL_KEY  = 'autoSyncInterval';
+const CURRENCY_KEY  = 'displayCurrency';
+
+// [컴포넌트] 프로필 설정 드롭다운 패널 / [호출] Navbar.jsx, LandingPage.jsx
+const SettingsPanel = ({ onClose, initialTab = 'profile' }) => {
   const { theme, toggleTheme } = useTheme();
   const panelRef = useRef(null);
+
+  // 탭: 'profile' | 'preferences'
+  const [activeTab, setActiveTab] = useState(initialTab);
 
   const [userInfo, setUserInfo]   = useState({ email: '', nickname: '' });
   const [activeSection, setActiveSection] = useState(null); // 'nickname' | 'password' | 'sync'
@@ -38,6 +49,11 @@ const SettingsPanel = ({ onClose }) => {
     () => parseInt(localStorage.getItem(INTERVAL_KEY) || '60', 10)
   );
 
+  // 표시 통화
+  const [displayCurrency, setDisplayCurrency] = useState(
+    () => localStorage.getItem(CURRENCY_KEY) || 'KRW'
+  );
+
   // [용도] 사용자 정보 로드 / [호출] 마운트 시
   useEffect(() => {
     getMe().then((res) => {
@@ -50,13 +66,10 @@ const SettingsPanel = ({ onClose }) => {
   useEffect(() => {
     const handleClick = (e) => {
       if (!panelRef.current) return;
-      // 패널 안 클릭이면 무시
       if (panelRef.current.contains(e.target)) return;
-      // 아바타 버튼 클릭이면 무시 (버튼 자체 onClick이 토글 처리)
       if (e.target.closest('.avatar-btn')) return;
       onClose();
     };
-    // setTimeout으로 등록 — 현재 클릭 이벤트(패널 오픈 클릭)가 끝난 뒤 리스너 활성화
     const tid = setTimeout(() => {
       document.addEventListener('mousedown', handleClick);
     }, 0);
@@ -122,6 +135,13 @@ const SettingsPanel = ({ onClose }) => {
     window.dispatchEvent(new CustomEvent('syncIntervalChange', { detail: sec }));
   };
 
+  // [용도] 표시 통화 변경 / [호출] 통화 선택 onChange
+  const handleCurrencyChange = (currency) => {
+    setDisplayCurrency(currency);
+    localStorage.setItem(CURRENCY_KEY, currency);
+    window.dispatchEvent(new CustomEvent('currencyChange', { detail: currency }));
+  };
+
   // [용도] 이미지 파일을 80x80 JPEG base64로 압축 / [호출] handleAvatarChange
   const compressImage = (file) =>
     new Promise((resolve, reject) => {
@@ -131,7 +151,6 @@ const SettingsPanel = ({ onClose }) => {
         const canvas = document.createElement('canvas');
         canvas.width = 80; canvas.height = 80;
         const ctx = canvas.getContext('2d');
-        // 정사각형 크롭 후 리사이즈
         const side = Math.min(img.width, img.height);
         const sx = (img.width - side) / 2;
         const sy = (img.height - side) / 2;
@@ -166,7 +185,7 @@ const SettingsPanel = ({ onClose }) => {
 
   return (
     <div className="settings-panel" ref={panelRef}>
-      {/* 헤더 */}
+      {/* ── 헤더 ── */}
       <div className="settings-panel-header">
         <label className="settings-avatar-lg settings-avatar-upload" title="사진 변경">
           {userInfo.avatar
@@ -182,131 +201,177 @@ const SettingsPanel = ({ onClose }) => {
         <button className="settings-panel-close" onClick={onClose}>✕</button>
       </div>
 
-      <div className="settings-divider" />
-
-      {/* 섹션: 닉네임 변경 */}
-      <div className="settings-section">
+      {/* ── 탭 ── */}
+      <div className="settings-tabs">
         <button
-          className={`settings-section-toggle${activeSection === 'nickname' ? ' open' : ''}`}
-          onClick={() => toggle('nickname')}
+          className={`settings-tab${activeTab === 'profile' ? ' active' : ''}`}
+          onClick={() => setActiveTab('profile')}
         >
-          <span>✏️ 닉네임 변경</span>
-          <span className="settings-chevron">{activeSection === 'nickname' ? '▲' : '▼'}</span>
+          프로필
         </button>
-        {activeSection === 'nickname' && (
-          <form className="settings-form" onSubmit={handleNicknameSave}>
-            <input
-              className="settings-input"
-              type="text"
-              placeholder="새 닉네임"
-              value={newNickname}
-              onChange={(e) => setNewNickname(e.target.value)}
-              maxLength={20}
-            />
-            {nicknameMsg.text && (
-              <div className={`settings-msg ${nicknameMsg.ok ? 'ok' : 'err'}`}>
-                {nicknameMsg.text}
-              </div>
-            )}
-            <button className="settings-submit-btn" type="submit" disabled={savingNick}>
-              {savingNick ? '저장 중…' : '저장'}
-            </button>
-          </form>
-        )}
+        <button
+          className={`settings-tab${activeTab === 'preferences' ? ' active' : ''}`}
+          onClick={() => setActiveTab('preferences')}
+        >
+          환경설정
+        </button>
       </div>
 
-      {/* 섹션: 비밀번호 변경 */}
-      <div className="settings-section">
-        <button
-          className={`settings-section-toggle${activeSection === 'password' ? ' open' : ''}`}
-          onClick={() => toggle('password')}
-        >
-          <span>🔒 비밀번호 변경</span>
-          <span className="settings-chevron">{activeSection === 'password' ? '▲' : '▼'}</span>
-        </button>
-        {activeSection === 'password' && (
-          <form className="settings-form" onSubmit={handlePasswordSave}>
-            <input
-              className="settings-input"
-              type="password"
-              placeholder="현재 비밀번호"
-              value={curPassword}
-              onChange={(e) => setCurPassword(e.target.value)}
-            />
-            <input
-              className="settings-input"
-              type="password"
-              placeholder="새 비밀번호 (8자 이상)"
-              value={nextPassword}
-              onChange={(e) => setNextPassword(e.target.value)}
-            />
-            <input
-              className="settings-input"
-              type="password"
-              placeholder="새 비밀번호 확인"
-              value={confirmPw}
-              onChange={(e) => setConfirmPw(e.target.value)}
-            />
-            {passwordMsg.text && (
-              <div className={`settings-msg ${passwordMsg.ok ? 'ok' : 'err'}`}>
-                {passwordMsg.text}
-              </div>
-            )}
-            <button className="settings-submit-btn" type="submit" disabled={savingPw}>
-              {savingPw ? '변경 중…' : '변경'}
-            </button>
-          </form>
-        )}
-      </div>
+      {/* ══ 프로필 탭 ══ */}
+      {activeTab === 'profile' && (
+        <>
+          <div className="settings-divider" />
 
-      {/* 섹션: 자동 동기화 주기 */}
-      <div className="settings-section">
-        <button
-          className={`settings-section-toggle${activeSection === 'sync' ? ' open' : ''}`}
-          onClick={() => toggle('sync')}
-        >
-          <span>🔄 자동 동기화 주기</span>
-          <span className="settings-chevron">{activeSection === 'sync' ? '▲' : '▼'}</span>
-        </button>
-        {activeSection === 'sync' && (
-          <div className="settings-form">
-            <div className="settings-sync-options">
-              {SYNC_OPTIONS.map((opt) => (
-                <label key={opt.value} className="settings-sync-option">
-                  <input
-                    type="radio"
-                    name="syncInterval"
-                    value={opt.value}
-                    checked={syncInterval === opt.value}
-                    onChange={() => handleSyncChange(opt.value)}
-                  />
-                  <span>{opt.label}</span>
-                </label>
-              ))}
+          {/* 닉네임 변경 */}
+          <div className="settings-section">
+            <button
+              className={`settings-section-toggle${activeSection === 'nickname' ? ' open' : ''}`}
+              onClick={() => toggle('nickname')}
+            >
+              <span>✏️ 닉네임 변경</span>
+              <span className="settings-chevron">{activeSection === 'nickname' ? '▲' : '▼'}</span>
+            </button>
+            {activeSection === 'nickname' && (
+              <form className="settings-form" onSubmit={handleNicknameSave}>
+                <input
+                  className="settings-input"
+                  type="text"
+                  placeholder="새 닉네임"
+                  value={newNickname}
+                  onChange={(e) => setNewNickname(e.target.value)}
+                  maxLength={20}
+                />
+                {nicknameMsg.text && (
+                  <div className={`settings-msg ${nicknameMsg.ok ? 'ok' : 'err'}`}>
+                    {nicknameMsg.text}
+                  </div>
+                )}
+                <button className="settings-submit-btn" type="submit" disabled={savingNick}>
+                  {savingNick ? '저장 중…' : '저장'}
+                </button>
+              </form>
+            )}
+          </div>
+
+          {/* 비밀번호 변경 */}
+          <div className="settings-section">
+            <button
+              className={`settings-section-toggle${activeSection === 'password' ? ' open' : ''}`}
+              onClick={() => toggle('password')}
+            >
+              <span>🔒 비밀번호 변경</span>
+              <span className="settings-chevron">{activeSection === 'password' ? '▲' : '▼'}</span>
+            </button>
+            {activeSection === 'password' && (
+              <form className="settings-form" onSubmit={handlePasswordSave}>
+                <input
+                  className="settings-input"
+                  type="password"
+                  placeholder="현재 비밀번호"
+                  value={curPassword}
+                  onChange={(e) => setCurPassword(e.target.value)}
+                />
+                <input
+                  className="settings-input"
+                  type="password"
+                  placeholder="새 비밀번호 (8자 이상)"
+                  value={nextPassword}
+                  onChange={(e) => setNextPassword(e.target.value)}
+                />
+                <input
+                  className="settings-input"
+                  type="password"
+                  placeholder="새 비밀번호 확인"
+                  value={confirmPw}
+                  onChange={(e) => setConfirmPw(e.target.value)}
+                />
+                {passwordMsg.text && (
+                  <div className={`settings-msg ${passwordMsg.ok ? 'ok' : 'err'}`}>
+                    {passwordMsg.text}
+                  </div>
+                )}
+                <button className="settings-submit-btn" type="submit" disabled={savingPw}>
+                  {savingPw ? '변경 중…' : '변경'}
+                </button>
+              </form>
+            )}
+          </div>
+
+          <div className="settings-divider" />
+
+          {/* 로그아웃 */}
+          <button
+            className="settings-logout-btn"
+            onClick={() => {
+              onClose();
+              window.dispatchEvent(new CustomEvent('requestLogout'));
+            }}
+          >
+            로그아웃
+          </button>
+        </>
+      )}
+
+      {/* ══ 환경설정 탭 ══ */}
+      {activeTab === 'preferences' && (
+        <>
+          <div className="settings-divider" />
+
+          {/* 표시 통화 */}
+          <div className="settings-section">
+            <div className="settings-pref-row">
+              <span className="settings-pref-label">표시 통화</span>
+              <div className="settings-pref-value">
+                {CURRENCY_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    className={`settings-currency-btn${displayCurrency === opt.value ? ' active' : ''}`}
+                    onClick={() => handleCurrencyChange(opt.value)}
+                  >
+                    {opt.value}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
-        )}
-      </div>
 
-      {/* 섹션: 테마 */}
-      <div className="settings-section">
-        <button className="settings-section-toggle" onClick={toggleTheme}>
-          <span>{theme === 'dark' ? '☀️ 라이트 모드로 전환' : '🌙 다크 모드로 전환'}</span>
-        </button>
-      </div>
+          {/* 자동 동기화 주기 */}
+          <div className="settings-section">
+            <button
+              className={`settings-section-toggle${activeSection === 'sync' ? ' open' : ''}`}
+              onClick={() => toggle('sync')}
+            >
+              <span>🔄 자동 동기화 주기</span>
+              <span className="settings-chevron">{activeSection === 'sync' ? '▲' : '▼'}</span>
+            </button>
+            {activeSection === 'sync' && (
+              <div className="settings-form">
+                <div className="settings-sync-options">
+                  {SYNC_OPTIONS.map((opt) => (
+                    <label key={opt.value} className="settings-sync-option">
+                      <input
+                        type="radio"
+                        name="syncInterval"
+                        value={opt.value}
+                        checked={syncInterval === opt.value}
+                        onChange={() => handleSyncChange(opt.value)}
+                      />
+                      <span>{opt.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
 
-      <div className="settings-divider" />
-
-      {/* 로그아웃 */}
-      <button
-        className="settings-logout-btn"
-        onClick={() => {
-          onClose();
-          window.dispatchEvent(new CustomEvent('requestLogout'));
-        }}
-      >
-        로그아웃
-      </button>
+          {/* 테마 */}
+          <div className="settings-section">
+            <button className="settings-section-toggle" onClick={toggleTheme}>
+              <span>{theme === 'dark' ? '☀️ 라이트 모드로 전환' : '🌙 다크 모드로 전환'}</span>
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 };
