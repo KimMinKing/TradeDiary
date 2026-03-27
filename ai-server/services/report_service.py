@@ -1,36 +1,24 @@
-# [파일 용도] OpenAI API 호출 및 트레이딩 AI 분석 리포트 생성
+# [파일 용도] Gemini API 호출 및 트레이딩 AI 분석 리포트 생성
 
 import os
-from openai import AsyncOpenAI
+import google.generativeai as genai
 from models import ReportRequest
 
-# OpenAI 클라이언트 초기화
-_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# [용도] Gemini API 초기화 / [호출] 모듈 로드 시
+genai.configure(api_key=os.getenv("GEMINI_API_KEY", ""))
+_model = genai.GenerativeModel("gemini-2.0-flash-lite")
 
 
 # [용도] 거래 통계 데이터 기반 AI 분석 리포트 생성 / [호출] routers/report.py > analyze()
 async def generate_report(req: ReportRequest) -> str:
-    s = req.summary
     prompt = _build_prompt(req)
-
-    response = await _client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "당신은 코인 트레이더 전문 코치입니다. "
-                    "트레이더의 거래 통계를 분석하고 구체적이고 실용적인 조언을 제공합니다. "
-                    "분석은 항상 한국어로 작성하며, 냉정하고 데이터 기반으로 피드백합니다."
-                ),
-            },
-            {"role": "user", "content": prompt},
-        ],
-        max_tokens=1200,
-        temperature=0.7,
+    system = (
+        "당신은 코인 트레이더 전문 코치입니다. "
+        "트레이더의 거래 통계를 분석하고 구체적이고 실용적인 조언을 제공합니다. "
+        "분석은 항상 한국어로 작성하며, 냉정하고 데이터 기반으로 피드백합니다.\n\n"
     )
-
-    return response.choices[0].message.content
+    response = _model.generate_content(system + prompt)
+    return response.text
 
 
 # [용도] AI 프롬프트 생성 / [호출] generate_report()
