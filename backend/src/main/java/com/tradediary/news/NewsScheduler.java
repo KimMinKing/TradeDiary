@@ -57,6 +57,7 @@ public class NewsScheduler {
             Set<String> existing = newsArticleRepository.findExistingExternalIds(externalIds);
             List<JsonNode> newArticles = articles.stream()
                     .filter(a -> !existing.contains(a.path("id").asText()))
+                    .limit(20)  // 한 번에 최대 20건만 처리
                     .collect(Collectors.toList());
 
             if (newArticles.isEmpty()) {
@@ -66,12 +67,15 @@ public class NewsScheduler {
 
             log.info("[NewsScheduler] 새 기사 {}건 번역 요청", newArticles.size());
 
-            // Gemini 번역 (최대 20건씩 배치)
+            // Gemini 번역 (최대 10건씩 배치, 배치 간 3초 대기)
             List<NewsArticle> toSave = new ArrayList<>();
-            for (int i = 0; i < newArticles.size(); i += 20) {
-                List<JsonNode> batch = newArticles.subList(i, Math.min(i + 20, newArticles.size()));
+            for (int i = 0; i < newArticles.size(); i += 10) {
+                List<JsonNode> batch = newArticles.subList(i, Math.min(i + 10, newArticles.size()));
                 List<NewsArticle> translated = translateBatch(batch);
                 toSave.addAll(translated);
+                if (i + 10 < newArticles.size()) {
+                    Thread.sleep(3000);
+                }
             }
 
             newsArticleRepository.saveAll(toSave);
