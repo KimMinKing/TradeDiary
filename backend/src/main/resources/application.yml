@@ -64,4 +64,4 @@ aes:
 
 # CryptoPanic 뉴스 API 키
 cryptopanic:
-  api-key: ${CRYPTOPANIC_API_KEY:}
+  api-key: ${CRYPTOPANIC_API_KEY:4497e9f085aebc9850adc333756c1693bd25338b}
