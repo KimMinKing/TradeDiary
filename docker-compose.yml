@@ -41,6 +41,7 @@ services:
       FRONTEND_URL: https://tradediary.site
       OAUTH2_BASE_URL: https://tradediary.site
       AI_SERVER_URL: http://ai-server:8000
+      CRYPTOPANIC_API_KEY: ${CRYPTOPANIC_API_KEY}
       TZ: Asia/Seoul
     ports:
       - "8080:8080"

@@ -2851,3 +2851,208 @@ button { font-family: var(--font-ui); }
   transition: background 0.12s;
 }
 .settings-logout-btn:hover { background: rgba(244, 63, 94, 0.08); }
+
+/* ══════════════════════════════════════════════════════════════════
+   코인 뉴스 페이지
+   ══════════════════════════════════════════════════════════════════ */
+
+.news-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+.news-title {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.news-last-update {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.news-live-badge {
+  font-size: 12px;
+  font-weight: 600;
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  border-radius: var(--radius-sm);
+  padding: 3px 8px;
+  animation: newsPulse 2s ease-in-out infinite;
+}
+@keyframes newsPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.55; }
+}
+
+/* ── 필터 탭 ── */
+.news-filters {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.news-filter-btn {
+  padding: 6px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-family: var(--font-ui);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.news-filter-btn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.news-filter-btn.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ── 뉴스 카드 목록 ── */
+.news-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.news-card {
+  display: block;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  text-decoration: none;
+  transition: border-color 0.15s, background 0.15s;
+}
+.news-card:hover {
+  border-color: var(--accent);
+  background: var(--bg-elevated);
+  text-decoration: none;
+}
+.news-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.news-source {
+  font-size: 11px;
+  color: var(--accent);
+  font-weight: 500;
+}
+.news-time {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.news-card-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+.news-currencies {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.news-currency-tag {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid rgba(129,140,248,0.2);
+}
+.news-card-bottom {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.news-votes {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+}
+.news-vote-pos { color: var(--buy); }
+.news-vote-neg { color: var(--sell); }
+.news-important-badge {
+  font-size: 11px;
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+}
+
+/* ── 상태 ── */
+.news-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 60px 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+.news-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+.news-error {
+  text-align: center;
+  padding: 60px 0;
+  color: var(--sell);
+  font-size: 14px;
+}
+.news-empty {
+  text-align: center;
+  padding: 60px 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+.news-load-more {
+  display: block;
+  width: 100%;
+  margin-top: 16px;
+  padding: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-family: var(--font-ui);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.news-load-more:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ── 라이트 모드 ── */
+[data-theme="light"] .news-card { box-shadow: 0 1px 4px rgba(79,70,229,0.06); }
+[data-theme="light"] .news-card:hover { background: var(--bg-elevated); }
+
+/* ── 모바일 ── */
+@media (max-width: 768px) {
+  .news-header { flex-direction: row; align-items: center; }
+  .news-title { font-size: 18px; }
+  .news-filters { gap: 4px; }
+  .news-filter-btn { padding: 5px 10px; font-size: 12px; }
+  .news-card-title { font-size: 13px; }
+}

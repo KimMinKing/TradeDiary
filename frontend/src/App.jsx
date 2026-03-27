@@ -10,6 +10,7 @@ import TradeListPage from './pages/TradeListPage';
 import PositionListPage from './pages/PositionListPage';
 import JournalPage from './pages/JournalPage';
 import StatsPage from './pages/StatsPage';
+import NewsPage from './pages/NewsPage';
 import Layout from './components/Layout';
 import useAuthStore from './store/authStore';
 
@@ -60,6 +61,10 @@ const App = () => {
         <Route
           path="/stats"
           element={<PrivateRoute><StatsPage /></PrivateRoute>}
+        />
+        <Route
+          path="/news"
+          element={<PrivateRoute><NewsPage /></PrivateRoute>}
         />
         <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -50,6 +50,7 @@ const Navbar = ({ autoSync }) => {
     { path: '/positions',     label: '포지션',     icon: '◈' },
     { path: '/stats',         label: '통계',       icon: '📊' },
     { path: '/journal',       label: '매매 일기',  icon: '📓' },
+    { path: '/news',          label: '코인 뉴스',  icon: '📰' },
     { path: '/exchange-keys', label: '거래소 연동', icon: '⚙' },
   ];
 

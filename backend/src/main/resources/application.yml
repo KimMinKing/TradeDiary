@@ -61,3 +61,7 @@ frontend:
 # 거래소 API Key 암호화 키 (AES-256, 반드시 32자)
 aes:
   secret: ${AES_SECRET}
+
+# CryptoPanic 뉴스 API 키
+cryptopanic:
+  api-key: ${CRYPTOPANIC_API_KEY}
