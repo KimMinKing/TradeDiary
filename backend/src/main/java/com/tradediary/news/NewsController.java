@@ -1,4 +1,4 @@
-// [파일 용도] CryptoPanic 뉴스 프록시 API 엔드포인트
+// [파일 용도] CryptoCompare 뉴스 프록시 API 엔드포인트
 
 package com.tradediary.news;
 
@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
-// [클래스] 코인 뉴스 REST API 컨트롤러 (CryptoPanic 프록시)
+// [클래스] 코인 뉴스 REST API 컨트롤러 (CryptoCompare 프록시)
 @RestController
 @RequestMapping("/api/news")
 @RequiredArgsConstructor
@@ -16,11 +16,11 @@ public class NewsController {
 
     private final NewsService newsService;
 
-    // [용도] 코인 뉴스 목록 조회 / [호출] GET /api/news?filter=rising|hot|bullish|bearish|important&page=1
+    // [용도] 코인 뉴스 목록 조회 / [호출] GET /api/news?category=all|bitcoin|ethereum|...&sortOrder=latest|popular
     @GetMapping
     public ResponseEntity<Map<String, Object>> getNews(
-            @RequestParam(defaultValue = "hot") String filter,
-            @RequestParam(defaultValue = "1") int page) {
-        return ResponseEntity.ok(newsService.getNews(filter, page));
+            @RequestParam(defaultValue = "all") String category,
+            @RequestParam(defaultValue = "latest") String sortOrder) {
+        return ResponseEntity.ok(newsService.getNews(category, sortOrder));
     }
 }

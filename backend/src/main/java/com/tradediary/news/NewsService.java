@@ -1,34 +1,47 @@
-// [파일 용도] CryptoPanic API 호출 및 뉴스 데이터 반환 서비스
+// [파일 용도] CryptoCompare News API 호출 및 뉴스 데이터 반환 서비스
 
 package com.tradediary.news;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.util.List;
 import java.util.Map;
 
-// [클래스] CryptoPanic REST API 프록시 서비스 (API 키 보호 + CORS 우회)
+// [클래스] CryptoCompare News API 프록시 서비스 (무료, API 키 불필요, CORS 우회)
 @Service
 public class NewsService {
 
-    @Value("${cryptopanic.api-key}")
-    private String apiKey;
-
     private final RestTemplate restTemplate = new RestTemplate();
 
-    private static final String CRYPTOPANIC_BASE = "https://cryptopanic.com/api/developer/v2/posts/";
+    private static final String CRYPTOCOMPARE_BASE = "https://min-api.cryptocompare.com/data/v2/news/";
+    // 카테고리 목록: https://min-api.cryptocompare.com/data/news/categories
+    private static final Map<String, String> CATEGORY_MAP = Map.of(
+        "all",      "",
+        "bitcoin",  "BTC",
+        "ethereum", "ETH",
+        "altcoin",  "Altcoin",
+        "market",   "Market",
+        "mining",   "Mining",
+        "trading",  "Trading",
+        "regulation", "Regulation"
+    );
 
-    // [용도] CryptoPanic 뉴스 목록 조회 후 결과 그대로 반환 / [호출] NewsController.getNews()
-    public Map<String, Object> getNews(String filter, int page) {
-        String url = UriComponentsBuilder.fromHttpUrl(CRYPTOPANIC_BASE)
-                .queryParam("auth_token", apiKey)
-                .queryParam("public", "true")
-                .queryParam("kind", "news")
-                .queryParam("filter", filter)
-                .queryParam("page", page)
-                .toUriString();
+    // [용도] CryptoCompare 뉴스 목록 조회 / [호출] NewsController.getNews()
+    // sortOrder: latest | popular
+    // categories: 쉼표 구분 (예: BTC,ETH)
+    public Map<String, Object> getNews(String category, String sortOrder) {
+        UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(CRYPTOCOMPARE_BASE)
+                .queryParam("lang", "EN")
+                .queryParam("sortOrder", sortOrder != null ? sortOrder : "latest");
+
+        String cats = CATEGORY_MAP.getOrDefault(category, "");
+        if (!cats.isEmpty()) {
+            builder.queryParam("categories", cats);
+        }
+
+        String url = builder.toUriString();
 
         @SuppressWarnings("unchecked")
         Map<String, Object> response = restTemplate.getForObject(url, Map.class);
