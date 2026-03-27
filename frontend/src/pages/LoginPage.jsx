@@ -1,19 +1,31 @@
 // [파일 용도] 로그인 페이지
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { login } from '../api/authApi';
 import useAuthStore from '../store/authStore';
+
+const SAVED_EMAIL_KEY = 'savedEmail';
 
 // [컴포넌트] 이메일/비밀번호 로그인 화면 / [호출] App.jsx 라우터
 const LoginPage = () => {
   const navigate    = useNavigate();
   const setLoggedIn = useAuthStore((state) => state.setLoggedIn);
 
-  const [email,    setEmail]    = useState('');
-  const [password, setPassword] = useState('');
-  const [error,    setError]    = useState('');
-  const [loading,  setLoading]  = useState(false);
+  const [email,     setEmail]     = useState('');
+  const [password,  setPassword]  = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
+  const [error,     setError]     = useState('');
+  const [loading,   setLoading]   = useState(false);
+
+  // [용도] 저장된 이메일 불러오기 / [호출] 마운트 시
+  useEffect(() => {
+    const saved = localStorage.getItem(SAVED_EMAIL_KEY);
+    if (saved) {
+      setEmail(saved);
+      setRememberMe(true);
+    }
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -21,6 +33,11 @@ const LoginPage = () => {
     setLoading(true);
     try {
       await login(email, password);
+      if (rememberMe) {
+        localStorage.setItem(SAVED_EMAIL_KEY, email);
+      } else {
+        localStorage.removeItem(SAVED_EMAIL_KEY);
+      }
       setLoggedIn();
       navigate('/dashboard');
     } catch (err) {
@@ -63,6 +80,16 @@ const LoginPage = () => {
               autoComplete="current-password"
             />
           </div>
+
+          {/* 아이디 저장 */}
+          <label className="login-remember-row">
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+            />
+            <span>아이디 저장</span>
+          </label>
 
           {error && <p className="msg-error">{error}</p>}
 

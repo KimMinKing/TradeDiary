@@ -235,6 +235,23 @@ button { font-family: var(--font-ui); }
   color: var(--text-secondary);
 }
 
+/* 아이디 저장 체크박스 행 */
+.login-remember-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+.login-remember-row input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 /* ── 폼 ─────────────────────────────────────────────────────────────── */
 .form { display: flex; flex-direction: column; gap: 12px; }
 
@@ -369,8 +386,10 @@ button { font-family: var(--font-ui); }
 .badge-okx     { background: rgba(228, 164, 0, 0.08);  color: #e4a400; }
 .badge-binance { background: rgba(240, 185, 11, 0.08); color: #f0b90b; }
 .badge-bingx   { background: rgba(29, 184, 192, 0.08); color: #1db8c0; }
-.badge-buy   { background: var(--buy-soft);   color: #4ade80; }
-.badge-sell  { background: var(--sell-soft);  color: #fb7185; }
+.badge-buy   { background: var(--buy-soft);   color: #4ade80; font-family: var(--font-ui); }
+.badge-sell  { background: var(--sell-soft);  color: #fb7185; font-family: var(--font-ui); }
+.badge-long  { background: var(--buy-soft);   color: #4ade80; font-family: var(--font-ui); }
+.badge-short { background: var(--sell-soft);  color: #fb7185; font-family: var(--font-ui); }
 
 /* ── 교환소 필터 탭 ──────────────────────────────────────────────── */
 .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
