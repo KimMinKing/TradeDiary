@@ -65,9 +65,18 @@ async def translate_news(req: TranslateRequest):
     }
 
     try:
+        import asyncio
         async with httpx.AsyncClient(timeout=120.0) as client:
-            res = await client.post(GEMINI_URL, json=payload)
-            res.raise_for_status()
+            for attempt in range(3):
+                res = await client.post(GEMINI_URL, json=payload)
+                if res.status_code == 429:
+                    wait = (attempt + 1) * 20  # 20초, 40초, 60초
+                    await asyncio.sleep(wait)
+                    continue
+                res.raise_for_status()
+                break
+            else:
+                raise Exception("429 Too Many Requests - 재시도 초과")
             data = res.json()
 
         text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
