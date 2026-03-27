@@ -52,8 +52,9 @@ const NewsPage = () => {
       setLoading(true);
       setError(null);
       const res = await getNews(cat, sort);
-      // CryptoCompare 응답: { Data: [...], ... }
-      setPosts(res.data?.Data || []);
+      // JsonNode로 반환되므로 키 변환 없이 원본 Data 배열 그대로
+      const rawData = res.data?.Data;
+      setPosts(Array.isArray(rawData) ? rawData : []);
       setLastFetch(new Date());
     } catch {
       setError('뉴스를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.');

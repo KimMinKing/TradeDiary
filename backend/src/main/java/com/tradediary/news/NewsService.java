@@ -2,36 +2,35 @@
 
 package com.tradediary.news;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
-import java.util.List;
-import java.util.Map;
-
 // [클래스] CryptoCompare News API 프록시 서비스 (무료, API 키 불필요, CORS 우회)
+// JsonNode 사용으로 Spring SNAKE_CASE 직렬화 변환 방지
 @Service
 public class NewsService {
 
     private final RestTemplate restTemplate = new RestTemplate();
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     private static final String CRYPTOCOMPARE_BASE = "https://min-api.cryptocompare.com/data/v2/news/";
-    // 카테고리 목록: https://min-api.cryptocompare.com/data/news/categories
-    private static final Map<String, String> CATEGORY_MAP = Map.of(
-        "all",      "",
-        "bitcoin",  "BTC",
-        "ethereum", "ETH",
-        "altcoin",  "Altcoin",
-        "market",   "Market",
-        "mining",   "Mining",
-        "trading",  "Trading",
+
+    private static final java.util.Map<String, String> CATEGORY_MAP = java.util.Map.of(
+        "bitcoin",    "BTC",
+        "ethereum",   "ETH",
+        "altcoin",    "Altcoin",
+        "market",     "Market",
+        "mining",     "Mining",
+        "trading",    "Trading",
         "regulation", "Regulation"
     );
 
-    // [용도] CryptoCompare 뉴스 목록 조회 / [호출] NewsController.getNews()
-    // sortOrder: latest | popular
-    // categories: 쉼표 구분 (예: BTC,ETH)
-    public Map<String, Object> getNews(String category, String sortOrder) {
+    // [용도] CryptoCompare 뉴스 목록 조회 후 JsonNode 그대로 반환 / [호출] NewsController.getNews()
+    // JsonNode 반환 시 Jackson이 키 이름을 변환하지 않아 원본 구조 유지됨
+    public JsonNode getNews(String category, String sortOrder) {
         UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(CRYPTOCOMPARE_BASE)
                 .queryParam("lang", "EN")
                 .queryParam("sortOrder", sortOrder != null ? sortOrder : "latest");
@@ -43,8 +42,11 @@ public class NewsService {
 
         String url = builder.toUriString();
 
-        @SuppressWarnings("unchecked")
-        Map<String, Object> response = restTemplate.getForObject(url, Map.class);
-        return response != null ? response : Map.of();
+        try {
+            String raw = restTemplate.getForObject(url, String.class);
+            return objectMapper.readTree(raw);
+        } catch (Exception e) {
+            return objectMapper.createObjectNode();
+        }
     }
 }
