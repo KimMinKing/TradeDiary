@@ -154,6 +154,21 @@ CREATE TABLE IF NOT EXISTS streak_records (
 );
 
 -- =============================================
+-- 코인 뉴스 (Gemini 번역+요약 저장)
+-- =============================================
+CREATE TABLE IF NOT EXISTS news_articles (
+    id              BIGSERIAL PRIMARY KEY,
+    external_id     VARCHAR(255) NOT NULL UNIQUE,   -- CryptoCompare article id
+    title_ko        TEXT         NOT NULL,           -- Gemini 번역 제목
+    summary_ko      TEXT         NOT NULL,           -- Gemini 번역+요약 본문
+    source          VARCHAR(255),                    -- 출처 (예: coindesk.com)
+    original_url    TEXT         NOT NULL,           -- 원본 기사 URL
+    categories      VARCHAR(255),                    -- 카테고리 (예: BTC|ETH)
+    published_at    TIMESTAMP    NOT NULL,
+    created_at      TIMESTAMP    NOT NULL DEFAULT NOW()
+);
+
+-- =============================================
 -- 기본 전략 태그 데이터
 -- =============================================
 INSERT INTO strategy_tags (user_id, name) VALUES

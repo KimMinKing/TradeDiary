@@ -3002,7 +3002,25 @@ button { font-family: var(--font-ui); }
 .news-card-bottom {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
+  margin-top: 4px;
+}
+.news-original-link {
+  font-size: 11px;
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+  transition: opacity 0.15s;
+}
+.news-original-link:hover { opacity: 0.75; text-decoration: none; }
+.news-ai-badge {
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
 }
 .news-votes {
   display: flex;

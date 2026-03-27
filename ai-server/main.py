@@ -2,7 +2,7 @@
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import report
+from routers import report, news
 
 # [클래스] FastAPI 앱 인스턴스 및 미들웨어 설정
 app = FastAPI(
@@ -19,6 +19,7 @@ app.add_middleware(
 )
 
 app.include_router(report.router, prefix="/report", tags=["report"])
+app.include_router(news.router,   prefix="/news",   tags=["news"])
 
 
 # [용도] 헬스체크 엔드포인트 / [호출] Docker healthcheck, Spring Boot 연동 확인
