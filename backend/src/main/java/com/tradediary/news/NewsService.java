@@ -18,7 +18,7 @@ public class NewsService {
 
     private final RestTemplate restTemplate = new RestTemplate();
 
-    private static final String CRYPTOPANIC_BASE = "https://cryptopanic.com/api/v1/posts/";
+    private static final String CRYPTOPANIC_BASE = "https://cryptopanic.com/api/free/v1/posts/";
 
     // [용도] CryptoPanic 뉴스 목록 조회 후 결과 그대로 반환 / [호출] NewsController.getNews()
     public Map<String, Object> getNews(String filter, int page) {
