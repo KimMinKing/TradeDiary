@@ -4,6 +4,8 @@ package com.tradediary.news;
 
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Set;
@@ -12,7 +14,8 @@ import java.util.Set;
 public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> {
 
     // [용도] 이미 저장된 외부 ID 목록 조회 (중복 저장 방지) / [호출] NewsScheduler
-    Set<String> findExternalIdByExternalIdIn(List<String> externalIds);
+    @Query("SELECT n.externalId FROM NewsArticle n WHERE n.externalId IN :ids")
+    Set<String> findExistingExternalIds(@Param("ids") List<String> ids);
 
     // [용도] 최신순 뉴스 목록 조회 (페이지네이션) / [호출] NewsService
     List<NewsArticle> findAllByOrderByPublishedAtDesc(Pageable pageable);

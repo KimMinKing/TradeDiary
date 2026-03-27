@@ -54,7 +54,7 @@ public class NewsScheduler {
             List<String> externalIds = articles.stream()
                     .map(a -> a.path("id").asText())
                     .collect(Collectors.toList());
-            Set<String> existing = newsArticleRepository.findExternalIdByExternalIdIn(externalIds);
+            Set<String> existing = newsArticleRepository.findExistingExternalIds(externalIds);
             List<JsonNode> newArticles = articles.stream()
                     .filter(a -> !existing.contains(a.path("id").asText()))
                     .collect(Collectors.toList());
