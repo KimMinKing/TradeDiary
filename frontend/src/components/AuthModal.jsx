@@ -1,6 +1,8 @@
 // [파일 용도] 로그인/회원가입 통합 모달 (이메일 / 구글 / 카카오)
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+
+const SAVED_EMAIL_KEY = 'savedEmail';
 import { useNavigate } from 'react-router-dom';
 import { login, signup } from '../api/authApi';
 import useAuthStore from '../store/authStore';
@@ -13,12 +15,22 @@ const AuthModal = ({ initialMode = 'login', onClose }) => {
   const [password,      setPassword]      = useState('');
   const [nickname,      setNickname]      = useState('');
   const [showPw,        setShowPw]        = useState(false); // 비밀번호 표시 토글
+  const [rememberMe,    setRememberMe]    = useState(false);
   const [error,         setError]         = useState('');
   const [success,       setSuccess]       = useState('');
   const [loading,       setLoading]       = useState(false);
 
   const setLoggedIn = useAuthStore((state) => state.setLoggedIn);
   const navigate    = useNavigate();
+
+  // [용도] 저장된 이메일 불러오기 / [호출] 마운트 시
+  useEffect(() => {
+    const saved = localStorage.getItem(SAVED_EMAIL_KEY);
+    if (saved) {
+      setEmail(saved);
+      setRememberMe(true);
+    }
+  }, []);
 
   // [용도] 비밀번호 유효성 조건 / [호출] 회원가입 폼
   const cond8chars  = password.length >= 8;
@@ -44,6 +56,11 @@ const AuthModal = ({ initialMode = 'login', onClose }) => {
     setLoading(true);
     try {
       await login(email, password);
+      if (rememberMe) {
+        localStorage.setItem(SAVED_EMAIL_KEY, email);
+      } else {
+        localStorage.removeItem(SAVED_EMAIL_KEY);
+      }
       setLoggedIn();
       onClose();
       navigate('/trades');
@@ -157,6 +174,18 @@ const AuthModal = ({ initialMode = 'login', onClose }) => {
                 required
               />
             )}
+            {/* 아이디 저장 (로그인 모드에서만) */}
+            {mode === 'login' && (
+              <label className="login-remember-row">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                />
+                <span>아이디 저장</span>
+              </label>
+            )}
+
             {error   && <p className="msg-error">{error}</p>}
             <button className="btn btn-primary btn-full" type="submit" disabled={loading}>
               {loading ? '처리 중...' : mode === 'login' ? '로그인' : '회원가입'}
