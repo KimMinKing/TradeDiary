@@ -62,4 +62,6 @@ frontend:
 aes:
   secret: ${AES_SECRET}
 
-# 뉴스: CryptoCompare API (무료, 키 불필요)
+# CryptoCompare 뉴스 API 키 (https://www.cryptocompare.com/cryptopian/api-keys)
+cryptocompare:
+  api-key: ${CRYPTOCOMPARE_API_KEY:}

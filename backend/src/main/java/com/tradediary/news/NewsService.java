@@ -4,14 +4,19 @@ package com.tradediary.news;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
-// [클래스] CryptoCompare News API 프록시 서비스 (무료, API 키 불필요, CORS 우회)
-// JsonNode 사용으로 Spring SNAKE_CASE 직렬화 변환 방지
+// [클래스] CryptoCompare News API 프록시 서비스 (CORS 우회, API 키 보호)
+// JsonNode 반환으로 Spring SNAKE_CASE 변환 방지
 @Service
 public class NewsService {
+
+    @Value("${cryptocompare.api-key}")
+    private String apiKey;
 
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -29,7 +34,6 @@ public class NewsService {
     );
 
     // [용도] CryptoCompare 뉴스 목록 조회 후 JsonNode 그대로 반환 / [호출] NewsController.getNews()
-    // JsonNode 반환 시 Jackson이 키 이름을 변환하지 않아 원본 구조 유지됨
     public JsonNode getNews(String category, String sortOrder) {
         UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(CRYPTOCOMPARE_BASE)
                 .queryParam("lang", "EN")
@@ -42,9 +46,16 @@ public class NewsService {
 
         String url = builder.toUriString();
 
+        // API 키를 Authorization 헤더로 전달 (CryptoCompare 권장 방식)
+        HttpHeaders headers = new HttpHeaders();
+        if (apiKey != null && !apiKey.isBlank()) {
+            headers.set("Authorization", "Apikey " + apiKey);
+        }
+        HttpEntity<Void> entity = new HttpEntity<>(headers);
+
         try {
-            String raw = restTemplate.getForObject(url, String.class);
-            return objectMapper.readTree(raw);
+            ResponseEntity<String> res = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
+            return objectMapper.readTree(res.getBody());
         } catch (Exception e) {
             return objectMapper.createObjectNode();
         }
