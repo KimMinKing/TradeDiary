@@ -1,11 +1,12 @@
 // [파일 용도] 매매 일기 페이지 (캘린더 뷰 + 일기 작성/거래 내역 분할 패널)
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   getJournals, deleteJournal, getStrategyTags,
   createJournal, updateJournal, createStrategyTag,
 } from '../api/journalApi';
 import { getTrades } from '../api/exchangeApi';
+import { getNewsSummary, refreshNewsSummary } from '../api/newsApi';
 
 // [컴포넌트] 선택된 거래 참조 태그 표시 / [호출] JournalPage 폼
 const TradeRefChip = ({ trade, onClear }) => (
@@ -120,13 +121,36 @@ const JournalPage = () => {
   const [yearMonthPicker, setYearMonthPicker] = useState(false); // 년/월 빠른 선택 팝업
   const [pickerYear,     setPickerYear]     = useState(todayDate.getFullYear()); // 팝업에서 선택 중인 년도
 
+  // AI 시장 요약 상태
+  const [aiSummary,     setAiSummary]     = useState(null);
+  const [aiRefreshing,  setAiRefreshing]  = useState(false);
+
+  // [용도] AI 시장 요약 조회 / [호출] 마운트
+  const fetchAiSummary = useCallback(async () => {
+    try {
+      const res = await getNewsSummary();
+      if (res.data?.summary_ko) setAiSummary(res.data);
+    } catch {}
+  }, []);
+
   useEffect(() => {
     fetchAll();
+    fetchAiSummary();
     // 자동 동기화 완료 시 데이터 재조회 (로딩 스피너 없이)
     const onAutoSync = () => fetchAll(true);
     window.addEventListener('autoSyncComplete', onAutoSync);
     return () => window.removeEventListener('autoSyncComplete', onAutoSync);
-  }, []);
+  }, [fetchAiSummary]);
+
+  // [용도] AI 요약 수동 재생성 / [호출] 새로고침 버튼
+  const handleRefreshAiSummary = async () => {
+    setAiRefreshing(true);
+    try {
+      const res = await refreshNewsSummary();
+      if (res.data?.summary_ko) setAiSummary(res.data);
+    } catch {}
+    setAiRefreshing(false);
+  };
 
   // [용도] 년/월 팝업 외부 클릭 시 닫기 / [호출] yearMonthPicker 상태 변경 시
   useEffect(() => {
@@ -435,6 +459,38 @@ const JournalPage = () => {
               </div>
             </div>
             </>}
+
+          {/* ── AI 시장 요약 패널 ─────────────────── */}
+          <div className="ai-summary-panel">
+            <div className="ai-summary-header">
+              <span className="ai-summary-label">✦ 오늘의 시장 동향</span>
+              <button
+                className="btn btn-ghost btn-xs"
+                onClick={handleRefreshAiSummary}
+                disabled={aiRefreshing}
+                style={{ opacity: 0.6, fontSize: '11px', padding: '2px 6px' }}
+              >
+                {aiRefreshing ? '생성 중...' : '↺'}
+              </button>
+            </div>
+            {aiSummary?.summary_ko ? (
+              <>
+                <p className="ai-summary-text">{aiSummary.summary_ko}</p>
+                {aiSummary.updated_at && (
+                  <span className="ai-summary-time">
+                    {new Date(aiSummary.updated_at).toLocaleString('ko-KR', {
+                      month: 'numeric', day: 'numeric',
+                      hour: '2-digit', minute: '2-digit',
+                    })} 기준
+                  </span>
+                )}
+              </>
+            ) : (
+              <p className="ai-summary-empty">
+                {aiRefreshing ? 'AI가 요약 중입니다...' : '오늘의 요약이 없습니다. ↺ 버튼으로 생성하세요.'}
+              </p>
+            )}
+          </div>
           </div>
 
           {/* ── 콘텐츠 패널 ──────────────────────────── */}

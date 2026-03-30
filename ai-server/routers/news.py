@@ -1,4 +1,4 @@
-# [파일 용도] Gemini REST API를 사용한 뉴스 번역+요약 엔드포인트 (단일 호출)
+# [파일 용도] Groq API를 사용한 뉴스 번역+요약 엔드포인트 (단일 호출)
 
 import os
 import json
@@ -9,8 +9,9 @@ from typing import List
 
 router = APIRouter()
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyCfq58gKARA6W2jBs3PQkyKGD0g0IO_4j8")
-GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key={GEMINI_API_KEY}"
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL = "llama-3.3-70b-versatile"
 
 
 class NewsItem(BaseModel):
@@ -36,13 +37,12 @@ class TranslateResponse(BaseModel):
     results: List[TranslatedItem]
 
 
-# [용도] 뉴스 기사 전체 번역+요약 (Gemini 단일 호출) / [호출] Spring Boot NewsScheduler
+# [용도] 뉴스 기사 전체 번역+요약 (Groq 단일 호출) / [호출] Spring Boot NewsScheduler
 @router.post("/translate", response_model=TranslateResponse)
 async def translate_news(req: TranslateRequest):
     if not req.articles:
         return TranslateResponse(results=[])
 
-    # 기사들을 번호 붙인 텍스트 블록으로 구성
     blocks = []
     for a in req.articles:
         body_preview = a.body[:200].replace("\n", " ") if a.body else ""
@@ -57,31 +57,29 @@ async def translate_news(req: TranslateRequest):
 {articles_text}
 
 응답 형식:
-[{{"id":"기사id","title_ko":"번역된 제목","summary_ko":"1~2문장 요약"}},...]"""
+[{{"id":"기사id","title_ko":"번역된 제목","summary_ko":"1~2문장 요약"}},...]\
+"""
 
     payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.2}
+        "model": GROQ_MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.2,
+        "max_tokens": 2000,
+    }
+
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json",
     }
 
     try:
-        import asyncio
         async with httpx.AsyncClient(timeout=120.0) as client:
-            for attempt in range(3):
-                res = await client.post(GEMINI_URL, json=payload)
-                if res.status_code == 429:
-                    wait = (attempt + 1) * 20  # 20초, 40초, 60초
-                    await asyncio.sleep(wait)
-                    continue
-                res.raise_for_status()
-                break
-            else:
-                raise Exception("429 Too Many Requests - 재시도 초과")
+            res = await client.post(GROQ_URL, json=payload, headers=headers)
+            res.raise_for_status()
             data = res.json()
 
-        text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        text = data["choices"][0]["message"]["content"].strip()
 
-        # 마크다운 코드블록 제거
         if "```" in text:
             parts = text.split("```")
             text = parts[1] if len(parts) > 1 else parts[0]
@@ -101,4 +99,4 @@ async def translate_news(req: TranslateRequest):
         return TranslateResponse(results=results)
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Gemini 번역 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Groq 번역 실패: {str(e)}")

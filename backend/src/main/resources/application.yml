@@ -65,3 +65,7 @@ aes:
 # CryptoCompare 뉴스 API 키 (https://www.cryptocompare.com/cryptopian/api-keys)
 cryptocompare:
   api-key: ${CRYPTOCOMPARE_API_KEY:e8ae495d9257003f05711ac403a5ba99a2a90f70af1b969a850c3bd2b0a66f0f}
+
+# Groq API 키 (https://console.groq.com)
+groq:
+  api-key: ${GROQ_API_KEY}

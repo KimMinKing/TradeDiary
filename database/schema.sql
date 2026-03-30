@@ -154,19 +154,17 @@ CREATE TABLE IF NOT EXISTS streak_records (
 );
 
 -- =============================================
--- 코인 뉴스 (Gemini 번역+요약 저장)
+-- 코인 뉴스 일별 AI 요약
 -- =============================================
-CREATE TABLE IF NOT EXISTS news_articles (
+CREATE TABLE IF NOT EXISTS news_daily_summary (
     id              BIGSERIAL PRIMARY KEY,
-    external_id     VARCHAR(255) NOT NULL UNIQUE,   -- CryptoCompare article id
-    title_ko        TEXT         NOT NULL,           -- Gemini 번역 제목
-    summary_ko      TEXT         NOT NULL,           -- Gemini 번역+요약 본문
-    source          VARCHAR(255),                    -- 출처 (예: coindesk.com)
-    original_url    TEXT         NOT NULL,           -- 원본 기사 URL
-    categories      VARCHAR(255),                    -- 카테고리 (예: BTC|ETH)
-    published_at    TIMESTAMP    NOT NULL,
-    created_at      TIMESTAMP    NOT NULL DEFAULT NOW()
+    summary_date    DATE         NOT NULL UNIQUE,    -- 요약 대상 날짜 (YYYY-MM-DD)
+    summary_ko      TEXT         NOT NULL,           -- Gemini 한국어 시장 요약 (3~4문장)
+    created_at      TIMESTAMP    NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMP    NOT NULL DEFAULT NOW()
 );
+-- 기존 news_articles 테이블 제거 (마이그레이션)
+DROP TABLE IF EXISTS news_articles;
 
 -- =============================================
 -- 기본 전략 태그 데이터

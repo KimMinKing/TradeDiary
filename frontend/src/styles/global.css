@@ -2956,6 +2956,7 @@ button { font-family: var(--font-ui); }
   background: var(--bg-elevated);
   text-decoration: none;
 }
+.news-card-link { cursor: pointer; color: inherit; }
 .news-card-top {
   display: flex;
   justify-content: space-between;
@@ -3085,6 +3086,78 @@ button { font-family: var(--font-ui); }
 .news-load-more:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+/* ── 뉴스 AI 일별 요약 카드 ── */
+.news-summary-card {
+  background: var(--bg-card);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  background: linear-gradient(135deg, var(--bg-card) 0%, rgba(99,102,241,0.06) 100%);
+}
+.news-summary-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.news-summary-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.news-summary-text {
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.7;
+  margin: 0 0 6px;
+}
+.news-summary-time {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ── 일기 페이지 AI 시장 요약 패널 ── */
+.ai-summary-panel {
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: linear-gradient(135deg, rgba(99,102,241,0.06) 0%, var(--bg-card) 100%);
+  border: 1px solid rgba(99,102,241,0.25);
+  border-radius: var(--radius);
+}
+.ai-summary-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.ai-summary-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.ai-summary-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.7;
+  margin: 0 0 6px;
+}
+.ai-summary-time {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.ai-summary-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0;
+  text-align: center;
+  padding: 8px 0;
 }
 
 /* ── 라이트 모드 ── */

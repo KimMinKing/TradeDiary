@@ -42,6 +42,7 @@ services:
       OAUTH2_BASE_URL: https://tradediary.site
       AI_SERVER_URL: http://ai-server:8000
       CRYPTOCOMPARE_API_KEY: ${CRYPTOCOMPARE_API_KEY}
+      GROQ_API_KEY: ${GROQ_API_KEY}
       TZ: Asia/Seoul
     ports:
       - "8080:8080"
@@ -55,7 +56,7 @@ services:
     build: ./ai-server
     container_name: tradediary-ai-server
     environment:
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GROQ_API_KEY: ${GROQ_API_KEY}
     ports:
       - "8000:8000"
     restart: unless-stopped

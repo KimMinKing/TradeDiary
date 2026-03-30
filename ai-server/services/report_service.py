@@ -1,11 +1,12 @@
-# [파일 용도] Gemini REST API 호출 및 트레이딩 AI 분석 리포트 생성
+# [파일 용도] Groq API 호출 및 트레이딩 AI 분석 리포트 생성
 
 import os
 import httpx
 from models import ReportRequest
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyCfq58gKARA6W2jBs3PQkyKGD0g0IO_4j8")
-GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key={GEMINI_API_KEY}"
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL = "llama-3.3-70b-versatile"
 
 
 # [용도] 거래 통계 데이터 기반 AI 분석 리포트 생성 / [호출] routers/report.py > analyze()
@@ -13,21 +14,31 @@ async def generate_report(req: ReportRequest) -> str:
     system = (
         "당신은 코인 트레이더 전문 코치입니다. "
         "트레이더의 거래 통계를 분석하고 구체적이고 실용적인 조언을 제공합니다. "
-        "분석은 항상 한국어로 작성하며, 냉정하고 데이터 기반으로 피드백합니다.\n\n"
+        "분석은 항상 한국어로 작성하며, 냉정하고 데이터 기반으로 피드백합니다."
     )
-    prompt = system + _build_prompt(req)
+    prompt = _build_prompt(req)
 
     payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.7, "maxOutputTokens": 1200}
+        "model": GROQ_MODEL,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.7,
+        "max_tokens": 1200,
+    }
+
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json",
     }
 
     async with httpx.AsyncClient(timeout=60.0) as client:
-        res = await client.post(GEMINI_URL, json=payload)
+        res = await client.post(GROQ_URL, json=payload, headers=headers)
         res.raise_for_status()
         data = res.json()
 
-    return data["candidates"][0]["content"]["parts"][0]["text"]
+    return data["choices"][0]["message"]["content"]
 
 
 # [용도] AI 프롬프트 생성 / [호출] generate_report()
