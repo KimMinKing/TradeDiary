@@ -101,4 +101,12 @@ export const logout = async () => {
   }
 };
 
+// [용도] 비밀번호 재설정 이메일 발송 요청 / [호출] AuthModal.jsx
+export const requestPasswordReset = (email) =>
+  api.post('/api/auth/password-reset/request', { email });
+
+// [용도] 토큰으로 비밀번호 변경 / [호출] ResetPasswordPage.jsx
+export const resetPassword = (token, newPassword) =>
+  api.post('/api/auth/password-reset/confirm', { token, new_password: newPassword });
+
 export default api;

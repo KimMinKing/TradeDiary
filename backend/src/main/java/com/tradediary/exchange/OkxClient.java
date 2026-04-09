@@ -197,6 +197,71 @@ public class OkxClient {
         return obj.has(key) && !obj.get(key).isJsonNull() ? obj.get(key).getAsString() : null;
     }
 
+    // [용도] 현재 보유 자산 조회 (UNIFIED 계정) / [호출] BalanceService.getOkxBalance()
+    public List<OkxBalance> getBalance(String apiKey, String secretKey, String passphrase) {
+        String requestPath = "/api/v5/account/balance";
+        String timestamp = Instant.now().truncatedTo(ChronoUnit.MILLIS).toString();
+        String signature = sign(secretKey, timestamp, "GET", requestPath, "");
+
+        Request request = new Request.Builder()
+                .url(BASE_URL + requestPath)
+                .get()
+                .addHeader("OK-ACCESS-KEY", apiKey)
+                .addHeader("OK-ACCESS-SIGN", signature)
+                .addHeader("OK-ACCESS-TIMESTAMP", timestamp)
+                .addHeader("OK-ACCESS-PASSPHRASE", passphrase != null ? passphrase : "")
+                .addHeader("Content-Type", "application/json")
+                .build();
+
+        try (Response response = httpClient.newCall(request).execute()) {
+            String body = response.body().string();
+            log.info("[OKX] 잔고 조회 status={}, body 앞 200자: {}",
+                    response.code(), body.length() > 200 ? body.substring(0, 200) + "..." : body);
+
+            JsonObject json = gson.fromJson(body, JsonObject.class);
+            String code = json.has("code") ? json.get("code").getAsString() : "";
+            if (!"0".equals(code)) {
+                String msg = json.has("msg") ? json.get("msg").getAsString() : "";
+                throw new RuntimeException("code=" + code + ": " + msg);
+            }
+
+            List<OkxBalance> balances = new ArrayList<>();
+            if (json.has("data") && !json.get("data").isJsonNull()
+                    && json.getAsJsonArray("data").size() > 0) {
+                JsonObject account = json.getAsJsonArray("data").get(0).getAsJsonObject();
+                if (account.has("details") && !account.get("details").isJsonNull()) {
+                    for (var elem : account.getAsJsonArray("details")) {
+                        JsonObject detail = elem.getAsJsonObject();
+                        String eq = getStr(detail, "eq");
+                        if (eq == null) continue;
+                        try {
+                            if (new BigDecimal(eq).compareTo(BigDecimal.ZERO) == 0) continue;
+                        } catch (NumberFormatException ignored) { continue; }
+                        OkxBalance b = new OkxBalance();
+                        b.currency = getStr(detail, "ccy");
+                        b.available = getStr(detail, "availEq");
+                        b.frozen = getStr(detail, "frozenBal");
+                        b.usdValue = getStr(detail, "eqUsd");
+                        balances.add(b);
+                    }
+                }
+            }
+            return balances;
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException(e.getMessage(), e);
+        }
+    }
+
+    // OKX 잔고 응답 DTO
+    public static class OkxBalance {
+        public String currency;
+        public String available;
+        public String frozen;
+        public String usdValue;
+    }
+
     // OKX 주문 응답 DTO
     public static class OkxOrder {
         public String orderId;  // ordId

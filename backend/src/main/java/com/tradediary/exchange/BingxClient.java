@@ -224,6 +224,62 @@ public class BingxClient {
         return Instant.now().toEpochMilli();
     }
 
+    // [용도] 현재 보유 자산 조회 (USDT-M 선물 계정) / [호출] BalanceService.getBingxBalance()
+    public List<BingxBalance> getBalance(String apiKey, String secretKey) {
+        TreeMap<String, String> params = new TreeMap<>();
+        params.put("timestamp", String.valueOf(ts()));
+
+        String sig = sign(secretKey, params);
+        String url = BASE_URL + "/openApi/swap/v2/user/balance?" + buildQuery(params) + "&signature=" + sig;
+
+        Request req = new Request.Builder()
+                .url(url)
+                .header("X-BX-APIKEY", apiKey)
+                .get().build();
+
+        try (Response resp = httpClient.newCall(req).execute()) {
+            String body = resp.body() != null ? resp.body().string() : "";
+            log.info("[BingX] 잔고 조회 status={}, body 앞 200자: {}",
+                    resp.code(), body.length() > 200 ? body.substring(0, 200) + "..." : body);
+            if (!resp.isSuccessful()) {
+                throw new RuntimeException("status=" + resp.code());
+            }
+            JsonObject json = gson.fromJson(body, JsonObject.class);
+            int code = json.has("code") ? json.get("code").getAsInt() : -1;
+            if (code != 0) {
+                String msg = json.has("msg") ? json.get("msg").getAsString() : "";
+                throw new RuntimeException("code=" + code + ": " + msg);
+            }
+
+            List<BingxBalance> balances = new ArrayList<>();
+            if (json.has("data") && !json.get("data").isJsonNull()) {
+                JsonObject data = json.getAsJsonObject("data");
+                if (data.has("balance") && !data.get("balance").isJsonNull()) {
+                    JsonObject bal = data.getAsJsonObject("balance");
+                    BingxBalance b = new BingxBalance();
+                    b.asset = bal.has("asset") ? bal.get("asset").getAsString() : "USDT";
+                    b.balance = bal.has("balance") ? bal.get("balance").getAsString() : "0";
+                    b.availableMargin = bal.has("availableMargin") ? bal.get("availableMargin").getAsString() : "0";
+                    try {
+                        if (new BigDecimal(b.balance).compareTo(BigDecimal.ZERO) > 0) balances.add(b);
+                    } catch (NumberFormatException ignored) {}
+                }
+            }
+            return balances;
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException(e.getMessage(), e);
+        }
+    }
+
+    // BingX 잔고 응답 DTO
+    public static class BingxBalance {
+        public String asset;
+        public String balance;
+        public String availableMargin;
+    }
+
     // BingX 주문 원본 DTO
     public static class BingxOrder {
         public long       orderId;

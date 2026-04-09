@@ -48,6 +48,7 @@ const Navbar = ({ autoSync }) => {
   const navItems = [
     { path: '/trades',        label: '거래 내역',  icon: '≡' },
     { path: '/positions',     label: '포지션',     icon: '◈' },
+    { path: '/holdings',      label: '보유 자산',  icon: '💰' },
     { path: '/stats',         label: '통계',       icon: '📊' },
     { path: '/journal',       label: '매매 일기',  icon: '📓' },
     { path: '/news',          label: '코인 뉴스',  icon: '📰' },

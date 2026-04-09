@@ -283,6 +283,68 @@ public class BitgetClient {
         return obj.has(key) && !obj.get(key).isJsonNull() ? obj.get(key).getAsString() : null;
     }
 
+    // [용도] 현재 보유 자산 조회 (스팟 계정) / [호출] BalanceService.getBitgetBalance()
+    public List<BitgetBalance> getBalance(String apiKey, String secretKey, String passphrase) {
+        String requestPath = "/api/v2/spot/account/assets";
+        String timestamp = String.valueOf(System.currentTimeMillis());
+        String signature = sign(secretKey, timestamp, "GET", requestPath, "", "");
+
+        Request request = new Request.Builder()
+                .url(BASE_URL + requestPath)
+                .get()
+                .addHeader("ACCESS-KEY", apiKey)
+                .addHeader("ACCESS-SIGN", signature)
+                .addHeader("ACCESS-TIMESTAMP", timestamp)
+                .addHeader("ACCESS-PASSPHRASE", passphrase != null ? passphrase : "")
+                .addHeader("Content-Type", "application/json")
+                .addHeader("locale", "en-US")
+                .build();
+
+        try (Response response = httpClient.newCall(request).execute()) {
+            String body = response.body().string();
+            log.info("[Bitget] 잔고 조회 status={}, body 앞 200자: {}",
+                    response.code(), body.length() > 200 ? body.substring(0, 200) + "..." : body);
+
+            JsonObject json = gson.fromJson(body, JsonObject.class);
+            String code = json.has("code") ? json.get("code").getAsString() : "";
+            if (!"00000".equals(code)) {
+                String msg = json.has("msg") ? json.get("msg").getAsString() : "";
+                throw new RuntimeException("code=" + code + ": " + msg);
+            }
+
+            List<BitgetBalance> balances = new ArrayList<>();
+            if (json.has("data") && !json.get("data").isJsonNull()) {
+                for (var elem : json.getAsJsonArray("data")) {
+                    JsonObject asset = elem.getAsJsonObject();
+                    String available = getStr(asset, "available");
+                    String frozen = getStr(asset, "frozen");
+                    try {
+                        BigDecimal total = new BigDecimal(available != null ? available : "0")
+                                .add(new BigDecimal(frozen != null ? frozen : "0"));
+                        if (total.compareTo(BigDecimal.ZERO) == 0) continue;
+                    } catch (NumberFormatException ignored) { continue; }
+                    BitgetBalance b = new BitgetBalance();
+                    b.coin = getStr(asset, "coin");
+                    b.available = available;
+                    b.frozen = frozen;
+                    balances.add(b);
+                }
+            }
+            return balances;
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException(e.getMessage(), e);
+        }
+    }
+
+    // Bitget 잔고 응답 DTO
+    public static class BitgetBalance {
+        public String coin;
+        public String available;
+        public String frozen;
+    }
+
     // Bitget 체결 응답 DTO
     public static class BitgetOrder {
         public String orderId;    // 주문 ID (부분 체결 합산 기준)

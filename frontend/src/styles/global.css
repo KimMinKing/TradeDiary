@@ -29,11 +29,11 @@
   --accent-soft: rgba(129, 140, 248, 0.1);
   --accent-glow: 0 0 20px rgba(129, 140, 248, 0.08);
 
-  /* 매수/매도 */
-  --buy:         #22c55e;
-  --buy-soft:    rgba(34, 197, 94, 0.1);
-  --sell:        #f43f5e;
-  --sell-soft:   rgba(244, 63, 94, 0.1);
+  /* 수익/손실 (한국식: 수익=빨강, 손실=파랑) */
+  --buy:         #f43f5e;
+  --buy-soft:    rgba(244, 63, 94, 0.1);
+  --sell:        #3b82f6;
+  --sell-soft:   rgba(59, 130, 246, 0.1);
 
   /* 거래소 */
   --upbit:       #3b82f6;
@@ -81,10 +81,10 @@
   --accent-soft: rgba(79, 70, 229, 0.1);
   --accent-glow: 0 0 16px rgba(79, 70, 229, 0.1);
 
-  --buy:         #16a34a;
-  --buy-soft:    rgba(22, 163, 74, 0.08);
-  --sell:        #dc2626;
-  --sell-soft:   rgba(220, 38, 38, 0.08);
+  --buy:         #dc2626;
+  --buy-soft:    rgba(220, 38, 38, 0.08);
+  --sell:        #2563eb;
+  --sell-soft:   rgba(37, 99, 235, 0.08);
 
   --upbit:       #2563eb;
   --upbit-soft:  rgba(37, 99, 235, 0.08);
@@ -386,10 +386,10 @@ button { font-family: var(--font-ui); }
 .badge-okx     { background: rgba(228, 164, 0, 0.08);  color: #e4a400; }
 .badge-binance { background: rgba(240, 185, 11, 0.08); color: #f0b90b; }
 .badge-bingx   { background: rgba(29, 184, 192, 0.08); color: #1db8c0; }
-.badge-buy   { background: var(--buy-soft);   color: #4ade80; font-family: var(--font-ui); }
-.badge-sell  { background: var(--sell-soft);  color: #fb7185; font-family: var(--font-ui); }
-.badge-long  { background: var(--buy-soft);   color: #4ade80; font-family: var(--font-ui); }
-.badge-short { background: var(--sell-soft);  color: #fb7185; font-family: var(--font-ui); }
+.badge-buy   { background: var(--buy-soft);   color: #f87171; font-family: var(--font-ui); }
+.badge-sell  { background: var(--sell-soft);  color: #60a5fa; font-family: var(--font-ui); }
+.badge-long  { background: var(--buy-soft);   color: #f87171; font-family: var(--font-ui); }
+.badge-short { background: var(--sell-soft);  color: #60a5fa; font-family: var(--font-ui); }
 
 /* ── 교환소 필터 탭 ──────────────────────────────────────────────── */
 .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -922,8 +922,8 @@ button { font-family: var(--font-ui); }
 .text-secondary { color: var(--text-secondary); }
 .text-muted     { color: var(--text-muted); }
 .text-accent    { color: var(--accent); }
-.text-buy       { color: #4ade80; font-weight: 600; }
-.text-sell      { color: #fb7185; font-weight: 600; }
+.text-buy       { color: #f87171; font-weight: 600; }
+.text-sell      { color: #60a5fa; font-weight: 600; }
 .divider { height: 1px; background: var(--border); margin: 20px 0; }
 
 /* ── 섹션 헤더 ─────────────────────────────────────────────────── */

@@ -201,6 +201,69 @@ public class BybitClient {
         return obj.has(key) && !obj.get(key).isJsonNull() ? obj.get(key).getAsString() : null;
     }
 
+    // [용도] 현재 보유 자산 조회 (UNIFIED 계정) / [호출] BalanceService.getBybitBalance()
+    public List<BybitBalance> getBalance(String apiKey, String secretKey) {
+        String queryString = "accountType=UNIFIED";
+        String timestamp = String.valueOf(System.currentTimeMillis() - TIMESTAMP_OFFSET);
+        String signature = sign(apiKey, secretKey, timestamp, queryString);
+
+        Request request = new Request.Builder()
+                .url(BASE_URL + "/v5/account/wallet-balance?" + queryString)
+                .get()
+                .addHeader("X-BAPI-API-KEY", apiKey)
+                .addHeader("X-BAPI-SIGN", signature)
+                .addHeader("X-BAPI-TIMESTAMP", timestamp)
+                .addHeader("X-BAPI-RECV-WINDOW", RECV_WINDOW)
+                .build();
+
+        try (Response response = httpClient.newCall(request).execute()) {
+            String body = response.body().string();
+            log.info("[Bybit] 잔고 조회 status={}, body 앞 200자: {}",
+                    response.code(), body.length() > 200 ? body.substring(0, 200) + "..." : body);
+
+            JsonObject json = gson.fromJson(body, JsonObject.class);
+            int retCode = json.get("retCode").getAsInt();
+            if (retCode != 0) {
+                throw new RuntimeException("retCode=" + retCode + ": " + json.get("retMsg").getAsString());
+            }
+
+            List<BybitBalance> balances = new ArrayList<>();
+            JsonObject result = json.getAsJsonObject("result");
+            if (result.has("list") && result.getAsJsonArray("list").size() > 0) {
+                JsonObject account = result.getAsJsonArray("list").get(0).getAsJsonObject();
+                if (account.has("coin") && !account.get("coin").isJsonNull()) {
+                    for (var elem : account.getAsJsonArray("coin")) {
+                        JsonObject coin = elem.getAsJsonObject();
+                        String walletBalance = getStr(coin, "walletBalance");
+                        if (walletBalance == null) continue;
+                        try {
+                            if (new BigDecimal(walletBalance).compareTo(BigDecimal.ZERO) == 0) continue;
+                        } catch (NumberFormatException ignored) { continue; }
+                        BybitBalance b = new BybitBalance();
+                        b.coin = getStr(coin, "coin");
+                        b.walletBalance = walletBalance;
+                        b.availableToWithdraw = getStr(coin, "availableToWithdraw");
+                        b.usdValue = getStr(coin, "usdValue");
+                        balances.add(b);
+                    }
+                }
+            }
+            return balances;
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException(e.getMessage(), e);
+        }
+    }
+
+    // Bybit 잔고 응답 DTO
+    public static class BybitBalance {
+        public String coin;
+        public String walletBalance;
+        public String availableToWithdraw;
+        public String usdValue;
+    }
+
     // Bybit 체결 응답 DTO
     public static class BybitExecution {
         public String execId;

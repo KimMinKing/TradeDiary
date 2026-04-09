@@ -192,6 +192,56 @@ public class BinanceClient {
         return Instant.now().toEpochMilli();
     }
 
+    // [용도] 현재 보유 자산 조회 (USDT-M 선물 계정) / [호출] BalanceService.getBinanceBalance()
+    public List<BinanceBalance> getBalance(String apiKey, String secretKey) {
+        long timestamp = ts();
+        String queryString = "timestamp=" + timestamp;
+        String sig = sign(secretKey, queryString);
+        String fullUrl = BASE_URL + "/fapi/v2/balance?" + queryString + "&signature=" + sig;
+
+        Request request = new Request.Builder()
+                .url(fullUrl)
+                .header("X-MBX-APIKEY", apiKey)
+                .get().build();
+
+        try (Response response = httpClient.newCall(request).execute()) {
+            String body = response.body() != null ? response.body().string() : "";
+            log.info("[Binance] 잔고 조회 status={}, body 앞 200자: {}",
+                    response.code(), body.length() > 200 ? body.substring(0, 200) + "..." : body);
+            if (!response.isSuccessful()) {
+                throw new RuntimeException("status=" + response.code());
+            }
+            JsonArray arr = gson.fromJson(body, JsonArray.class);
+            if (arr == null) return Collections.emptyList();
+
+            List<BinanceBalance> balances = new ArrayList<>();
+            for (JsonElement el : arr) {
+                JsonObject obj = el.getAsJsonObject();
+                String balance = obj.has("balance") ? obj.get("balance").getAsString() : "0";
+                try {
+                    if (new BigDecimal(balance).compareTo(BigDecimal.ZERO) == 0) continue;
+                } catch (NumberFormatException ignored) { continue; }
+                BinanceBalance b = new BinanceBalance();
+                b.asset = obj.has("asset") ? obj.get("asset").getAsString() : null;
+                b.balance = balance;
+                b.availableBalance = obj.has("availableBalance") ? obj.get("availableBalance").getAsString() : "0";
+                balances.add(b);
+            }
+            return balances;
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException(e.getMessage(), e);
+        }
+    }
+
+    // Binance 잔고 응답 DTO
+    public static class BinanceBalance {
+        public String asset;
+        public String balance;
+        public String availableBalance;
+    }
+
     // Binance 체결 내역 원본 DTO
     public static class BinanceTrade {
         public long       id;

@@ -187,6 +187,43 @@ public class UpbitClient {
         return HexFormat.of().formatHex(md.digest());
     }
 
+    // [용도] 현재 보유 자산 조회 / [호출] BalanceService.getUpbitBalance()
+    public List<UpbitBalance> getBalance(String accessKey, String secretKey) {
+        String jwtToken = createJwt(accessKey, secretKey, null);
+
+        Request request = new Request.Builder()
+                .url(BASE_URL + "/accounts")
+                .get()
+                .addHeader("Accept", "application/json")
+                .addHeader("Authorization", "Bearer " + jwtToken)
+                .build();
+
+        try (Response response = httpClient.newCall(request).execute()) {
+            String body = response.body().string();
+            log.info("[Upbit] 잔고 조회 status={}, body 앞 200자: {}",
+                    response.code(), body.length() > 200 ? body.substring(0, 200) + "..." : body);
+            if (!response.isSuccessful()) {
+                throw new RuntimeException("status=" + response.code());
+            }
+            List<UpbitBalance> result = gson.fromJson(body,
+                    new TypeToken<List<UpbitBalance>>() {}.getType());
+            return result != null ? result : Collections.emptyList();
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException(e.getMessage(), e);
+        }
+    }
+
+    // Upbit 잔고 응답 DTO
+    public static class UpbitBalance {
+        public String currency;       // BTC, ETH, KRW 등
+        public String balance;        // 주문 가능 수량
+        public String locked;         // 주문 중 묶인 수량
+        public String avg_buy_price;  // 매수 평균가 (KRW)
+        public String unit_currency;  // 기준 화폐 (KRW)
+    }
+
     // Upbit /v1/orders/closed 응답 DTO
     public static class UpbitOrder {
         public String uuid;

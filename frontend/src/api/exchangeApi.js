@@ -67,3 +67,7 @@ export const getStats = (exchange = null) =>
 // [용도] AI 트레이딩 리포트 생성 / [호출] StatsPage.jsx
 export const generateAiReport = (exchange = null) =>
   api.post('/api/ai/report', null, { params: exchange && exchange !== 'ALL' ? { exchange } : {} });
+
+// [용도] 등록된 거래소의 현재 보유 자산 조회 / [호출] HoldingsPage.jsx
+export const getBalances = () =>
+  api.get('/api/balances');

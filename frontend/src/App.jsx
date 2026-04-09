@@ -11,6 +11,8 @@ import PositionListPage from './pages/PositionListPage';
 import JournalPage from './pages/JournalPage';
 import StatsPage from './pages/StatsPage';
 import NewsPage from './pages/NewsPage';
+import HoldingsPage from './pages/HoldingsPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 import Layout from './components/Layout';
 import useAuthStore from './store/authStore';
 
@@ -66,6 +68,11 @@ const App = () => {
           path="/news"
           element={<PrivateRoute><NewsPage /></PrivateRoute>}
         />
+        <Route
+          path="/holdings"
+          element={<PrivateRoute><HoldingsPage /></PrivateRoute>}
+        />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 // [클래스] 인증 관련 핵심 비즈니스 로직 처리
 @Service
@@ -22,8 +23,10 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final RefreshTokenRepository refreshTokenRepository;
+    private final PasswordResetTokenRepository passwordResetTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
+    private final EmailService emailService;
 
     @Value("${jwt.refresh-token-expiration}")
     private long refreshTokenExpiration;
@@ -125,6 +128,43 @@ public class UserService {
             throw new BusinessException(ErrorCode.INVALID_PASSWORD);
         }
         user.updatePassword(passwordEncoder.encode(newPassword));
+    }
+
+    // [용도] 비밀번호 재설정 이메일 발송 / [호출] AuthController.requestPasswordReset()
+    // 해당 이메일이 없어도 성공 응답 (이메일 존재 여부 노출 방지)
+    @Transactional
+    public void requestPasswordReset(String email) {
+        userRepository.findByEmail(email).ifPresent(user -> {
+            // 기존 미사용 토큰 삭제 (1인 1토큰)
+            passwordResetTokenRepository.deleteUnusedByUserId(user.getId());
+
+            String token = UUID.randomUUID().toString().replace("-", "");
+            PasswordResetToken resetToken = PasswordResetToken.builder()
+                    .user(user)
+                    .token(token)
+                    .expiresAt(LocalDateTime.now().plusMinutes(30))
+                    .build();
+            passwordResetTokenRepository.save(resetToken);
+
+            emailService.sendPasswordResetEmail(email, token);
+        });
+    }
+
+    // [용도] 토큰 검증 후 비밀번호 변경 / [호출] AuthController.resetPassword()
+    @Transactional
+    public void resetPassword(String token, String newPassword) {
+        PasswordResetToken resetToken = passwordResetTokenRepository.findByToken(token)
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESET_TOKEN_NOT_FOUND));
+
+        if (resetToken.isUsed()) {
+            throw new BusinessException(ErrorCode.RESET_TOKEN_USED);
+        }
+        if (resetToken.getExpiresAt().isBefore(LocalDateTime.now())) {
+            throw new BusinessException(ErrorCode.RESET_TOKEN_EXPIRED);
+        }
+
+        resetToken.getUser().updatePassword(passwordEncoder.encode(newPassword));
+        resetToken.markUsed();
     }
 
     // [용도] 토큰 응답 DTO (내부 클래스)

@@ -45,6 +45,23 @@ public class AuthController {
         return ResponseEntity.ok().build();
     }
 
+    // [용도] 비밀번호 재설정 이메일 발송 / [호출] POST /api/auth/password-reset/request
+    // 이메일 존재 여부와 관계없이 200 응답 (보안상 이유)
+    @PostMapping("/password-reset/request")
+    public ResponseEntity<Void> requestPasswordReset(
+            @Valid @RequestBody PasswordResetRequestDto request) {
+        userService.requestPasswordReset(request.email());
+        return ResponseEntity.ok().build();
+    }
+
+    // [용도] 토큰 검증 후 비밀번호 변경 / [호출] POST /api/auth/password-reset/confirm
+    @PostMapping("/password-reset/confirm")
+    public ResponseEntity<Void> resetPassword(
+            @Valid @RequestBody PasswordResetConfirmDto request) {
+        userService.resetPassword(request.token(), request.newPassword());
+        return ResponseEntity.ok().build();
+    }
+
     // 요청 DTO
     public record SignupRequest(
             @Email @NotBlank String email,
@@ -58,4 +75,13 @@ public class AuthController {
     ) {}
 
     public record RefreshRequest(@NotBlank String refreshToken) {}
+
+    public record PasswordResetRequestDto(
+            @Email @NotBlank String email
+    ) {}
+
+    public record PasswordResetConfirmDto(
+            @NotBlank String token,
+            @NotBlank @Size(min = 8) String newPassword
+    ) {}
 }
