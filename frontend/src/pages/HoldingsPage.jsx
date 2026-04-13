@@ -143,7 +143,6 @@ const HoldingsPage = () => {
     return sorted;
   })();
 
-  const CURRENCY_SYMBOL = { KRW: '₩', USD: '$', CNY: '¥', JPY: '¥' };
   const sym = CURRENCY_SYMBOL[displayCurrency] ?? '';
   const totalPortfolio = portfolioData.reduce((acc, d) => acc + d.value, 0);
 

@@ -128,6 +128,17 @@ const DashboardPage = () => {
             </div>
           </div>
 
+          {/* 이번 달 목표 (온보딩에서도 설정 가능) */}
+          <GoalCard
+            goal={goal}
+            goalEdit={goalEdit}
+            setGoalEdit={setGoalEdit}
+            goalForm={goalForm}
+            setGoalForm={setGoalForm}
+            goalSaving={goalSaving}
+            handleGoalSave={handleGoalSave}
+          />
+
           {/* 퀵 링크 */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '10px' }}>
             {[
@@ -199,82 +210,15 @@ const DashboardPage = () => {
           </div>
 
           {/* 이번 달 목표 카드 */}
-          {goal && (
-            <div className="card anim-fade-up2" style={{ padding: '18px 20px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-                <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-                  이번 달 목표
-                </div>
-                <button onClick={() => setGoalEdit(v => !v)} style={{
-                  fontSize: '12px', color: 'var(--text-muted)', background: 'transparent',
-                  border: '1px solid var(--border)', borderRadius: '6px', padding: '3px 10px', cursor: 'pointer',
-                }}>
-                  {goalEdit ? '취소' : '수정'}
-                </button>
-              </div>
-
-              {goalEdit ? (
-                /* 목표 편집 폼 */
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {[
-                    { key: 'targetWinRate', label: '목표 승률 (%)', placeholder: '예: 60' },
-                    { key: 'targetPnl', label: '목표 수익 (USDT)', placeholder: '예: 500' },
-                    { key: 'targetTradeCount', label: '목표 거래 횟수', placeholder: '예: 20' },
-                  ].map(f => (
-                    <div key={f.key} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <label style={{ width: '140px', fontSize: '12px', color: 'var(--text-secondary)', flexShrink: 0 }}>{f.label}</label>
-                      <input
-                        type="number" value={goalForm[f.key]}
-                        placeholder={f.placeholder}
-                        onChange={e => setGoalForm(prev => ({ ...prev, [f.key]: e.target.value }))}
-                        style={{ flex: 1, padding: '6px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px' }}
-                      />
-                    </div>
-                  ))}
-                  <button onClick={handleGoalSave} disabled={goalSaving} style={{
-                    padding: '8px', borderRadius: '8px', background: 'var(--accent)',
-                    color: '#fff', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: 600, marginTop: '4px',
-                  }}>{goalSaving ? '저장 중...' : '저장'}</button>
-                </div>
-              ) : (goal.target_win_rate || goal.target_pnl || goal.target_trade_count) ? (
-                /* 목표 진행 현황 */
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {goal.target_win_rate && (
-                    <GoalProgress
-                      label="승률"
-                      current={goal.current_win_rate}
-                      target={Number(goal.target_win_rate)}
-                      unit="%"
-                      color="#f87171"
-                    />
-                  )}
-                  {goal.target_trade_count && (
-                    <GoalProgress
-                      label="거래 횟수"
-                      current={goal.current_trade_count}
-                      target={goal.target_trade_count}
-                      unit="건"
-                      color="#a78bfa"
-                    />
-                  )}
-                  {goal.target_pnl && (
-                    <GoalProgress
-                      label="수익"
-                      current={parseFloat(goal.current_pnl)}
-                      target={Number(goal.target_pnl)}
-                      unit=" USDT"
-                      color="#60a5fa"
-                    />
-                  )}
-                </div>
-              ) : (
-                <p style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', padding: '8px 0' }}>
-                  이번 달 목표를 설정해보세요 →{' '}
-                  <button onClick={() => setGoalEdit(true)} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: '13px' }}>목표 추가</button>
-                </p>
-              )}
-            </div>
-          )}
+          <GoalCard
+            goal={goal}
+            goalEdit={goalEdit}
+            setGoalEdit={setGoalEdit}
+            goalForm={goalForm}
+            setGoalForm={setGoalForm}
+            goalSaving={goalSaving}
+            handleGoalSave={handleGoalSave}
+          />
 
           {/* 전체 통계 카드 3개 */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }} className="anim-fade-up2">
@@ -382,30 +326,98 @@ const DashboardPage = () => {
   );
 };
 
-// [컴포넌트] 목표 달성 프로그레스 바 / [호출] DashboardPage
-const GoalProgress = ({ label, current, target, unit, color }) => {
+// [컴포넌트] 목표 달성 프로그레스 바 (잔여량 포함) / [호출] GoalCard
+const GoalProgress = ({ label, current, target, unit, color, isLast }) => {
   const pct = target > 0 ? Math.min((current / target) * 100, 100) : 0;
   const done = current >= target;
+  const remaining = Math.max(target - current, 0);
+  const fmt = (v) => v.toLocaleString(undefined, { maximumFractionDigits: 1 });
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '5px' }}>
-        <span style={{ color: 'var(--text-secondary)' }}>{label}</span>
-        <span style={{ fontWeight: 600, color: done ? '#f87171' : 'var(--text-primary)' }}>
-          {current.toLocaleString(undefined, { maximumFractionDigits: 1 })}{unit}
-          {' / '}
-          {target.toLocaleString(undefined, { maximumFractionDigits: 1 })}{unit}
-          {done && ' ✓'}
-        </span>
+    <div style={{ padding: '10px 0', borderBottom: isLast ? 'none' : '1px solid var(--border)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '6px' }}>
+        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 500 }}>{label}</span>
+        <div style={{ textAlign: 'right' }}>
+          <span style={{ fontSize: '13px', fontWeight: 700, color: done ? '#f87171' : 'var(--text-primary)' }}>
+            {fmt(current)}{unit}
+          </span>
+          <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}> / {fmt(target)}{unit}</span>
+        </div>
       </div>
-      <div style={{ height: '6px', borderRadius: '99px', background: 'var(--bg-secondary)', overflow: 'hidden' }}>
+      <div style={{ height: '6px', borderRadius: '99px', background: 'var(--bg-secondary)', overflow: 'hidden', marginBottom: '5px' }}>
         <div style={{
-          height: '100%',
-          width: `${pct}%`,
+          height: '100%', width: `${pct}%`,
           background: done ? '#f87171' : color,
-          borderRadius: '99px',
-          transition: 'width 0.4s ease',
+          borderRadius: '99px', transition: 'width 0.4s ease',
         }} />
       </div>
+      <div style={{ fontSize: '11px', color: done ? '#f87171' : 'var(--text-muted)', textAlign: 'right' }}>
+        {done ? '✓ 달성 완료' : `앞으로 ${fmt(remaining)}${unit} 남음`}
+      </div>
+    </div>
+  );
+};
+
+// [컴포넌트] 이번 달 목표 카드 / [호출] DashboardPage
+const GoalCard = ({ goal, goalEdit, setGoalEdit, goalForm, setGoalForm, goalSaving, handleGoalSave }) => {
+  const hasGoal = goal && (goal.target_win_rate != null || goal.target_pnl != null || goal.target_trade_count != null);
+
+  return (
+    <div className="card anim-fade-up2" style={{ padding: '18px 20px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: hasGoal && !goalEdit ? '4px' : '14px' }}>
+        <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+          이번 달 목표
+        </div>
+        <button
+          onClick={() => setGoalEdit(v => !v)}
+          style={{
+            fontSize: '12px', color: goalEdit ? 'var(--text-muted)' : 'var(--accent)',
+            background: 'transparent', border: `1px solid ${goalEdit ? 'var(--border)' : 'var(--accent)'}`,
+            borderRadius: '6px', padding: '3px 10px', cursor: 'pointer',
+          }}
+        >
+          {goalEdit ? '취소' : hasGoal ? '수정' : '+ 목표 추가'}
+        </button>
+      </div>
+
+      {goalEdit ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {[
+            { key: 'targetWinRate',    label: '목표 승률 (%)',    placeholder: '예: 60' },
+            { key: 'targetPnl',        label: '목표 수익 (USDT)', placeholder: '예: 500' },
+            { key: 'targetTradeCount', label: '목표 거래 횟수',    placeholder: '예: 20' },
+          ].map(f => (
+            <div key={f.key} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <label style={{ width: '140px', fontSize: '12px', color: 'var(--text-secondary)', flexShrink: 0 }}>{f.label}</label>
+              <input
+                type="number" value={goalForm[f.key]} placeholder={f.placeholder}
+                onChange={e => setGoalForm(prev => ({ ...prev, [f.key]: e.target.value }))}
+                style={{ flex: 1, padding: '6px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px' }}
+              />
+            </div>
+          ))}
+          <button onClick={handleGoalSave} disabled={goalSaving} style={{
+            padding: '8px', borderRadius: '8px', background: 'var(--accent)',
+            color: '#fff', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: 600, marginTop: '4px',
+          }}>{goalSaving ? '저장 중...' : '저장'}</button>
+        </div>
+      ) : hasGoal ? (
+        <div style={{ marginTop: '4px' }}>
+          {(() => {
+            const items = [
+              goal.target_win_rate != null && { label: '승률', current: goal.current_win_rate, target: Number(goal.target_win_rate), unit: '%', color: '#f87171' },
+              goal.target_trade_count != null && { label: '거래 횟수', current: goal.current_trade_count, target: goal.target_trade_count, unit: '건', color: '#a78bfa' },
+              goal.target_pnl != null && { label: '수익', current: parseFloat(goal.current_pnl), target: Number(goal.target_pnl), unit: ' USDT', color: '#60a5fa' },
+            ].filter(Boolean);
+            return items.map((item, i) => (
+              <GoalProgress key={item.label} {...item} isLast={i === items.length - 1} />
+            ));
+          })()}
+        </div>
+      ) : (
+        <p style={{ fontSize: '13px', color: 'var(--text-muted)', padding: '6px 0' }}>
+          이번 달 목표를 설정하면 달성 현황을 한눈에 볼 수 있어요.
+        </p>
+      )}
     </div>
   );
 };
