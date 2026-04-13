@@ -29,7 +29,7 @@ const fmt = (val, curr) => {
 const fmtSigned = (val, curr) => fmt(val, curr);
 
 const pnlColor = (val) =>
-  Number(val) >= 0 ? '#4ade80' : '#f87171';
+  Number(val) >= 0 ? '#f87171' : '#60a5fa';
 
 const rrDisplay = (ratio) => {
   if (!ratio || ratio === 0) return '—';
@@ -128,8 +128,8 @@ const CumulativePnlChart = ({ dailyPnl, curr, exchange }) => {
   const displayVal = viewMode === 'pnl' ? finalPnl : viewMode === 'asset' ? finalAsset : finalRate;
   const isPositive  = (displayVal ?? 0) >= 0;
   const lineColor   = viewMode === 'asset'
-    ? (finalPnl >= 0 ? '#4ade80' : '#f87171')
-    : (isPositive ? '#4ade80' : '#f87171');
+    ? (finalPnl >= 0 ? '#f87171' : '#60a5fa')
+    : (isPositive ? '#f87171' : '#60a5fa');
   const gradId  = 'cumGrad';
   const dataKey = viewMode === 'pnl' ? 'cumPnl' : viewMode === 'asset' ? 'asset' : 'rate';
 
@@ -312,13 +312,125 @@ const PnlBarChart = ({ data, curr, labelSuffix = '' }) => (
         />
         <Bar dataKey="pnl" radius={[3, 3, 0, 0]}>
           {data.map((entry, i) => (
-            <Cell key={i} fill={entry.pnl >= 0 ? '#4ade80' : '#f87171'} fillOpacity={0.85} />
+            <Cell key={i} fill={entry.pnl >= 0 ? '#f87171' : '#60a5fa'} fillOpacity={0.85} />
           ))}
         </Bar>
       </BarChart>
     </ResponsiveContainer>
   </div>
 );
+
+// ── 손익 캘린더 히트맵 ───────────────────────────────────────────
+// [용도] GitHub 잔디 스타일 일별 손익 히트맵 / [호출] StatsPage
+const CalendarHeatmap = ({ dailyPnl, curr }) => {
+  const pnlMap = {};
+  dailyPnl.forEach(d => { pnlMap[d.date] = Number(d.pnl); });
+
+  const values = Object.values(pnlMap).filter(v => v !== 0);
+  const maxAbs = values.length ? Math.max(...values.map(Math.abs)) : 1;
+
+  // 오늘 기준 52주(364일) 전부터 오늘까지
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const startDate = new Date(today);
+  startDate.setDate(startDate.getDate() - 364);
+  // 월요일로 정렬
+  const dow = startDate.getDay();
+  startDate.setDate(startDate.getDate() - (dow === 0 ? 6 : dow - 1));
+
+  const weeks = [];
+  let cur = new Date(startDate);
+  while (cur <= today) {
+    const week = [];
+    for (let d = 0; d < 7; d++) {
+      const dateStr = cur.toISOString().slice(0, 10);
+      week.push({ date: dateStr, pnl: cur <= today ? (pnlMap[dateStr] ?? null) : null, future: cur > today });
+      cur.setDate(cur.getDate() + 1);
+    }
+    weeks.push(week);
+  }
+
+  // 월 레이블 (각 주의 첫 번째 날 기준)
+  const monthLabels = {};
+  weeks.forEach((week, wi) => {
+    const m = week[0].date.slice(5, 7);
+    const prev = wi > 0 ? weeks[wi - 1][0].date.slice(5, 7) : null;
+    if (m !== prev) monthLabels[wi] = parseInt(m) + '월';
+  });
+
+  const getCellBg = (pnl, future) => {
+    if (future) return 'transparent';
+    if (pnl === null) return 'rgba(255,255,255,0.04)';
+    if (pnl === 0) return 'rgba(255,255,255,0.07)';
+    const intensity = Math.min(Math.abs(pnl) / maxAbs, 1);
+    const alpha = 0.2 + intensity * 0.7;
+    return pnl > 0
+      ? `rgba(248, 113, 113, ${alpha})`
+      : `rgba(96, 165, 250, ${alpha})`;
+  };
+
+  return (
+    <div className="stats-chart-card">
+      <div style={{ overflowX: 'auto', paddingBottom: '4px' }}>
+        {/* 월 레이블 */}
+        <div style={{ display: 'flex', marginLeft: '22px', marginBottom: '4px', gap: '3px', minWidth: 'max-content' }}>
+          {weeks.map((_, wi) => (
+            <div key={wi} style={{ width: '11px', fontSize: '9px', color: monthLabels[wi] ? 'var(--text-muted)' : 'transparent', flexShrink: 0, whiteSpace: 'nowrap', overflow: 'visible' }}>
+              {monthLabels[wi] ?? ''}
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', gap: '3px', minWidth: 'max-content' }}>
+          {/* 요일 레이블 */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', width: '18px', flexShrink: 0 }}>
+            {['월', '', '수', '', '금', '', '일'].map((d, i) => (
+              <div key={i} style={{ height: '11px', fontSize: '9px', color: 'var(--text-muted)', lineHeight: '11px', textAlign: 'right', paddingRight: '3px' }}>{d}</div>
+            ))}
+          </div>
+
+          {/* 셀 */}
+          {weeks.map((week, wi) => (
+            <div key={wi} style={{ display: 'flex', flexDirection: 'column', gap: '3px', flexShrink: 0 }}>
+              {week.map((cell, di) => (
+                <div
+                  key={di}
+                  title={!cell.future && cell.pnl !== null
+                    ? `${cell.date}: ${cell.pnl > 0 ? '+' : ''}${cell.pnl.toLocaleString()} ${curr.suffix?.trim() || ''}`
+                    : cell.future ? '' : `${cell.date}: 거래 없음`}
+                  style={{
+                    width: '11px', height: '11px',
+                    borderRadius: '2px',
+                    background: getCellBg(cell.pnl, cell.future),
+                    flexShrink: 0,
+                    cursor: cell.pnl !== null && !cell.future ? 'pointer' : 'default',
+                    transition: 'transform 0.1s',
+                  }}
+                  onMouseEnter={e => { if (cell.pnl !== null) e.target.style.transform = 'scale(1.4)'; }}
+                  onMouseLeave={e => { e.target.style.transform = 'scale(1)'; }}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
+
+        {/* 범례 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '10px', justifyContent: 'flex-end' }}>
+          <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginRight: '2px' }}>손실</span>
+          {[0.25, 0.45, 0.65, 0.85].map(a => (
+            <div key={a} style={{ width: '11px', height: '11px', borderRadius: '2px', background: `rgba(96,165,250,${a})` }} />
+          ))}
+          <div style={{ width: '11px', height: '11px', borderRadius: '2px', background: 'rgba(255,255,255,0.04)', margin: '0 2px' }} />
+          {[0.25, 0.45, 0.65, 0.85].map(a => (
+            <div key={a} style={{ width: '11px', height: '11px', borderRadius: '2px', background: `rgba(248,113,113,${a})` }} />
+          ))}
+          <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginLeft: '2px' }}>수익</span>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // ── 커스텀 셀렉트 ────────────────────────────────────────────────
 const ExchangeSelect = ({ value, onChange }) => (
@@ -357,8 +469,8 @@ const ChartTooltip = ({ active, payload, curr, labelSuffix = '' }) => {
       </div>
       {(d.winCount !== undefined) && (
         <div className="chart-tooltip-meta">
-          <span style={{ color: '#4ade80' }}>▲ {d.winCount}승</span>
-          <span style={{ color: '#f87171' }}>▼ {d.lossCount}패</span>
+          <span style={{ color: '#f87171' }}>▲ {d.winCount}승</span>
+          <span style={{ color: '#60a5fa' }}>▼ {d.lossCount}패</span>
         </div>
       )}
     </div>
@@ -512,30 +624,30 @@ const StatsPage = () => {
               <KpiCard
                 label="승  률"
                 value={`${s.win_rate}%`}
-                color={s.win_rate >= 50 ? '#4ade80' : '#f87171'}
-                glow={s.win_rate >= 50 ? 'rgba(74,222,128,0.15)' : 'rgba(248,113,113,0.12)'}
+                color={s.win_rate >= 50 ? '#f87171' : '#60a5fa'}
+                glow={s.win_rate >= 50 ? 'rgba(248,113,113,0.15)' : 'rgba(96,165,250,0.12)'}
               />
               <KpiCard
                 label={`총 손익${curr.mixed ? '' : `  (${curr.suffix.trim()})`}`}
                 value={fmtSigned(s.total_pnl, curr)}
                 color={pnlColor(s.total_pnl)}
-                glow={Number(s.total_pnl) >= 0 ? 'rgba(74,222,128,0.12)' : 'rgba(248,113,113,0.1)'}
+                glow={Number(s.total_pnl) >= 0 ? 'rgba(248,113,113,0.12)' : 'rgba(96,165,250,0.1)'}
               />
               <KpiCard
                 label="Profit Factor"
                 value={s.profit_factor === 0 ? '—' : s.profit_factor}
                 sub="총수익 ÷ 총손실"
-                color={s.profit_factor >= 1.5 ? '#4ade80' : s.profit_factor >= 1 ? '#facc15' : '#f87171'}
+                color={s.profit_factor >= 1.5 ? '#f87171' : s.profit_factor >= 1 ? '#facc15' : '#60a5fa'}
               />
               <KpiCard
                 label="평균 수익"
                 value={fmtSigned(s.avg_win, curr)}
-                color="#4ade80"
+                color="#f87171"
               />
               <KpiCard
                 label="평균 손실"
                 value={fmtSigned(s.avg_loss, curr)}
-                color="#f87171"
+                color="#60a5fa"
               />
               <KpiCard
                 label="손익비 (R:R)"
@@ -543,19 +655,25 @@ const StatsPage = () => {
                 sub="평균수익 ÷ |평균손실|"
               />
               <KpiCard
+                label="최대 낙폭 (MDD)"
+                value={s.mdd === 0 ? '—' : fmtSigned(-s.mdd, curr)}
+                sub="누적 고점 대비 최대 하락"
+                color="#60a5fa"
+              />
+              <KpiCard
                 label="최대 단일 손실"
                 value={fmtSigned(s.max_single_loss, curr)}
-                color="#f87171"
+                color="#60a5fa"
               />
               <KpiCard
                 label="최대 연속 수익"
                 value={`${s.max_win_streak}연속`}
-                color="#4ade80"
+                color="#f87171"
               />
               <KpiCard
                 label="최대 연속 손실"
                 value={`${s.max_loss_streak}연속`}
-                color="#f87171"
+                color="#60a5fa"
               />
             </div>
           </section>
@@ -565,6 +683,14 @@ const StatsPage = () => {
             <section className="stats-section">
               <div className="stats-section-label">누적 손익 추이</div>
               <CumulativePnlChart dailyPnl={stats.daily_pnl} curr={curr} exchange={exchange} />
+            </section>
+          )}
+
+          {/* ── 손익 캘린더 히트맵 ── */}
+          {(stats?.daily_pnl?.length ?? 0) > 0 && (
+            <section className="stats-section">
+              <div className="stats-section-label">손익 캘린더</div>
+              <CalendarHeatmap dailyPnl={stats.daily_pnl} curr={curr} />
             </section>
           )}
 
@@ -599,7 +725,7 @@ const StatsPage = () => {
               {[stats?.long_stats, stats?.short_stats].map(side => {
                 if (!side) return null;
                 const isLong  = side.side === 'LONG';
-                const accent  = isLong ? '#4ade80' : '#f87171';
+                const accent  = isLong ? '#f87171' : '#60a5fa';
                 const lossCount = side.total_count - side.win_count;
                 return (
                   <div key={side.side} className="side-card" style={{ '--side-accent': accent }}>
@@ -626,9 +752,9 @@ const StatsPage = () => {
                       <div className="side-row">
                         <span>수익 / 손실</span>
                         <span className="mono">
-                          <span style={{ color: '#4ade80' }}>{side.win_count}W</span>
+                          <span style={{ color: '#f87171' }}>{side.win_count}W</span>
                           <span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>/</span>
-                          <span style={{ color: '#f87171' }}>{lossCount}L</span>
+                          <span style={{ color: '#60a5fa' }}>{lossCount}L</span>
                         </span>
                       </div>
                       <div className="side-row">
@@ -670,19 +796,19 @@ const StatsPage = () => {
                       <tr key={sym.symbol} style={{ animationDelay: `${i * 30}ms` }}>
                         <td><span className="sym-name mono">{sym.symbol}</span></td>
                         <td className="mono text-center">
-                          <span style={{ color: '#4ade80' }}>{sym.win_count}W</span>
+                          <span style={{ color: '#f87171' }}>{sym.win_count}W</span>
                           <span style={{ color: 'var(--text-muted)', margin: '0 3px' }}>/</span>
-                          <span style={{ color: '#f87171' }}>{sym.total_count - sym.win_count}L</span>
+                          <span style={{ color: '#60a5fa' }}>{sym.total_count - sym.win_count}L</span>
                         </td>
                         <td>
                           <div className="sym-winrate-wrap">
                             <div className="sym-winrate-bar">
                               <div className="sym-winrate-fill" style={{
                                 width: `${sym.win_rate}%`,
-                                background: sym.win_rate >= 50 ? '#4ade80' : '#f87171',
+                                background: sym.win_rate >= 50 ? '#f87171' : '#60a5fa',
                               }} />
                             </div>
-                            <span className="mono" style={{ color: sym.win_rate >= 50 ? '#4ade80' : '#f87171', minWidth: 42 }}>
+                            <span className="mono" style={{ color: sym.win_rate >= 50 ? '#f87171' : '#60a5fa', minWidth: 42 }}>
                               {sym.win_rate}%
                             </span>
                           </div>
@@ -710,14 +836,14 @@ const StatsPage = () => {
                   <div key={em.emotion} className="emotion-stat-card">
                     <div className="emotion-stat-label">{em.label}</div>
                     <div className="emotion-stat-winrate" style={{
-                      color: em.win_rate >= 50 ? '#4ade80' : '#f87171',
+                      color: em.win_rate >= 50 ? '#f87171' : '#60a5fa',
                     }}>
                       {em.win_rate}%
                     </div>
                     <div className="emotion-stat-bar-track">
                       <div className="emotion-stat-bar-fill" style={{
                         width: `${em.win_rate}%`,
-                        background: em.win_rate >= 50 ? '#4ade80' : '#f87171',
+                        background: em.win_rate >= 50 ? '#f87171' : '#60a5fa',
                       }} />
                     </div>
                     <div className="emotion-stat-meta">
@@ -750,12 +876,12 @@ const StatsPage = () => {
                       <div className="tag-stat-bar-track">
                         <div className="tag-stat-bar-fill" style={{
                           width: `${tag.win_rate}%`,
-                          background: tag.win_rate >= 50 ? '#4ade80' : '#f87171',
+                          background: tag.win_rate >= 50 ? '#f87171' : '#60a5fa',
                         }} />
                       </div>
                     </div>
                     <span className="mono tag-stat-rate" style={{
-                      color: tag.win_rate >= 50 ? '#4ade80' : '#f87171',
+                      color: tag.win_rate >= 50 ? '#f87171' : '#60a5fa',
                     }}>
                       {tag.win_rate}%
                     </span>
@@ -779,8 +905,8 @@ const StatsPage = () => {
                   const intensity = active ? h.win_rate / 100 : 0;
                   const bg = active
                     ? h.win_rate >= 50
-                      ? `rgba(74,222,128,${0.08 + intensity * 0.4})`
-                      : `rgba(248,113,113,${0.08 + (1 - intensity) * 0.4})`
+                      ? `rgba(248,113,113,${0.08 + intensity * 0.4})`
+                      : `rgba(96,165,250,${0.08 + (1 - intensity) * 0.4})`
                     : 'rgba(255,255,255,0.03)';
                   return (
                     <div key={h.hour} className="hourly-cell" style={{ background: bg }}
@@ -789,7 +915,7 @@ const StatsPage = () => {
                       {active && (
                         <>
                           <div className="hourly-cell-rate" style={{
-                            color: h.win_rate >= 50 ? '#4ade80' : '#f87171',
+                            color: h.win_rate >= 50 ? '#f87171' : '#60a5fa',
                           }}>
                             {h.win_rate}%
                           </div>
@@ -816,14 +942,14 @@ const StatsPage = () => {
                     {d.total_count > 0 ? (
                       <>
                         <div className="dow-winrate" style={{
-                          color: d.win_rate >= 50 ? '#4ade80' : '#f87171',
+                          color: d.win_rate >= 50 ? '#f87171' : '#60a5fa',
                         }}>
                           {d.win_rate}%
                         </div>
                         <div className="dow-bar-track">
                           <div className="dow-bar-fill" style={{
                             width: `${d.win_rate}%`,
-                            background: d.win_rate >= 50 ? '#4ade80' : '#f87171',
+                            background: d.win_rate >= 50 ? '#f87171' : '#60a5fa',
                           }} />
                         </div>
                         <div className="dow-meta">{d.total_count}건</div>

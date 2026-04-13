@@ -109,12 +109,24 @@ public class StatsService {
             }
         }
 
+        // MDD (최대 낙폭) 계산
+        double mdd = 0;
+        double peak = 0, cumPnl = 0;
+        for (Position p : sorted) {
+            cumPnl += p.getPnl().doubleValue();
+            if (cumPnl > peak) peak = cumPnl;
+            double drawdown = peak - cumPnl;
+            if (drawdown > mdd) mdd = drawdown;
+        }
+        mdd = round2(mdd);
+
         return new StatsResponse.SummaryStats(
                 total, wins.size(), losses.size(), winRate, profitFactor,
                 avgWin, avgLoss, rrRatio,
                 maxWinStreak, maxLossStreak,
                 maxSingleLoss.setScale(2, RoundingMode.HALF_UP).toPlainString(),
-                totalPnl.setScale(2, RoundingMode.HALF_UP).toPlainString()
+                totalPnl.setScale(2, RoundingMode.HALF_UP).toPlainString(),
+                mdd
         );
     }
 
@@ -343,7 +355,7 @@ public class StatsService {
     ) {
         public static StatsResponse empty() {
             return new StatsResponse(
-                    new SummaryStats(0,0,0,0,0,0,0,0,0,0,"0","0"),
+                    new SummaryStats(0,0,0,0,0,0,0,0,0,0,"0","0",0),
                     List.of(), List.of(), List.of(),
                     new SideStats("LONG",0,0,0,"0","0"),
                     new SideStats("SHORT",0,0,0,"0","0"),
@@ -356,7 +368,8 @@ public class StatsService {
                 double winRate, double profitFactor,
                 double avgWin, double avgLoss, double rrRatio,
                 int maxWinStreak, int maxLossStreak,
-                String maxSingleLoss, String totalPnl
+                String maxSingleLoss, String totalPnl,
+                double mdd
         ) {}
 
         public record MonthlyPnl(String month, String pnl, int winCount, int lossCount) {}
