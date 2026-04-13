@@ -167,6 +167,22 @@ CREATE TABLE IF NOT EXISTS news_daily_summary (
 DROP TABLE IF EXISTS news_articles;
 
 -- =============================================
+-- 월별 거래 목표
+-- =============================================
+CREATE TABLE IF NOT EXISTS monthly_goals (
+    id                  BIGSERIAL PRIMARY KEY,
+    user_id             BIGINT         NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    year_month          VARCHAR(7)     NOT NULL,
+    target_win_rate     DECIMAL(5,2),
+    target_pnl          DECIMAL(20,2),
+    target_trade_count  INT,
+    created_at          TIMESTAMP      NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMP      NOT NULL DEFAULT NOW(),
+    UNIQUE(user_id, year_month)
+);
+CREATE INDEX IF NOT EXISTS idx_monthly_goals_user ON monthly_goals(user_id);
+
+-- =============================================
 -- 기본 전략 태그 데이터
 -- =============================================
 INSERT INTO strategy_tags (user_id, name) VALUES

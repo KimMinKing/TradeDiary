@@ -46,12 +46,15 @@ const Navbar = ({ autoSync }) => {
   }, []);
 
   const navItems = [
+    { path: '/dashboard',     label: '대시보드',   icon: '🏠' },
     { path: '/trades',        label: '거래 내역',  icon: '≡' },
     { path: '/positions',     label: '포지션',     icon: '◈' },
     { path: '/holdings',      label: '보유 자산',  icon: '💰' },
     { path: '/stats',         label: '통계',       icon: '📊' },
     { path: '/journal',       label: '매매 일기',  icon: '📓' },
     { path: '/plans',         label: '매매 계획',  icon: '📋' },
+    { path: '/trader-type',   label: '나의 유형',  icon: '🎯' },
+    { path: '/ranking',       label: '랭킹',       icon: '🏆' },
     { path: '/news',          label: '코인 뉴스',  icon: '📰' },
     { path: '/exchange-keys', label: '거래소 연동', icon: '⚙' },
   ];

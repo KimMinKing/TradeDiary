@@ -97,3 +97,25 @@ export const togglePlanDone = (id) =>
 // [용도] 계획 삭제 / [호출] TradePlanPage.jsx
 export const deletePlan = (id) =>
   api.delete(`/api/trade-plans/${id}`);
+
+// ── 트레이더 유형 분석 API ──────────────────────────────────────────
+
+// [용도] 트레이더 유형 분석 결과 조회 / [호출] TraderTypePage.jsx
+export const getTraderType = () =>
+  api.get('/api/trader-type');
+
+// ── 월별 목표 API ───────────────────────────────────────────────────
+
+// [용도] 이번 달 목표 및 달성 현황 조회 / [호출] DashboardPage.jsx
+export const getMonthlyGoal = () =>
+  api.get('/api/goals/monthly');
+
+// [용도] 이번 달 목표 설정/수정 / [호출] DashboardPage.jsx
+export const saveMonthlyGoal = (data) =>
+  api.put('/api/goals/monthly', data);
+
+// ── 랭킹 API ────────────────────────────────────────────────────────
+
+// [용도] 이번 달 승률 기준 랭킹 조회 / [호출] RankingPage.jsx
+export const getMonthlyRanking = () =>
+  api.get('/api/ranking/monthly');

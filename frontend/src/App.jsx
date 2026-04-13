@@ -13,6 +13,9 @@ import StatsPage from './pages/StatsPage';
 import NewsPage from './pages/NewsPage';
 import HoldingsPage from './pages/HoldingsPage';
 import TradePlanPage from './pages/TradePlanPage';
+import TraderTypePage from './pages/TraderTypePage';
+import RankingPage from './pages/RankingPage';
+import DashboardPage from './pages/DashboardPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import Layout from './components/Layout';
 import useAuthStore from './store/authStore';
@@ -44,7 +47,7 @@ const App = () => {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<LandingPage />} />
-        <Route path="/dashboard" element={<Navigate to="/trades" replace />} />
+        <Route path="/dashboard" element={<PrivateRoute><DashboardPage /></PrivateRoute>} />
         <Route
           path="/exchange-keys"
           element={<PrivateRoute><ExchangeKeyPage /></PrivateRoute>}
@@ -76,6 +79,14 @@ const App = () => {
         <Route
           path="/plans"
           element={<PrivateRoute><TradePlanPage /></PrivateRoute>}
+        />
+        <Route
+          path="/trader-type"
+          element={<PrivateRoute><TraderTypePage /></PrivateRoute>}
+        />
+        <Route
+          path="/ranking"
+          element={<PrivateRoute><RankingPage /></PrivateRoute>}
         />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/oauth/callback" element={<OAuthCallbackPage />} />

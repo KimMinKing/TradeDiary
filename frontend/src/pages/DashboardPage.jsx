@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getDashboard } from '../api/exchangeApi';
+import { getDashboard, getMonthlyGoal, saveMonthlyGoal } from '../api/exchangeApi';
 
 // [용도] 손익 색상 / [호출] 렌더
 const pnlColor = (val) => Number(val) >= 0 ? '#f87171' : '#60a5fa';
@@ -25,15 +25,44 @@ const todayStr = () => {
 // [컴포넌트] 대시보드 메인 화면 / [호출] App.jsx 라우터
 const DashboardPage = () => {
   const navigate = useNavigate();
-  const [data,    setData]    = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [data,       setData]       = useState(null);
+  const [loading,    setLoading]    = useState(true);
+  const [goal,       setGoal]       = useState(null);
+  const [goalEdit,   setGoalEdit]   = useState(false);
+  const [goalForm,   setGoalForm]   = useState({ targetWinRate: '', targetPnl: '', targetTradeCount: '' });
+  const [goalSaving, setGoalSaving] = useState(false);
 
   useEffect(() => {
     getDashboard()
       .then(res => setData(res.data))
       .catch(() => {})
       .finally(() => setLoading(false));
+    getMonthlyGoal()
+      .then(res => {
+        setGoal(res.data);
+        setGoalForm({
+          targetWinRate:    res.data.target_win_rate ?? '',
+          targetPnl:        res.data.target_pnl ?? '',
+          targetTradeCount: res.data.target_trade_count ?? '',
+        });
+      })
+      .catch(() => {});
   }, []);
+
+  // [용도] 목표 저장 / [호출] 목표 수정 폼 확인 버튼
+  const handleGoalSave = async () => {
+    setGoalSaving(true);
+    try {
+      const res = await saveMonthlyGoal({
+        targetWinRate:    goalForm.targetWinRate    ? Number(goalForm.targetWinRate)    : null,
+        targetPnl:        goalForm.targetPnl        ? Number(goalForm.targetPnl)        : null,
+        targetTradeCount: goalForm.targetTradeCount ? Number(goalForm.targetTradeCount) : null,
+      });
+      setGoal(res.data);
+      setGoalEdit(false);
+    } catch { /* ignore */ }
+    finally { setGoalSaving(false); }
+  };
 
   const isEmpty = !data || data.overall?.total_positions === 0;
 
@@ -169,6 +198,84 @@ const DashboardPage = () => {
             )}
           </div>
 
+          {/* 이번 달 목표 카드 */}
+          {goal && (
+            <div className="card anim-fade-up2" style={{ padding: '18px 20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                  이번 달 목표
+                </div>
+                <button onClick={() => setGoalEdit(v => !v)} style={{
+                  fontSize: '12px', color: 'var(--text-muted)', background: 'transparent',
+                  border: '1px solid var(--border)', borderRadius: '6px', padding: '3px 10px', cursor: 'pointer',
+                }}>
+                  {goalEdit ? '취소' : '수정'}
+                </button>
+              </div>
+
+              {goalEdit ? (
+                /* 목표 편집 폼 */
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {[
+                    { key: 'targetWinRate', label: '목표 승률 (%)', placeholder: '예: 60' },
+                    { key: 'targetPnl', label: '목표 수익 (USDT)', placeholder: '예: 500' },
+                    { key: 'targetTradeCount', label: '목표 거래 횟수', placeholder: '예: 20' },
+                  ].map(f => (
+                    <div key={f.key} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <label style={{ width: '140px', fontSize: '12px', color: 'var(--text-secondary)', flexShrink: 0 }}>{f.label}</label>
+                      <input
+                        type="number" value={goalForm[f.key]}
+                        placeholder={f.placeholder}
+                        onChange={e => setGoalForm(prev => ({ ...prev, [f.key]: e.target.value }))}
+                        style={{ flex: 1, padding: '6px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px' }}
+                      />
+                    </div>
+                  ))}
+                  <button onClick={handleGoalSave} disabled={goalSaving} style={{
+                    padding: '8px', borderRadius: '8px', background: 'var(--accent)',
+                    color: '#fff', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: 600, marginTop: '4px',
+                  }}>{goalSaving ? '저장 중...' : '저장'}</button>
+                </div>
+              ) : (goal.target_win_rate || goal.target_pnl || goal.target_trade_count) ? (
+                /* 목표 진행 현황 */
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {goal.target_win_rate && (
+                    <GoalProgress
+                      label="승률"
+                      current={goal.current_win_rate}
+                      target={Number(goal.target_win_rate)}
+                      unit="%"
+                      color="#f87171"
+                    />
+                  )}
+                  {goal.target_trade_count && (
+                    <GoalProgress
+                      label="거래 횟수"
+                      current={goal.current_trade_count}
+                      target={goal.target_trade_count}
+                      unit="건"
+                      color="#a78bfa"
+                    />
+                  )}
+                  {goal.target_pnl && (
+                    <GoalProgress
+                      label="수익"
+                      current={parseFloat(goal.current_pnl)}
+                      target={Number(goal.target_pnl)}
+                      unit=" USDT"
+                      color="#60a5fa"
+                    />
+                  )}
+                </div>
+              ) : (
+                <p style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', padding: '8px 0' }}>
+                  이번 달 목표를 설정해보세요 →{' '}
+                  <button onClick={() => setGoalEdit(true)} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: '13px' }}>목표 추가</button>
+                </p>
+              )}
+            </div>
+          )}
+
           {/* 전체 통계 카드 3개 */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }} className="anim-fade-up2">
             {[
@@ -251,11 +358,12 @@ const DashboardPage = () => {
           {/* 퀵 링크 */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '10px' }} className="anim-fade-up3">
             {[
-              { path: '/stats',    label: '성과 통계', icon: '📊', color: '#facc15' },
-              { path: '/plans',    label: '매매 계획', icon: '📋', color: '#a78bfa' },
-              { path: '/journal',  label: '매매 일기', icon: '📓', color: '#f87171' },
-              { path: '/news',     label: '코인 뉴스', icon: '📰', color: '#34d399' },
-              { path: '/holdings', label: '보유 자산', icon: '💰', color: '#60a5fa' },
+              { path: '/stats',        label: '성과 통계',    icon: '📊', color: '#facc15' },
+              { path: '/plans',        label: '매매 계획',    icon: '📋', color: '#a78bfa' },
+              { path: '/journal',      label: '매매 일기',    icon: '📓', color: '#f87171' },
+              { path: '/trader-type',  label: '나의 유형',    icon: '🎯', color: '#34d399' },
+              { path: '/ranking',      label: '랭킹',         icon: '🏆', color: '#fb923c' },
+              { path: '/holdings',     label: '보유 자산',    icon: '💰', color: '#60a5fa' },
             ].map(item => (
               <button key={item.path} onClick={() => navigate(item.path)}
                 className="card" style={{ textAlign: 'center', padding: '14px 8px', cursor: 'pointer', border: `1px solid ${item.color}20`, transition: 'border-color 0.15s' }}
@@ -270,6 +378,34 @@ const DashboardPage = () => {
 
         </div>
       )}
+    </div>
+  );
+};
+
+// [컴포넌트] 목표 달성 프로그레스 바 / [호출] DashboardPage
+const GoalProgress = ({ label, current, target, unit, color }) => {
+  const pct = target > 0 ? Math.min((current / target) * 100, 100) : 0;
+  const done = current >= target;
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '5px' }}>
+        <span style={{ color: 'var(--text-secondary)' }}>{label}</span>
+        <span style={{ fontWeight: 600, color: done ? '#f87171' : 'var(--text-primary)' }}>
+          {current.toLocaleString(undefined, { maximumFractionDigits: 1 })}{unit}
+          {' / '}
+          {target.toLocaleString(undefined, { maximumFractionDigits: 1 })}{unit}
+          {done && ' ✓'}
+        </span>
+      </div>
+      <div style={{ height: '6px', borderRadius: '99px', background: 'var(--bg-secondary)', overflow: 'hidden' }}>
+        <div style={{
+          height: '100%',
+          width: `${pct}%`,
+          background: done ? '#f87171' : color,
+          borderRadius: '99px',
+          transition: 'width 0.4s ease',
+        }} />
+      </div>
     </div>
   );
 };
