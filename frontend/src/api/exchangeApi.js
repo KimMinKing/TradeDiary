@@ -71,3 +71,25 @@ export const generateAiReport = (exchange = null) =>
 // [용도] 등록된 거래소의 현재 보유 자산 조회 / [호출] HoldingsPage.jsx
 export const getBalances = () =>
   api.get('/api/balances');
+
+// ── 매매 계획 메모 API ─────────────────────────────────────────────
+
+// [용도] 계획 목록 조회 / [호출] TradePlanPage.jsx
+export const getPlans = () =>
+  api.get('/api/trade-plans');
+
+// [용도] 계획 생성 / [호출] TradePlanPage.jsx
+export const createPlan = (data) =>
+  api.post('/api/trade-plans', data);
+
+// [용도] 계획 수정 / [호출] TradePlanPage.jsx
+export const updatePlan = (id, data) =>
+  api.put(`/api/trade-plans/${id}`, data);
+
+// [용도] 완료 토글 / [호출] TradePlanPage.jsx
+export const togglePlanDone = (id) =>
+  api.patch(`/api/trade-plans/${id}/done`);
+
+// [용도] 계획 삭제 / [호출] TradePlanPage.jsx
+export const deletePlan = (id) =>
+  api.delete(`/api/trade-plans/${id}`);

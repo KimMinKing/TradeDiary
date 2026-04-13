@@ -12,6 +12,7 @@ import JournalPage from './pages/JournalPage';
 import StatsPage from './pages/StatsPage';
 import NewsPage from './pages/NewsPage';
 import HoldingsPage from './pages/HoldingsPage';
+import TradePlanPage from './pages/TradePlanPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import Layout from './components/Layout';
 import useAuthStore from './store/authStore';
@@ -71,6 +72,10 @@ const App = () => {
         <Route
           path="/holdings"
           element={<PrivateRoute><HoldingsPage /></PrivateRoute>}
+        />
+        <Route
+          path="/plans"
+          element={<PrivateRoute><TradePlanPage /></PrivateRoute>}
         />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/oauth/callback" element={<OAuthCallbackPage />} />

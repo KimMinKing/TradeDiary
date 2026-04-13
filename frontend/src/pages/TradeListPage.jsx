@@ -1,11 +1,13 @@
 // [파일 용도] 거래 내역 목록 페이지 (거래소 필터 탭 + 날짜 필터 + KRW/USD 통화 토글)
 
 import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getTrades, syncUpbitTrades, syncBybitTrades, syncBitgetTrades, syncOkxTrades, syncBinanceTrades, syncBingxTrades, getMyExchangeKeys } from '../api/exchangeApi';
 import api from '../api/authApi';
 
 // [컴포넌트] 거래 내역 목록 및 거래소별 동기화 화면 / [호출] App.jsx 라우터
 const TradeListPage = () => {
+  const navigate = useNavigate();
   const [allTrades,      setAllTrades]      = useState([]);
   const [activeTab,      setActiveTab]      = useState('ALL');
   const [syncing,        setSyncing]        = useState(null);
@@ -397,14 +399,35 @@ const TradeListPage = () => {
           <p className="empty-state-title">불러오는 중...</p>
         </div>
       ) : trades.length === 0 ? (
-        <div className="card empty-state">
-          <div className="empty-state-icon">◻</div>
-          <p className="empty-state-title">거래 내역이 없습니다</p>
-          <p className="empty-state-desc">
-            {datePreset
-              ? '선택한 날짜 범위에 거래 내역이 없습니다'
-              : '동기화 버튼을 눌러 거래 내역을 가져오세요'}
-          </p>
+        <div className="card anim-fade-up" style={{ padding: '28px 24px' }}>
+          {datePreset ? (
+            <>
+              <p className="empty-state-title">선택한 기간에 거래 내역이 없습니다</p>
+              <p className="empty-state-desc">날짜 범위를 변경하거나 전체 기간을 선택해보세요</p>
+            </>
+          ) : (
+            <>
+              <p style={{ fontSize: '15px', fontWeight: 700, marginBottom: '20px', color: 'var(--text)' }}>
+                거래 내역을 가져오려면
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                  <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: '#60a5fa20', border: '1px solid #60a5fa60', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 700, color: '#60a5fa', flexShrink: 0 }}>1</div>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: '14px' }}>거래소 API Key 등록</div>
+                    <button onClick={() => navigate('/exchange-keys')} style={{ marginTop: '4px', padding: '4px 12px', borderRadius: '6px', fontSize: '12px', border: '1px solid #60a5fa60', background: '#60a5fa10', color: '#60a5fa', cursor: 'pointer' }}>거래소 연동하기</button>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                  <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: '#a78bfa20', border: '1px solid #a78bfa60', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 700, color: '#a78bfa', flexShrink: 0 }}>2</div>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: '14px' }}>동기화 버튼 클릭</div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>위 동기화 버튼을 누르거나 5분마다 자동으로 동기화됩니다</div>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       ) : (
         <div className="table-wrap anim-fade-up3">

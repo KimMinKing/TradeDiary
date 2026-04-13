@@ -1,6 +1,7 @@
 // [파일 용도] 성과 통계 페이지 (핵심 지표 + 월별 PnL + 종목별 + 롱/숏 비교)
 
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Cell, ReferenceLine,
@@ -480,6 +481,7 @@ const ChartTooltip = ({ active, payload, curr, labelSuffix = '' }) => {
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────
 // [컴포넌트] 성과 통계 메인 페이지 / [호출] App.jsx 라우터
 const StatsPage = () => {
+  const navigate = useNavigate();
   const [exchange,    setExchange]    = useState('ALL');
   const [stats,       setStats]       = useState(null);
   const [loading,     setLoading]     = useState(true);
@@ -582,10 +584,16 @@ const StatsPage = () => {
           <p className="empty-state-title">통계 계산 중...</p>
         </div>
       ) : isEmpty ? (
-        <div className="empty-state anim-fade-up">
-          <div className="empty-state-icon">📊</div>
-          <p className="empty-state-title">포지션 데이터가 없습니다</p>
-          <p className="empty-state-desc">거래를 동기화하고 포지션을 재계산해주세요</p>
+        <div className="card anim-fade-up" style={{ padding: '32px 24px', maxWidth: '480px' }}>
+          <p style={{ fontSize: '15px', fontWeight: 700, marginBottom: '8px' }}>통계를 보려면 거래 데이터가 필요합니다</p>
+          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '24px', lineHeight: 1.6 }}>
+            포지션이 계산되면 승률, 손익비, 캘린더 히트맵 등 다양한 분석을 볼 수 있습니다
+          </p>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <button onClick={() => navigate('/exchange-keys')} style={{ padding: '8px 16px', borderRadius: '8px', fontSize: '13px', border: '1px solid #60a5fa60', background: '#60a5fa10', color: '#60a5fa', cursor: 'pointer', fontWeight: 600 }}>1. 거래소 연동</button>
+            <button onClick={() => navigate('/trades')} style={{ padding: '8px 16px', borderRadius: '8px', fontSize: '13px', border: '1px solid #a78bfa60', background: '#a78bfa10', color: '#a78bfa', cursor: 'pointer', fontWeight: 600 }}>2. 거래 동기화</button>
+            <button onClick={() => navigate('/positions')} style={{ padding: '8px 16px', borderRadius: '8px', fontSize: '13px', border: '1px solid #f8717160', background: '#f8717110', color: '#f87171', cursor: 'pointer', fontWeight: 600 }}>3. 포지션 확인</button>
+          </div>
         </div>
       ) : (
         <>

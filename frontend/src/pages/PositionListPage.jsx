@@ -1,11 +1,13 @@
 // [파일 용도] 포지션 목록 페이지 (거래소 필터 탭 + 수익률/수익금 표시)
 
 import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getPositions, rebuildAllPositions, getOpenWindows, getTrades } from '../api/exchangeApi';
 import api from '../api/authApi';
 
 // [컴포넌트] 완결된 포지션 목록 및 통계 표시 / [호출] App.jsx 라우터
 const PositionListPage = () => {
+  const navigate = useNavigate();
   const [positions,       setPositions]       = useState([]);
   const [openWindows,     setOpenWindows]     = useState([]);  // 미청산 포지션 윈도우
   const [openWindowsOpen, setOpenWindowsOpen] = useState(false); // 미청산 섹션 펼침 여부
@@ -355,12 +357,35 @@ const PositionListPage = () => {
           <p className="empty-state-title">불러오는 중...</p>
         </div>
       ) : total === 0 ? (
-        <div className="card empty-state">
-          <div className="empty-state-icon">◻</div>
-          <p className="empty-state-title">포지션 없음</p>
-          <p className="empty-state-desc">
-            거래 내역을 동기화하면 포지션이 자동으로 계산됩니다
-          </p>
+        <div className="card anim-fade-up" style={{ padding: '32px 24px' }}>
+          <p style={{ fontSize: '15px', fontWeight: 700, marginBottom: '24px', color: 'var(--text)' }}>포지션을 표시하려면 아래 단계를 완료하세요</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {[
+              { step: 1, title: '거래소 API Key 등록', desc: 'Upbit · Bybit 등 거래소 API Key를 등록합니다', path: '/exchange-keys', btn: '거래소 연동하기', color: '#60a5fa' },
+              { step: 2, title: '거래 내역 동기화', desc: '거래 탭에서 동기화 버튼을 누르거나 자동으로 5분마다 동기화됩니다', path: '/trades', btn: '거래 내역 보기', color: '#a78bfa' },
+              { step: 3, title: '포지션 자동 계산', desc: '동기화 완료 후 이 페이지를 새로고침하면 포지션이 표시됩니다', path: null, btn: null, color: '#f87171' },
+            ].map(s => (
+              <div key={s.step} style={{ display: 'flex', gap: '14px', alignItems: 'flex-start' }}>
+                <div style={{
+                  width: '28px', height: '28px', borderRadius: '50%', flexShrink: 0,
+                  background: `${s.color}20`, border: `1px solid ${s.color}60`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '13px', fontWeight: 700, color: s.color,
+                }}>{s.step}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: '14px', marginBottom: '3px' }}>{s.title}</div>
+                  <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{s.desc}</div>
+                  {s.path && (
+                    <button onClick={() => navigate(s.path)} style={{
+                      marginTop: '8px', padding: '5px 14px', borderRadius: '8px', fontSize: '12px',
+                      border: `1px solid ${s.color}60`, background: `${s.color}10`,
+                      color: s.color, cursor: 'pointer',
+                    }}>{s.btn}</button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       ) : (
         <div className="table-wrap anim-fade-up3">

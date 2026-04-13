@@ -35,6 +35,9 @@ public enum ErrorCode {
     JOURNAL_NOT_FOUND(HttpStatus.NOT_FOUND, "매매 일기를 찾을 수 없습니다."),
     TAG_NOT_FOUND(HttpStatus.NOT_FOUND, "전략 태그를 찾을 수 없습니다."),
 
+    // 매매 계획
+    PLAN_NOT_FOUND(HttpStatus.NOT_FOUND, "매매 계획을 찾을 수 없습니다."),
+
     // 비밀번호 재설정
     RESET_TOKEN_NOT_FOUND(HttpStatus.BAD_REQUEST, "유효하지 않거나 만료된 링크입니다."),
     RESET_TOKEN_EXPIRED(HttpStatus.BAD_REQUEST, "재설정 링크가 만료되었습니다. 다시 요청해주세요."),

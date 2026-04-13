@@ -51,6 +51,7 @@ const Navbar = ({ autoSync }) => {
     { path: '/holdings',      label: '보유 자산',  icon: '💰' },
     { path: '/stats',         label: '통계',       icon: '📊' },
     { path: '/journal',       label: '매매 일기',  icon: '📓' },
+    { path: '/plans',         label: '매매 계획',  icon: '📋' },
     { path: '/news',          label: '코인 뉴스',  icon: '📰' },
     { path: '/exchange-keys', label: '거래소 연동', icon: '⚙' },
   ];

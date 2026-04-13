@@ -1,6 +1,7 @@
 // [파일 용도] 거래소별 현재 보유 자산 표시 페이지
 
 import { useState, useEffect } from 'react';
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { getBalances } from '../api/exchangeApi';
 import api from '../api/authApi';
 
@@ -101,6 +102,51 @@ const HoldingsPage = () => {
   // 잔고 있는 거래소 목록 (오류 포함 전체 표시)
   const hasAny = exchangeBalances.length > 0;
 
+  // [용도] 포트폴리오 파이 차트 데이터 구성 / [호출] 렌더
+  // Upbit: balance × avgBuyPrice = KRW → displayCurrency 환산
+  // 다른 거래소: USDT/USDC 스테이블코인만 USD 가치로 계산
+  const PIE_COLORS = ['#f87171','#60a5fa','#a78bfa','#facc15','#34d399','#fb923c','#e879f9','#94a3b8'];
+  const STABLE = ['USDT','USDC','BUSD','DAI'];
+
+  const portfolioData = (() => {
+    const map = {};
+    exchangeBalances.forEach(ex => {
+      if (!ex.assets) return;
+      ex.assets.forEach(asset => {
+        const qty = Number(asset.balance);
+        if (!qty || qty === 0) return;
+        let valueInUsd = 0;
+        if (asset.unit_currency === 'KRW' && asset.avg_buy_price && Number(asset.avg_buy_price) > 0) {
+          valueInUsd = (qty * Number(asset.avg_buy_price)) / rates.KRW;
+        } else if (asset.unit_currency === 'USD' && STABLE.includes(asset.currency)) {
+          valueInUsd = qty;
+        } else {
+          return;
+        }
+        if (valueInUsd > 0) {
+          map[asset.currency] = (map[asset.currency] || 0) + valueInUsd;
+        }
+      });
+    });
+    const sorted = Object.entries(map)
+      .map(([name, usd]) => {
+        const targetRate = rates[displayCurrency] ?? 1;
+        const val = usd * targetRate;
+        return { name, value: Math.round(val * 100) / 100, usd };
+      })
+      .sort((a, b) => b.usd - a.usd);
+
+    if (sorted.length > 7) {
+      const others = sorted.slice(7).reduce((acc, x) => acc + x.usd, 0) * (rates[displayCurrency] ?? 1);
+      return [...sorted.slice(0, 7), { name: '기타', value: Math.round(others * 100) / 100 }];
+    }
+    return sorted;
+  })();
+
+  const CURRENCY_SYMBOL = { KRW: '₩', USD: '$', CNY: '¥', JPY: '¥' };
+  const sym = CURRENCY_SYMBOL[displayCurrency] ?? '';
+  const totalPortfolio = portfolioData.reduce((acc, d) => acc + d.value, 0);
+
   return (
     <div className="page">
       {/* 헤더 */}
@@ -125,6 +171,75 @@ const HoldingsPage = () => {
       <p className="text-sm text-secondary anim-fade-up" style={{ marginBottom: '24px' }}>
         거래소 API에서 실시간으로 조회한 현재 잔고입니다
       </p>
+
+      {/* 포트폴리오 요약 차트 */}
+      {!loading && portfolioData.length > 0 && (
+        <div className="card anim-fade-up" style={{ marginBottom: '24px', padding: '20px' }}>
+          <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '16px' }}>
+            포트폴리오 구성
+            <span style={{ marginLeft: '8px', fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400, textTransform: 'none' }}>
+              (Upbit 평가금액 + 스테이블코인 기준)
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '24px', flexWrap: 'wrap' }}>
+            {/* 도넛 차트 */}
+            <div style={{ width: 160, height: 160, flexShrink: 0 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={portfolioData}
+                    cx="50%" cy="50%"
+                    innerRadius={48} outerRadius={72}
+                    paddingAngle={2}
+                    dataKey="value"
+                    stroke="none"
+                  >
+                    {portfolioData.map((_, i) => (
+                      <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    content={({ active, payload }) => {
+                      if (!active || !payload?.length) return null;
+                      const d = payload[0].payload;
+                      const pct = totalPortfolio > 0 ? ((d.value / totalPortfolio) * 100).toFixed(1) : 0;
+                      return (
+                        <div className="chart-tooltip">
+                          <div style={{ fontWeight: 700, marginBottom: 2 }}>{d.name}</div>
+                          <div className="mono" style={{ fontSize: 13 }}>{sym}{d.value.toLocaleString()}</div>
+                          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{pct}%</div>
+                        </div>
+                      );
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* 범례 + 총액 */}
+            <div style={{ flex: 1, minWidth: 180 }}>
+              <div style={{ fontSize: '20px', fontWeight: 800, fontFamily: 'monospace', marginBottom: '14px' }}>
+                {sym}{totalPortfolio.toLocaleString(undefined, { maximumFractionDigits: displayCurrency === 'KRW' ? 0 : 2 })}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
+                {portfolioData.map((d, i) => {
+                  const pct = totalPortfolio > 0 ? ((d.value / totalPortfolio) * 100).toFixed(1) : 0;
+                  return (
+                    <div key={d.name} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div style={{ width: '10px', height: '10px', borderRadius: '2px', background: PIE_COLORS[i % PIE_COLORS.length], flexShrink: 0 }} />
+                      <span style={{ fontSize: '13px', fontWeight: 600, minWidth: '60px' }}>{d.name}</span>
+                      <div style={{ flex: 1, height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${pct}%`, background: PIE_COLORS[i % PIE_COLORS.length], borderRadius: '2px', transition: 'width 0.4s' }} />
+                      </div>
+                      <span className="mono" style={{ fontSize: '12px', color: 'var(--text-muted)', minWidth: '36px', textAlign: 'right' }}>{pct}%</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="empty-state">
