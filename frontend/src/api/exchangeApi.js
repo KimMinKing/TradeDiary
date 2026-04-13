@@ -72,6 +72,10 @@ export const generateAiReport = (exchange = null) =>
 export const getBalances = () =>
   api.get('/api/balances');
 
+// [용도] 대시보드 종합 데이터 조회 / [호출] DashboardPage.jsx
+export const getDashboard = () =>
+  api.get('/api/dashboard');
+
 // ── 매매 계획 메모 API ─────────────────────────────────────────────
 
 // [용도] 계획 목록 조회 / [호출] TradePlanPage.jsx
