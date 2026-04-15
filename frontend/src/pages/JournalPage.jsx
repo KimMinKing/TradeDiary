@@ -1,12 +1,14 @@
 // [파일 용도] 매매 일기 페이지 (캘린더 뷰 + 일기 작성/거래 내역 분할 패널)
 
 import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   getJournals, deleteJournal, getStrategyTags,
   createJournal, updateJournal, createStrategyTag,
 } from '../api/journalApi';
 import { getTrades } from '../api/exchangeApi';
 import { getNewsSummary, refreshNewsSummary } from '../api/newsApi';
+import TradePlanPage from './TradePlanPage';
 
 // [컴포넌트] 선택된 거래 참조 태그 표시 / [호출] JournalPage 폼
 const TradeRefChip = ({ trade, onClear }) => (
@@ -94,6 +96,8 @@ todayDate.setHours(0, 0, 0, 0);
 
 // [컴포넌트] 매매 일기 메인 페이지 / [호출] App.jsx 라우터
 const JournalPage = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const subTab = searchParams.get('tab') || 'journal'; // 'journal' | 'plans'
   const [currentMonth, setCurrentMonth] = useState(
     new Date(todayDate.getFullYear(), todayDate.getMonth(), 1)
   );
@@ -335,12 +339,34 @@ const JournalPage = () => {
     <div className="page">
       <div className="page-header anim-fade-up">
         <h1 className="page-title">매매 일기</h1>
-        <button className="btn btn-primary btn-sm" onClick={openCreate}>
-          + 새 일기
-        </button>
+        {subTab === 'journal' && (
+          <button className="btn btn-primary btn-sm" onClick={openCreate}>
+            + 새 일기
+          </button>
+        )}
       </div>
 
-      {loading ? (
+      {/* 서브탭 */}
+      <div className="tabs anim-fade-up" style={{ marginBottom: '20px' }}>
+        {[
+          { key: 'journal', label: '매매 일기' },
+          { key: 'plans',   label: '매매 계획' },
+        ].map(({ key, label }) => (
+          <button
+            key={key}
+            className={`tab${subTab === key ? ' active' : ''}`}
+            onClick={() => setSearchParams(key === 'journal' ? {} : { tab: key })}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* 서브탭: 매매 계획 */}
+      {subTab === 'plans' && <TradePlanPage embedded />}
+
+      {/* 서브탭: 매매 일기 (기본) */}
+      {subTab === 'journal' && (loading ? (
         <div className="empty-state">
           <div className="empty-state-icon" style={{ animation: 'spin 1s linear infinite' }}>◌</div>
           <p className="empty-state-title">불러오는 중...</p>
@@ -892,7 +918,7 @@ const JournalPage = () => {
             )}
           </div>
         </div>
-      )}
+      ))}
 
       {/* 삭제 확인 다이얼로그 */}
       {deleteConfirm !== null && (

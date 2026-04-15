@@ -5,8 +5,8 @@ import { useNavigate } from 'react-router-dom';
 import { getTrades, syncUpbitTrades, syncBybitTrades, syncBitgetTrades, syncOkxTrades, syncBinanceTrades, syncBingxTrades, getMyExchangeKeys } from '../api/exchangeApi';
 import api from '../api/authApi';
 
-// [컴포넌트] 거래 내역 목록 및 거래소별 동기화 화면 / [호출] App.jsx 라우터
-const TradeListPage = () => {
+// [컴포넌트] 거래 내역 목록 및 거래소별 동기화 화면 / [호출] App.jsx 라우터, PositionListPage (embedded)
+const TradeListPage = ({ embedded = false }) => {
   const navigate = useNavigate();
   const [allTrades,      setAllTrades]      = useState([]);
   const [activeTab,      setActiveTab]      = useState('ALL');
@@ -274,7 +274,7 @@ const TradeListPage = () => {
     : '날짜 지정';
 
   return (
-    <div className="page">
+    <div className={embedded ? '' : 'page'}>
       {/* 페이지 헤더 */}
       <div className="page-header anim-fade-up">
         <h1 className="page-title">거래 내역</h1>

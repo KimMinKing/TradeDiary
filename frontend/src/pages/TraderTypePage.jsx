@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react';
 import { getTraderType } from '../api/exchangeApi';
 
-// [컴포넌트] 포지션 데이터 기반 트레이더 유형 분석 카드 / [호출] App.jsx > /trader-type
-const TraderTypePage = () => {
+// [컴포넌트] 포지션 데이터 기반 트레이더 유형 분석 카드 / [호출] App.jsx > /trader-type, StatsPage (embedded)
+const TraderTypePage = ({ embedded = false }) => {
   const [data, setData]   = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -26,7 +26,7 @@ const TraderTypePage = () => {
 
   if (loading) {
     return (
-      <div className="page-container" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '300px' }}>
+      <div className={embedded ? '' : 'page-container'} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '300px' }}>
         <div style={{ color: 'var(--text-secondary)', fontSize: '0.95rem' }}>분석 중...</div>
       </div>
     );
@@ -35,7 +35,7 @@ const TraderTypePage = () => {
   const isUnknown = !data || data.type_code === 'UNKNOWN';
 
   return (
-    <div className="page-container">
+    <div className={embedded ? '' : 'page-container'}>
       <h1 className="page-title">나의 트레이더 유형</h1>
 
       {isUnknown ? (

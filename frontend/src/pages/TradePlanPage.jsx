@@ -30,8 +30,8 @@ const fmtDate = (dateStr) => {
 
 const EMPTY_FORM = { planDate: TODAY, symbol: '', direction: '', content: '' };
 
-// [컴포넌트] 매매 계획 메모 페이지 / [호출] App.jsx 라우터
-const TradePlanPage = () => {
+// [컴포넌트] 매매 계획 메모 페이지 / [호출] App.jsx 라우터, JournalPage (embedded)
+const TradePlanPage = ({ embedded = false }) => {
   const [plans,   setPlans]   = useState([]);
   const [loading, setLoading] = useState(true);
   const [form,    setForm]    = useState(EMPTY_FORM);
@@ -123,7 +123,7 @@ const TradePlanPage = () => {
   const active = total - done;
 
   return (
-    <div className="page">
+    <div className={embedded ? '' : 'page'}>
       {/* 헤더 */}
       <div className="page-header anim-fade-up">
         <div>

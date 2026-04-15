@@ -6,14 +6,9 @@ import useTheme from './hooks/useTheme';
 import LandingPage from './pages/LandingPage';
 import OAuthCallbackPage from './pages/OAuthCallbackPage';
 import ExchangeKeyPage from './pages/ExchangeKeyPage';
-import TradeListPage from './pages/TradeListPage';
 import PositionListPage from './pages/PositionListPage';
 import JournalPage from './pages/JournalPage';
 import StatsPage from './pages/StatsPage';
-import NewsPage from './pages/NewsPage';
-import HoldingsPage from './pages/HoldingsPage';
-import TradePlanPage from './pages/TradePlanPage';
-import TraderTypePage from './pages/TraderTypePage';
 import RankingPage from './pages/RankingPage';
 import DashboardPage from './pages/DashboardPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
@@ -52,10 +47,12 @@ const App = () => {
           path="/exchange-keys"
           element={<PrivateRoute><ExchangeKeyPage /></PrivateRoute>}
         />
-        <Route
-          path="/trades"
-          element={<PrivateRoute><TradeListPage /></PrivateRoute>}
-        />
+        {/* 구 경로 → 통합된 경로로 리디렉트 */}
+        <Route path="/trades"       element={<Navigate to="/positions?tab=trades"   replace />} />
+        <Route path="/holdings"     element={<Navigate to="/positions?tab=holdings" replace />} />
+        <Route path="/plans"        element={<Navigate to="/journal?tab=plans"      replace />} />
+        <Route path="/trader-type"  element={<Navigate to="/stats?tab=trader-type"  replace />} />
+        <Route path="/news"         element={<Navigate to="/dashboard"              replace />} />
         <Route
           path="/positions"
           element={<PrivateRoute><PositionListPage /></PrivateRoute>}
@@ -67,22 +64,6 @@ const App = () => {
         <Route
           path="/stats"
           element={<PrivateRoute><StatsPage /></PrivateRoute>}
-        />
-        <Route
-          path="/news"
-          element={<PrivateRoute><NewsPage /></PrivateRoute>}
-        />
-        <Route
-          path="/holdings"
-          element={<PrivateRoute><HoldingsPage /></PrivateRoute>}
-        />
-        <Route
-          path="/plans"
-          element={<PrivateRoute><TradePlanPage /></PrivateRoute>}
-        />
-        <Route
-          path="/trader-type"
-          element={<PrivateRoute><TraderTypePage /></PrivateRoute>}
         />
         <Route
           path="/ranking"

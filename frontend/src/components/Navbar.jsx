@@ -47,19 +47,24 @@ const Navbar = ({ autoSync }) => {
 
   const navItems = [
     { path: '/dashboard',     label: '대시보드',   icon: '🏠' },
-    { path: '/trades',        label: '거래 내역',  icon: '≡' },
     { path: '/positions',     label: '포지션',     icon: '◈' },
-    { path: '/holdings',      label: '보유 자산',  icon: '💰' },
     { path: '/stats',         label: '통계',       icon: '📊' },
     { path: '/journal',       label: '매매 일기',  icon: '📓' },
-    { path: '/plans',         label: '매매 계획',  icon: '📋' },
-    { path: '/trader-type',   label: '나의 유형',  icon: '🎯' },
     { path: '/ranking',       label: '랭킹',       icon: '🏆' },
-    { path: '/news',          label: '코인 뉴스',  icon: '📰' },
     { path: '/exchange-keys', label: '거래소 연동', icon: '⚙' },
   ];
 
-  const isActive = (path) => location.pathname === path;
+  // [용도] 현재 경로가 해당 메뉴에 속하는지 확인 (서브탭 경로 포함) / [호출] 렌더
+  const isActive = (path) => {
+    if (location.pathname === path) return true;
+    // 구 경로들을 통합된 부모 경로로 매핑
+    const subPathMap = {
+      '/positions': ['/trades', '/holdings'],
+      '/stats':     ['/trader-type'],
+      '/journal':   ['/plans'],
+    };
+    return (subPathMap[path] || []).includes(location.pathname);
+  };
 
   // [용도] 아바타 버튼 내용 (이미지 또는 닉네임 첫 글자) / [호출] 렌더링
   const avatarContent = profile.avatar

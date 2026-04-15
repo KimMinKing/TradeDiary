@@ -5,8 +5,8 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { getBalances } from '../api/exchangeApi';
 import api from '../api/authApi';
 
-// [컴포넌트] 등록된 거래소의 보유 자산 목록 표시 / [호출] App.jsx 라우터
-const HoldingsPage = () => {
+// [컴포넌트] 등록된 거래소의 보유 자산 목록 표시 / [호출] App.jsx 라우터, PositionListPage (embedded)
+const HoldingsPage = ({ embedded = false }) => {
   const [exchangeBalances, setExchangeBalances] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -147,7 +147,7 @@ const HoldingsPage = () => {
   const totalPortfolio = portfolioData.reduce((acc, d) => acc + d.value, 0);
 
   return (
-    <div className="page">
+    <div className={embedded ? '' : 'page'}>
       {/* 헤더 */}
       <div className="page-header anim-fade-up">
         <h1 className="page-title">보유 자산</h1>

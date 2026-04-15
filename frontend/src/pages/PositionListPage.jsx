@@ -1,13 +1,17 @@
 // [파일 용도] 포지션 목록 페이지 (거래소 필터 탭 + 수익률/수익금 표시)
 
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { getPositions, rebuildAllPositions, getOpenWindows, getTrades } from '../api/exchangeApi';
 import api from '../api/authApi';
+import TradeListPage from './TradeListPage';
+import HoldingsPage from './HoldingsPage';
 
 // [컴포넌트] 완결된 포지션 목록 및 통계 표시 / [호출] App.jsx 라우터
 const PositionListPage = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const subTab = searchParams.get('tab') || 'positions'; // 'positions' | 'trades' | 'holdings'
   const [positions,       setPositions]       = useState([]);
   const [openWindows,     setOpenWindows]     = useState([]);  // 미청산 포지션 윈도우
   const [openWindowsOpen, setOpenWindowsOpen] = useState(false); // 미청산 섹션 펼침 여부
@@ -193,20 +197,48 @@ const PositionListPage = () => {
       <div className="page-header anim-fade-up">
         <h1 className="page-title">포지션</h1>
         <div className="header-actions">
-          <button
-            className="btn btn-sm"
-            onClick={handleRebuildAll}
-            disabled={rebuilding}
-            style={{
-              background: 'rgba(255,255,255,0.06)',
-              border: '1px solid rgba(255,255,255,0.12)',
-              color: 'var(--text-secondary)',
-            }}
-          >
-            {rebuilding ? '재계산 중...' : '전체 재계산'}
-          </button>
+          {subTab === 'positions' && (
+            <button
+              className="btn btn-sm"
+              onClick={handleRebuildAll}
+              disabled={rebuilding}
+              style={{
+                background: 'rgba(255,255,255,0.06)',
+                border: '1px solid rgba(255,255,255,0.12)',
+                color: 'var(--text-secondary)',
+              }}
+            >
+              {rebuilding ? '재계산 중...' : '전체 재계산'}
+            </button>
+          )}
         </div>
       </div>
+
+      {/* 서브탭 */}
+      <div className="tabs anim-fade-up" style={{ marginBottom: '20px' }}>
+        {[
+          { key: 'positions', label: '포지션' },
+          { key: 'trades',    label: '거래내역' },
+          { key: 'holdings',  label: '보유자산' },
+        ].map(({ key, label }) => (
+          <button
+            key={key}
+            className={`tab${subTab === key ? ' active' : ''}`}
+            onClick={() => setSearchParams(key === 'positions' ? {} : { tab: key })}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* 서브탭: 거래내역 */}
+      {subTab === 'trades' && <TradeListPage embedded />}
+
+      {/* 서브탭: 보유자산 */}
+      {subTab === 'holdings' && <HoldingsPage embedded />}
+
+      {/* 서브탭: 포지션 (기본) */}
+      {subTab === 'positions' && <>
 
       {message && (
         <p className={message.includes('실패') ? 'msg-error' : 'msg-success'}
@@ -623,6 +655,8 @@ const PositionListPage = () => {
           </div>
         </div>
       )}
+
+      </> /* 포지션 서브탭 끝 */}
     </div>
   );
 };

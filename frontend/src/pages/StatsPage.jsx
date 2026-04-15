@@ -1,13 +1,14 @@
 // [파일 용도] 성과 통계 페이지 (핵심 지표 + 월별 PnL + 종목별 + 롱/숏 비교)
 
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Cell, ReferenceLine,
   AreaChart, Area,
 } from 'recharts';
 import { getStats, generateAiReport } from '../api/exchangeApi';
+import TraderTypePage from './TraderTypePage';
 
 // ── 통화 설정 ────────────────────────────────────────────────────
 const CURRENCY = {
@@ -482,6 +483,8 @@ const ChartTooltip = ({ active, payload, curr, labelSuffix = '' }) => {
 // [컴포넌트] 성과 통계 메인 페이지 / [호출] App.jsx 라우터
 const StatsPage = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const subTab = searchParams.get('tab') || 'stats'; // 'stats' | 'trader-type'
   const [exchange,    setExchange]    = useState('ALL');
   const [stats,       setStats]       = useState(null);
   const [loading,     setLoading]     = useState(true);
@@ -551,34 +554,56 @@ const StatsPage = () => {
       {/* ── 헤더 ── */}
       <div className="stats-header anim-fade-up">
         <div className="stats-title-row">
-          <h1 className="page-title">성과 통계</h1>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <ExchangeSelect value={exchange} onChange={setExchange} />
-            {!isEmpty && (
-              <button
-                className="btn btn-sm"
-                onClick={handleAiReport}
-                disabled={aiLoading}
-                style={{
-                  background: 'linear-gradient(135deg, #a78bfa, #7c3aed)',
-                  border: 'none', color: '#fff', fontWeight: 600,
-                  padding: '8px 16px', borderRadius: '8px', cursor: 'pointer',
-                  opacity: aiLoading ? 0.6 : 1, whiteSpace: 'nowrap',
-                }}
-              >
-                {aiLoading ? '분석 중...' : '✦ AI 리포트'}
-              </button>
-            )}
-          </div>
+          <h1 className="page-title">통계</h1>
+          {subTab === 'stats' && (
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <ExchangeSelect value={exchange} onChange={setExchange} />
+              {!isEmpty && (
+                <button
+                  className="btn btn-sm"
+                  onClick={handleAiReport}
+                  disabled={aiLoading}
+                  style={{
+                    background: 'linear-gradient(135deg, #a78bfa, #7c3aed)',
+                    border: 'none', color: '#fff', fontWeight: 600,
+                    padding: '8px 16px', borderRadius: '8px', cursor: 'pointer',
+                    opacity: aiLoading ? 0.6 : 1, whiteSpace: 'nowrap',
+                  }}
+                >
+                  {aiLoading ? '분석 중...' : '✦ AI 리포트'}
+                </button>
+              )}
+            </div>
+          )}
         </div>
-        {curr.mixed && !isEmpty && (
+        {subTab === 'stats' && curr.mixed && !isEmpty && (
           <div className="stats-mixed-notice">
             ⚠ 전체 보기는 KRW(UPBIT)와 USDT(BYBIT)가 혼합된 수치입니다. 정확한 손익은 거래소별로 확인해주세요.
           </div>
         )}
       </div>
 
-      {loading ? (
+      {/* 서브탭 */}
+      <div className="tabs anim-fade-up" style={{ marginBottom: '20px' }}>
+        {[
+          { key: 'stats',       label: '성과 통계' },
+          { key: 'trader-type', label: '나의 유형' },
+        ].map(({ key, label }) => (
+          <button
+            key={key}
+            className={`tab${subTab === key ? ' active' : ''}`}
+            onClick={() => setSearchParams(key === 'stats' ? {} : { tab: key })}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* 서브탭: 나의 유형 */}
+      {subTab === 'trader-type' && <TraderTypePage embedded />}
+
+      {/* 서브탭: 성과 통계 */}
+      {subTab === 'stats' && (loading ? (
         <div className="empty-state">
           <div className="empty-state-icon" style={{ animation: 'spin 1s linear infinite' }}>◌</div>
           <p className="empty-state-title">통계 계산 중...</p>
@@ -976,7 +1001,7 @@ const StatsPage = () => {
 
         </div>
         </>
-      )}
+      ))}
     </div>
   );
 };
