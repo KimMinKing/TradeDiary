@@ -12,6 +12,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -33,13 +35,18 @@ public class RankingService {
         YearMonth thisYM = YearMonth.now();
         String ymStr = thisYM.format(DateTimeFormatter.ofPattern("yyyy-MM"));
 
-        // 모든 포지션 중 이번 달 포지션 필터링 후 userId별 그룹화
-        Map<Long, List<Position>> byUser = positionRepository.findAll().stream()
-                .filter(p -> YearMonth.from(p.getClosedAt()).equals(thisYM))
+        // 이번 달 포지션만 DB에서 조회 (전체 로딩 대신)
+        LocalDateTime monthStart = thisYM.atDay(1).atStartOfDay();
+        LocalDateTime monthEnd   = thisYM.plusMonths(1).atDay(1).atStartOfDay();
+        List<Position> monthPositions = positionRepository.findAllClosedInPeriod(monthStart, monthEnd);
+
+        // userId별 그룹화
+        Map<Long, List<Position>> byUser = monthPositions.stream()
                 .collect(Collectors.groupingBy(p -> p.getUser().getId()));
 
         // 사용자 ID → User 엔티티 매핑 (자산, 공개여부 포함)
-        Map<Long, User> userMap = userRepository.findAll().stream()
+        Set<Long> userIds = byUser.keySet();
+        Map<Long, User> userMap = userRepository.findAllById(userIds).stream()
                 .collect(Collectors.toMap(User::getId, u -> u));
 
         // 유저별 집계 후 승률 내림차순 정렬
@@ -109,6 +116,9 @@ public class RankingService {
         String myAssets = null;
 
         User me = userMap.get(myUserId);
+        if (me == null) {
+            me = userRepository.findById(myUserId).orElse(null);
+        }
         if (me != null && me.getTotalAssets() != null) {
             myAssets = me.getTotalAssets().setScale(2, RoundingMode.HALF_UP).toPlainString();
         }

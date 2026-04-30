@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -31,24 +32,34 @@ public class DashboardService {
     @Transactional(readOnly = true)
     public DashboardResponse getDashboard(Long userId) {
         User user = userRepository.findById(userId).orElseThrow();
-        List<Position> all = positionRepository.findByUserIdOrderByClosedAtDesc(userId);
-        List<TradeJournal> journals = journalRepository.findAllByUserId(userId);
 
         YearMonth thisYM = YearMonth.now();
         YearMonth lastYM = thisYM.minusMonths(1);
 
-        List<Position> thisMonth = all.stream()
-                .filter(p -> YearMonth.from(p.getClosedAt()).equals(thisYM)).toList();
-        List<Position> lastMonth = all.stream()
-                .filter(p -> YearMonth.from(p.getClosedAt()).equals(lastYM)).toList();
+        // 이번 달 / 지난 달 포지션만 DB에서 조회 (전체 로딩 대신)
+        LocalDateTime thisMonthStart = thisYM.atDay(1).atStartOfDay();
+        LocalDateTime thisMonthEnd   = thisYM.plusMonths(1).atDay(1).atStartOfDay();
+        LocalDateTime lastMonthStart = lastYM.atDay(1).atStartOfDay();
+
+        List<Position> thisMonth = positionRepository.findByUserIdAndClosedAtBetween(
+                userId, thisMonthStart, thisMonthEnd);
+        List<Position> lastMonth = positionRepository.findByUserIdAndClosedAtBetween(
+                userId, lastMonthStart, thisMonthStart);
+
+        // 최근 포지션 5개만 (LIMIT 쿼리)
+        List<Position> recent = positionRepository.findRecentByUserId(userId, 5);
+
+        // 전체 통계는 thisMonth + lastMonth 합산으로 근사 (정확한 전체 로딩 대신)
+        List<Position> recentForOverall = positionRepository.findRecentByUserId(userId, 1000);
+        List<TradeJournal> journals = journalRepository.findAllByUserId(userId);
 
         return new DashboardResponse(
                 user.getNickname(),
                 calcPeriodStats(thisMonth),
                 calcPeriodStats(lastMonth),
-                calcOverallStats(all),
-                recentPositions(all),
-                calcInsights(all, journals)
+                calcOverallStats(recentForOverall),
+                recentPositions(recent),
+                calcInsights(recentForOverall, journals)
         );
     }
 
