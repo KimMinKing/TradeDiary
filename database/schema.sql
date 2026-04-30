@@ -205,3 +205,21 @@ INSERT INTO strategy_tags (user_id, name) VALUES
     (NULL, '스윙'),
     (NULL, '뇌동매매')
 ON CONFLICT DO NOTHING;
+
+-- =============================================
+-- 성능 최적화 인덱스
+-- =============================================
+-- 포지션: 사용자별 + 종료일 기준 (대시보드, 통계, 랭킹에서 핵심)
+CREATE INDEX IF NOT EXISTS idx_positions_user_closed ON positions(user_id, closed_at DESC);
+
+-- 거래 원본: 사용자별 + 거래일시 (동기화, 포지션 계산, 당일 거래 조회)
+CREATE INDEX IF NOT EXISTS idx_trades_user_traded ON trades(user_id, traded_at DESC);
+
+-- 매매 일기: 사용자별 + 거래 날짜 (캘린더, 일기 목록 필터)
+CREATE INDEX IF NOT EXISTS idx_journals_user_date ON trade_journals(user_id, trade_date DESC);
+
+-- 전략 태그 매핑: 일기별 태그 조회 (일기 응답 DTO 변환 시)
+CREATE INDEX IF NOT EXISTS idx_jst_journal ON journal_strategy_tags(journal_id);
+
+-- 거래: 사용자별 + 거래소 (동기화 시 중복 체크)
+CREATE INDEX IF NOT EXISTS idx_trades_user_exchange ON trades(user_id, exchange);
