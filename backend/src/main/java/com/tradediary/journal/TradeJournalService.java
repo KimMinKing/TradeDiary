@@ -106,8 +106,9 @@ public class TradeJournalService {
                 request.entryReason(), request.exitReason(), request.emotion(), request.memo(),
                 request.image());
 
-        // 태그 전체 교체
+        // 태그 전체 교체: 기존 삭제 후 flush → 재연결
         journal.clearTags();
+        journalRepository.saveAndFlush(journal);
         attachTags(journal, request.tagIds());
 
         return JournalResponse.from(journal);
@@ -125,7 +126,9 @@ public class TradeJournalService {
     private void attachTags(TradeJournal journal, List<Long> tagIds) {
         if (tagIds == null || tagIds.isEmpty()) return;
 
-        List<StrategyTag> tags = tagRepository.findAllById(tagIds);
+        // 중복 태그 ID 제거
+        List<Long> uniqueIds = tagIds.stream().distinct().toList();
+        List<StrategyTag> tags = tagRepository.findAllById(uniqueIds);
         tags.forEach(tag -> {
             JournalStrategyTag link = JournalStrategyTag.builder()
                     .journal(journal)
