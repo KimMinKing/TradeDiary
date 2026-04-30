@@ -65,6 +65,11 @@ const LandingPage = () => {
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const navigate = useNavigate();
 
+  // 로그인 상태로 랜딩 페이지 접속 시 대시보드로 이동
+  useEffect(() => {
+    if (isLoggedIn) navigate('/dashboard', { replace: true });
+  }, [isLoggedIn, navigate]);
+
   useEffect(() => {
     if (!isLoggedIn) return;
     getMe().then((res) => setProfile(res.data)).catch(() => {});

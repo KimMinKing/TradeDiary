@@ -8,6 +8,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 // [클래스] users 테이블 매핑 엔티티
@@ -38,6 +39,14 @@ public class User {
 
     @Column(columnDefinition = "TEXT")
     private String avatar;
+
+    @Column(precision = 30, scale = 2)
+    private BigDecimal totalAssets;
+
+    @Column(nullable = false)
+    private Boolean diaryPublic = false;
+
+    private LocalDateTime assetsUpdatedAt;
 
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -83,6 +92,19 @@ public class User {
     // [용도] 프로필 아바타 이미지 변경 (base64) / [호출] UserService.updateAvatar()
     public void updateAvatar(String avatar) {
         this.avatar = avatar;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    // [용도] 총 자산 스냅샷 업데이트 / [호출] BalanceController.getBalances()
+    public void updateTotalAssets(BigDecimal totalAssets) {
+        this.totalAssets = totalAssets;
+        this.assetsUpdatedAt = LocalDateTime.now();
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    // [용도] 일기 공개 여부 설정 / [호출] UserController.updateDiaryPublic()
+    public void updateDiaryPublic(boolean diaryPublic) {
+        this.diaryPublic = diaryPublic;
         this.updatedAt = LocalDateTime.now();
     }
 }

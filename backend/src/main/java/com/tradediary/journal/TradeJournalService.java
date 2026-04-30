@@ -84,6 +84,7 @@ public class TradeJournalService {
                 .exitReason(request.exitReason())
                 .emotion(request.emotion())
                 .memo(request.memo())
+                .image(request.image())
                 .build();
 
         TradeJournal saved = journalRepository.save(journal);
@@ -102,7 +103,8 @@ public class TradeJournalService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.JOURNAL_NOT_FOUND));
 
         journal.update(request.symbol(), request.tradeRefsJson(),
-                request.entryReason(), request.exitReason(), request.emotion(), request.memo());
+                request.entryReason(), request.exitReason(), request.emotion(), request.memo(),
+                request.image());
 
         // 태그 전체 교체
         journal.clearTags();
@@ -144,6 +146,7 @@ public class TradeJournalService {
             String exitReason,
             String emotion,
             String memo,
+            String image,           // 첨부 이미지 (base64, JPEG 압축)
             List<StrategyTagService.TagResponse> tags,
             String createdAt,
             String updatedAt
@@ -163,6 +166,7 @@ public class TradeJournalService {
                     j.getExitReason(),
                     j.getEmotion(),
                     j.getMemo(),
+                    j.getImage(),
                     tags,
                     j.getCreatedAt().toString(),
                     j.getUpdatedAt().toString()
@@ -180,6 +184,7 @@ public class TradeJournalService {
             String exitReason,
             String emotion,
             String memo,
+            String image,           // 첨부 이미지 (base64, JPEG 압축)
             List<Long> tagIds
     ) {}
 
@@ -191,6 +196,60 @@ public class TradeJournalService {
             String exitReason,
             String emotion,
             String memo,
+            String image,           // 첨부 이미지 (base64, JPEG 압축)
             List<Long> tagIds
     ) {}
+
+    // [용도] 특정 사용자의 공개 일기 목록 조회 / [호출] TradeJournalController.getPublicJournals()
+    @Transactional(readOnly = true)
+    public PublicJournalResponse getPublicJournals(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+
+        if (!Boolean.TRUE.equals(user.getDiaryPublic())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+
+        List<PublicJournalEntry> journals = journalRepository.findAllByUserId(userId).stream()
+                .map(PublicJournalEntry::from)
+                .toList();
+
+        return new PublicJournalResponse(user.getNickname(), journals);
+    }
+
+    // 공개 일기 응답 DTO
+    public record PublicJournalResponse(
+            String nickname,
+            List<PublicJournalEntry> journals
+    ) {}
+
+    // 공개 일기 항목 DTO (가격/수량 등 민감 정보 제외)
+    public record PublicJournalEntry(
+            Long id,
+            String tradeDate,
+            String symbol,
+            String entryReason,
+            String exitReason,
+            String emotion,
+            String memo,
+            String image,
+            List<StrategyTagService.TagResponse> tags
+    ) {
+        public static PublicJournalEntry from(TradeJournal j) {
+            List<StrategyTagService.TagResponse> tags = j.getJournalStrategyTags().stream()
+                    .map(jst -> StrategyTagService.TagResponse.from(jst.getTag()))
+                    .toList();
+            return new PublicJournalEntry(
+                    j.getId(),
+                    j.getTradeDate().toString(),
+                    j.getSymbol(),
+                    j.getEntryReason(),
+                    j.getExitReason(),
+                    j.getEmotion(),
+                    j.getMemo(),
+                    j.getImage(),
+                    tags
+            );
+        }
+    }
 }

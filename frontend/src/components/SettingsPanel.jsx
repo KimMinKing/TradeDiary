@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { getMe, updateNickname, updatePassword, updateAvatar } from '../api/userApi';
+import { updateDiaryPublic } from '../api/exchangeApi';
 import useTheme from '../hooks/useTheme';
 
 const SYNC_OPTIONS = [
@@ -59,8 +60,20 @@ const SettingsPanel = ({ onClose, initialTab = 'profile' }) => {
     getMe().then((res) => {
       setUserInfo(res.data);
       setNewNickname(res.data.nickname || '');
+      setDiaryPublic(res.data.diary_public || false);
     }).catch(() => {});
   }, []);
+
+  // 일기 공개 여부
+  const [diaryPublic, setDiaryPublic] = useState(false);
+
+  // [용도] 일기 공개/비공개 토글 / [호출] 설정 패널 버튼
+  const handleDiaryPublicChange = async (value) => {
+    try {
+      await updateDiaryPublic(value);
+      setDiaryPublic(value);
+    } catch { /* ignore */ }
+  };
 
   // [용도] 패널 외부 클릭 시 닫기 (아바타 버튼 제외) / [호출] mousedown 이벤트
   useEffect(() => {
@@ -359,6 +372,44 @@ const SettingsPanel = ({ onClose, initialTab = 'profile' }) => {
                       <span>{opt.label}</span>
                     </label>
                   ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 일기 공개 설정 */}
+          <div className="settings-section">
+            <button
+              className={`settings-section-toggle${activeSection === 'diary' ? ' open' : ''}`}
+              onClick={() => toggle('diary')}
+            >
+              <span>📖 랭킹 일기 공개</span>
+              <span className="settings-chevron">{activeSection === 'diary' ? '▲' : '▼'}</span>
+            </button>
+            {activeSection === 'diary' && (
+              <div className="settings-form">
+                <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '10px', lineHeight: 1.5 }}>
+                  공개하면 랭페이지에서 다른 트레이더가 닉네임 클릭 시 내 매매 일기를 볼 수 있습니다.
+                </p>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    onClick={() => handleDiaryPublicChange(true)}
+                    style={{
+                      padding: '6px 16px', borderRadius: '8px', fontSize: '12px', cursor: 'pointer',
+                      border: diaryPublic ? '1px solid #f8717180' : '1px solid var(--border)',
+                      background: diaryPublic ? '#f8717118' : 'transparent',
+                      color: diaryPublic ? '#f87171' : 'var(--text-muted)', fontWeight: 600,
+                    }}
+                  >공개</button>
+                  <button
+                    onClick={() => handleDiaryPublicChange(false)}
+                    style={{
+                      padding: '6px 16px', borderRadius: '8px', fontSize: '12px', cursor: 'pointer',
+                      border: !diaryPublic ? '1px solid #60a5fa80' : '1px solid var(--border)',
+                      background: !diaryPublic ? '#60a5fa18' : 'transparent',
+                      color: !diaryPublic ? '#60a5fa' : 'var(--text-muted)', fontWeight: 600,
+                    }}
+                  >비공개</button>
                 </div>
               </div>
             )}

@@ -62,4 +62,12 @@ public class TradeJournalController {
         journalService.deleteJournal(userId, id);
         return ResponseEntity.noContent().build();
     }
+
+    // [용도] 특정 사용자의 공개 일기 조회 / [호출] GET /api/journals/public/{userId}
+    @GetMapping("/public/{userId}")
+    public ResponseEntity<TradeJournalService.PublicJournalResponse> getPublicJournals(
+            @AuthenticationPrincipal Long requesterId,
+            @PathVariable Long userId) {
+        return ResponseEntity.ok(journalService.getPublicJournals(userId));
+    }
 }

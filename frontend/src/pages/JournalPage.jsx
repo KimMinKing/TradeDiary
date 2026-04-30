@@ -6,7 +6,7 @@ import {
   getJournals, deleteJournal, getStrategyTags,
   createJournal, updateJournal, createStrategyTag,
 } from '../api/journalApi';
-import { getTrades } from '../api/exchangeApi';
+import { getTrades, getPlans } from '../api/exchangeApi';
 import { getNewsSummary, refreshNewsSummary } from '../api/newsApi';
 import TradePlanPage from './TradePlanPage';
 
@@ -94,6 +94,34 @@ const fmtDate = (date) => {
 const todayDate = new Date();
 todayDate.setHours(0, 0, 0, 0);
 
+// [용도] 이미지 파일을 base64 JPEG로 압축 변환 / [호출] 이미지 업로드 핸들러
+const compressImage = (file, maxWidth = 800, quality = 0.6) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let w = img.width;
+        let h = img.height;
+        if (w > maxWidth) {
+          h = Math.round((h * maxWidth) / w);
+          w = maxWidth;
+        }
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+};
+
 // [컴포넌트] 매매 일기 메인 페이지 / [호출] App.jsx 라우터
 const JournalPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -104,6 +132,7 @@ const JournalPage = () => {
   const [selectedDate, setSelectedDate] = useState(todayDate);
   const [journals,     setJournals]     = useState([]);
   const [trades,       setTrades]       = useState([]);
+  const [plans,        setPlans]        = useState([]);
   const [tags,         setTags]         = useState([]);
   const [loading,      setLoading]      = useState(true);
   const [mode,         setMode]         = useState('view'); // 'view' | 'form'
@@ -112,7 +141,7 @@ const JournalPage = () => {
 
   // 폼 상태
   const [form, setForm] = useState({
-    symbol: '', exchange: '', entryReason: '', exitReason: '', emotion: '', memo: '', tagIds: [],
+    symbol: '', exchange: '', entryReason: '', exitReason: '', emotion: '', memo: '', tagIds: [], image: null,
   });
   const [saving,         setSaving]         = useState(false);
   const [formError,      setFormError]      = useState('');
@@ -122,6 +151,7 @@ const JournalPage = () => {
   const [showTagInput,   setShowTagInput]   = useState(false); // 태그 입력창 노출 여부
   const [selectedTrades, setSelectedTrades] = useState([]);    // 선택된 거래 목록 (다중)
   const [calOpen,        setCalOpen]        = useState(true);  // 캘린더 펼침/접힘
+  const [zoomImage,      setZoomImage]      = useState(null);  // 이미지 확대 모달
   const [yearMonthPicker, setYearMonthPicker] = useState(false); // 년/월 빠른 선택 팝업
   const [pickerYear,     setPickerYear]     = useState(todayDate.getFullYear()); // 팝업에서 선택 중인 년도
 
@@ -173,12 +203,13 @@ const JournalPage = () => {
   const fetchAll = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [jRes, tgRes, trRes] = await Promise.all([
-        getJournals(), getStrategyTags(), getTrades(),
+      const [jRes, tgRes, trRes, plRes] = await Promise.all([
+        getJournals(), getStrategyTags(), getTrades(), getPlans(),
       ]);
       setJournals(jRes.data);
       setTags(tgRes.data);
       setTrades(trRes.data);
+      setPlans(plRes.data);
     } catch (e) {
       console.error(e);
     } finally {
@@ -191,6 +222,7 @@ const JournalPage = () => {
   const journalDateSet    = new Set(journals.map(j => j.trade_date?.slice(0, 10)));
   const journalsForDay    = journals.filter(j => j.trade_date?.slice(0, 10) === selectedDateStr);
   const tradesForDay      = trades.filter(t => t.traded_at?.slice(0, 10) === selectedDateStr);
+  const plansForDay       = plans.filter(p => p.plan_date === selectedDateStr);
 
   // ── 캘린더 계산 ────────────────────────────────
   const year         = currentMonth.getFullYear();
@@ -215,7 +247,7 @@ const JournalPage = () => {
   // [용도] 새 일기 작성 폼 열기 / [호출] 새 일기 버튼
   const openCreate = () => {
     setEditTarget(null);
-    setForm({ symbol: '', entryReason: '', exitReason: '', emotion: '', memo: '', tagIds: [] });
+    setForm({ symbol: '', entryReason: '', exitReason: '', emotion: '', memo: '', tagIds: [], image: null });
     setFormError('');
     setSelectedTrades([]);
     setShowTagInput(false);
@@ -233,6 +265,7 @@ const JournalPage = () => {
       emotion:     journal.emotion      ?? '',
       memo:        journal.memo         ?? '',
       tagIds:      journal.tags?.map(t => t.id) ?? [],
+      image:       journal.image        ?? null,
     });
     setFormError('');
     // 수정 시 기존 선택 거래 복원
@@ -279,6 +312,7 @@ const JournalPage = () => {
         exit_reason:     form.exitReason.trim()  || null,
         emotion:         form.emotion            || null,
         memo:            form.memo.trim()        || null,
+        image:           form.image              || null,
         tag_ids:         form.tagIds,
       };
       if (editTarget) {
@@ -570,6 +604,54 @@ const JournalPage = () => {
               <div className="form-split">
                 {/* 왼쪽: 일기 목록 */}
                 <div className="form-split-left">
+                {/* 오늘의 매매 계획 (뷰 모드) */}
+                {plansForDay.length > 0 && (
+                  <div style={{
+                    marginBottom: '12px', padding: '10px 12px',
+                    background: 'rgba(99,102,241,0.06)', borderRadius: '10px',
+                    border: '1px solid rgba(99,102,241,0.15)',
+                  }}>
+                    <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--accent)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      📋 이 날의 매매 계획
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {plansForDay.map(p => (
+                        <div key={p.id} style={{
+                          display: 'flex', alignItems: 'flex-start', gap: '8px',
+                          fontSize: '12px', lineHeight: 1.5,
+                          opacity: p.done ? 0.5 : 1,
+                        }}>
+                          <span style={{
+                            flexShrink: 0, fontSize: '10px', padding: '1px 5px',
+                            borderRadius: '4px', fontWeight: 600, marginTop: '1px',
+                            background: p.direction === 'LONG' ? 'rgba(248,113,113,0.12)' :
+                                        p.direction === 'SHORT' ? 'rgba(96,165,250,0.12)' :
+                                        'rgba(255,255,255,0.06)',
+                            color: p.direction === 'LONG' ? '#f87171' :
+                                   p.direction === 'SHORT' ? '#60a5fa' : 'var(--text-muted)',
+                            border: `1px solid ${p.direction === 'LONG' ? 'rgba(248,113,113,0.25)' :
+                                              p.direction === 'SHORT' ? 'rgba(96,165,250,0.25)' :
+                                              'var(--border)'}`,
+                          }}>
+                            {p.direction === 'LONG' ? '▲ LONG' : p.direction === 'SHORT' ? '▼ SHORT' : '미정'}
+                          </span>
+                          {p.symbol && (
+                            <span className="mono" style={{ fontWeight: 600, color: 'var(--text-primary)', flexShrink: 0 }}>
+                              {p.symbol}
+                            </span>
+                          )}
+                          <span style={{
+                            color: 'var(--text-secondary)',
+                            textDecoration: p.done ? 'line-through' : 'none',
+                          }}>
+                            {p.content}
+                          </span>
+                          {p.done && <span style={{ color: '#4ade80', flexShrink: 0 }}>✓</span>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="day-journal-list">
                 {journalsForDay.length === 0 ? (
                   <div className="day-empty">
@@ -629,6 +711,26 @@ const JournalPage = () => {
                         <div className="journal-section">
                           <div className="journal-section-label">메모</div>
                           <p className="journal-section-content">{journal.memo}</p>
+                        </div>
+                      )}
+
+                      {/* 첨부 이미지 */}
+                      {journal.image && (
+                        <div style={{ marginTop: '8px' }}>
+                          <img
+                            src={journal.image}
+                            alt="첨부 이미지"
+                            onClick={() => setZoomImage(journal.image)}
+                            style={{
+                              maxHeight: '160px', maxWidth: '100%',
+                              borderRadius: '8px', objectFit: 'cover',
+                              border: '1px solid var(--border)',
+                              cursor: 'pointer',
+                              transition: 'opacity 0.15s',
+                            }}
+                            onMouseEnter={e => e.target.style.opacity = '0.85'}
+                            onMouseLeave={e => e.target.style.opacity = '1'}
+                          />
                         </div>
                       )}
 
@@ -700,6 +802,54 @@ const JournalPage = () => {
               <div className="form-split">
                 {/* 왼쪽: 작성 폼 */}
                 <div className="form-split-left">
+                  {/* 오늘의 매매 계획 (해당 날짜) */}
+                  {plansForDay.length > 0 && (
+                    <div style={{
+                      marginBottom: '14px', padding: '10px 12px',
+                      background: 'rgba(99,102,241,0.06)', borderRadius: '10px',
+                      border: '1px solid rgba(99,102,241,0.15)',
+                    }}>
+                      <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--accent)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        📋 이 날의 매매 계획
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {plansForDay.map(p => (
+                          <div key={p.id} style={{
+                            display: 'flex', alignItems: 'flex-start', gap: '8px',
+                            fontSize: '12px', lineHeight: 1.5,
+                            opacity: p.done ? 0.5 : 1,
+                          }}>
+                            <span style={{
+                              flexShrink: 0, fontSize: '10px', padding: '1px 5px',
+                              borderRadius: '4px', fontWeight: 600, marginTop: '1px',
+                              background: p.direction === 'LONG' ? 'rgba(248,113,113,0.12)' :
+                                          p.direction === 'SHORT' ? 'rgba(96,165,250,0.12)' :
+                                          'rgba(255,255,255,0.06)',
+                              color: p.direction === 'LONG' ? '#f87171' :
+                                     p.direction === 'SHORT' ? '#60a5fa' : 'var(--text-muted)',
+                              border: `1px solid ${p.direction === 'LONG' ? 'rgba(248,113,113,0.25)' :
+                                                p.direction === 'SHORT' ? 'rgba(96,165,250,0.25)' :
+                                                'var(--border)'}`,
+                            }}>
+                              {p.direction === 'LONG' ? '▲ LONG' : p.direction === 'SHORT' ? '▼ SHORT' : '미정'}
+                            </span>
+                            {p.symbol && (
+                              <span className="mono" style={{ fontWeight: 600, color: 'var(--text-primary)', flexShrink: 0 }}>
+                                {p.symbol}
+                              </span>
+                            )}
+                            <span style={{
+                              color: 'var(--text-secondary)',
+                              textDecoration: p.done ? 'line-through' : 'none',
+                            }}>
+                              {p.content}
+                            </span>
+                            {p.done && <span style={{ color: '#4ade80', flexShrink: 0 }}>✓</span>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <div className="form-group">
                     <label className="input-label">종목</label>
                     {/* 선택된 거래 칩 목록 */}
@@ -829,6 +979,57 @@ const JournalPage = () => {
                     />
                   </div>
 
+                  {/* 이미지 첨부 */}
+                  <div className="form-group">
+                    <label className="input-label">사진 첨부</label>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                      <label className="btn btn-ghost btn-sm" style={{ cursor: 'pointer', flexShrink: 0 }}>
+                        📷 사진 선택
+                        <input
+                          type="file"
+                          accept="image/*"
+                          style={{ display: 'none' }}
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            try {
+                              const compressed = await compressImage(file);
+                              setForm(p => ({ ...p, image: compressed }));
+                            } catch {
+                              alert('이미지 처리에 실패했습니다.');
+                            }
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
+                      {form.image && (
+                        <div style={{ position: 'relative' }}>
+                          <img
+                            src={form.image}
+                            alt="첨부"
+                            style={{
+                              maxHeight: '80px', maxWidth: '120px',
+                              borderRadius: '6px', objectFit: 'cover',
+                              border: '1px solid var(--border)',
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setForm(p => ({ ...p, image: null }))}
+                            style={{
+                              position: 'absolute', top: '-6px', right: '-6px',
+                              width: '18px', height: '18px', borderRadius: '50%',
+                              background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                              color: 'var(--text-muted)', fontSize: '10px', cursor: 'pointer',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              lineHeight: 1,
+                            }}
+                          >✕</button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
                   {formError && <p className="msg-error">{formError}</p>}
 
                   <div className="form-actions">
@@ -935,6 +1136,36 @@ const JournalPage = () => {
               <button className="btn btn-danger" onClick={() => handleDelete(deleteConfirm)}>삭제</button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* 이미지 확대 모달 */}
+      {zoomImage && (
+        <div
+          className="modal-overlay"
+          onClick={() => setZoomImage(null)}
+          style={{ cursor: 'zoom-out', padding: '20px' }}
+        >
+          <img
+            src={zoomImage}
+            alt="확대"
+            onClick={e => e.stopPropagation()}
+            style={{
+              maxWidth: '90vw', maxHeight: '85vh',
+              borderRadius: '8px', objectFit: 'contain',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
+            }}
+          />
+          <button
+            onClick={() => setZoomImage(null)}
+            style={{
+              position: 'absolute', top: '16px', right: '16px',
+              width: '36px', height: '36px', borderRadius: '50%',
+              background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.2)',
+              color: '#fff', fontSize: '16px', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >✕</button>
         </div>
       )}
     </div>

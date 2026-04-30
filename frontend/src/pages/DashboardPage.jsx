@@ -2,10 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getDashboard, getMonthlyGoal, saveMonthlyGoal } from '../api/exchangeApi';
+import { getDashboard, getMonthlyGoal, saveMonthlyGoal, getPlans } from '../api/exchangeApi';
 
 // [용도] 손익 색상 / [호출] 렌더
 const pnlColor = (val) => Number(val) >= 0 ? '#f87171' : '#60a5fa';
+
+// mono 폰트 공통 스타일
+const MONO = { fontFamily: "'JetBrains Mono', monospace" };
 
 // [용도] 손익 포맷 (+/- 기호 포함) / [호출] 렌더
 const fmtPnl = (val) => {
@@ -28,6 +31,7 @@ const DashboardPage = () => {
   const [data,       setData]       = useState(null);
   const [loading,    setLoading]    = useState(true);
   const [goal,       setGoal]       = useState(null);
+  const [todayPlans, setTodayPlans] = useState([]);
   const [goalEdit,   setGoalEdit]   = useState(false);
   const [goalForm,   setGoalForm]   = useState({ targetWinRate: '', targetPnl: '', targetTradeCount: '' });
   const [goalSaving, setGoalSaving] = useState(false);
@@ -45,6 +49,15 @@ const DashboardPage = () => {
           targetPnl:        res.data.target_pnl ?? '',
           targetTradeCount: res.data.target_trade_count ?? '',
         });
+      })
+      .catch(() => {});
+    // 오늘 매매 계획 로드
+    const today = new Date();
+    const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    getPlans()
+      .then(res => {
+        const today = (res.data || []).filter(p => p.plan_date === dateStr);
+        setTodayPlans(today);
       })
       .catch(() => {});
   }, []);
@@ -113,7 +126,7 @@ const DashboardPage = () => {
                     width: '30px', height: '30px', borderRadius: '50%', flexShrink: 0,
                     background: `${s.color}18`, border: `1px solid ${s.color}50`,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: '13px', fontWeight: 700, color: s.color,
+                    ...MONO, fontSize: '13px', fontWeight: 700, color: s.color,
                   }}>{s.step}</div>
                   <div>
                     <div style={{ fontWeight: 600, fontSize: '14px', marginBottom: '3px' }}>{s.title}</div>
@@ -172,11 +185,11 @@ const DashboardPage = () => {
               <div style={{ display: 'flex', gap: '28px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
                 {/* 손익 */}
                 <div>
-                  <div style={{ fontSize: '30px', fontWeight: 800, fontFamily: 'monospace', color: pnlColor(data.this_month.total_pnl), lineHeight: 1.1 }}>
+                  <div style={{ fontSize: '30px', fontWeight: 800, ...MONO, color: pnlColor(data.this_month.total_pnl), lineHeight: 1.1 }}>
                     {fmtPnl(data.this_month.total_pnl)}
                   </div>
                   {pnlDiff !== null && (
-                    <div style={{ fontSize: '12px', color: pnlColor(pnlDiff), marginTop: '4px' }}>
+                    <div style={{ fontSize: '12px', ...MONO, color: pnlColor(pnlDiff), marginTop: '4px' }}>
                       {pnlDiff >= 0 ? '▲' : '▼'} 전달 대비 {fmtPnl(pnlDiff)}
                     </div>
                   )}
@@ -185,11 +198,11 @@ const DashboardPage = () => {
                 {/* 승률 */}
                 <div>
                   <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '3px' }}>승률</div>
-                  <div style={{ fontSize: '22px', fontWeight: 700, color: data.this_month.win_rate >= 50 ? '#f87171' : '#60a5fa' }}>
+                  <div style={{ fontSize: '22px', fontWeight: 700, ...MONO, color: data.this_month.win_rate >= 50 ? '#f87171' : '#60a5fa' }}>
                     {data.this_month.win_rate}%
                   </div>
                   {winRateDiff !== null && (
-                    <div style={{ fontSize: '11px', color: Number(winRateDiff) >= 0 ? '#f87171' : '#60a5fa' }}>
+                    <div style={{ fontSize: '11px', ...MONO, color: Number(winRateDiff) >= 0 ? '#f87171' : '#60a5fa' }}>
                       {Number(winRateDiff) >= 0 ? '▲' : '▼'} {Math.abs(winRateDiff)}%p
                     </div>
                   )}
@@ -198,8 +211,8 @@ const DashboardPage = () => {
                 {/* 거래 수 */}
                 <div>
                   <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '3px' }}>거래</div>
-                  <div style={{ fontSize: '22px', fontWeight: 700 }}>{data.this_month.total_count}건</div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  <div style={{ fontSize: '22px', fontWeight: 700, ...MONO }}>{data.this_month.total_count}건</div>
+                  <div style={{ fontSize: '11px', ...MONO, color: 'var(--text-muted)' }}>
                     {data.this_month.win_count}승 / {data.this_month.total_count - data.this_month.win_count}패
                   </div>
                 </div>
@@ -229,10 +242,62 @@ const DashboardPage = () => {
             ].map(card => (
               <div key={card.label} className="card" style={{ padding: '16px', textAlign: 'center' }}>
                 <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{card.label}</div>
-                <div style={{ fontSize: '18px', fontWeight: 700, fontFamily: 'monospace', color: card.color || 'var(--text)' }}>{card.value}</div>
+                <div style={{ fontSize: '18px', fontWeight: 700, ...MONO, color: card.color || 'var(--text)' }}>{card.value}</div>
               </div>
             ))}
           </div>
+
+          {/* 오늘의 매매 계획 */}
+          {todayPlans.length > 0 && (
+            <div className="card anim-fade-up2" style={{ padding: '16px 20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                  📋 오늘의 매매 계획
+                </div>
+                <button onClick={() => navigate('/journal?tab=plans')} style={{
+                  fontSize: '11px', color: 'var(--text-muted)', background: 'transparent',
+                  border: 'none', cursor: 'pointer', padding: '0',
+                }}>전체 보기 →</button>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {todayPlans.map(p => (
+                  <div key={p.id} style={{
+                    display: 'flex', alignItems: 'center', gap: '10px',
+                    padding: '8px 12px', borderRadius: '8px',
+                    background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+                    opacity: p.done ? 0.5 : 1,
+                  }}>
+                    <span style={{
+                      flexShrink: 0, fontSize: '10px', padding: '2px 6px',
+                      borderRadius: '4px', fontWeight: 600,
+                      background: p.direction === 'LONG' ? 'rgba(248,113,113,0.12)' :
+                                  p.direction === 'SHORT' ? 'rgba(96,165,250,0.12)' :
+                                  'rgba(255,255,255,0.06)',
+                      color: p.direction === 'LONG' ? '#f87171' :
+                             p.direction === 'SHORT' ? '#60a5fa' : 'var(--text-muted)',
+                      border: `1px solid ${p.direction === 'LONG' ? 'rgba(248,113,113,0.25)' :
+                                        p.direction === 'SHORT' ? 'rgba(96,165,250,0.25)' : 'var(--border)'}`,
+                    }}>
+                      {p.direction === 'LONG' ? '▲ LONG' : p.direction === 'SHORT' ? '▼ SHORT' : '미정'}
+                    </span>
+                    {p.symbol && (
+                      <span style={{ ...MONO, fontWeight: 700, fontSize: '13px', color: 'var(--text-primary)', flexShrink: 0 }}>
+                        {p.symbol}
+                      </span>
+                    )}
+                    <span style={{
+                      fontSize: '12px', color: 'var(--text-secondary)', flex: 1,
+                      textDecoration: p.done ? 'line-through' : 'none',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>
+                      {p.content}
+                    </span>
+                    {p.done && <span style={{ color: '#4ade80', flexShrink: 0, fontSize: '13px' }}>✓</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* 인사이트 */}
           {data.insights?.length > 0 && (
@@ -277,7 +342,7 @@ const DashboardPage = () => {
                   }}>
                     <div style={{ flex: 1 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-                        <span style={{ fontWeight: 700, fontSize: '14px', fontFamily: 'monospace' }}>{pos.symbol}</span>
+                        <span style={{ fontWeight: 700, fontSize: '14px', ...MONO }}>{pos.symbol}</span>
                         <span style={{
                           fontSize: '10px', padding: '1px 6px', borderRadius: '4px',
                           background: pos.side === 'LONG' ? '#f8717118' : '#60a5fa18',
@@ -288,10 +353,10 @@ const DashboardPage = () => {
                       </div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '14px', color: pnlColor(pos.pnl) }}>
+                      <div style={{ ...MONO, fontWeight: 700, fontSize: '14px', color: pnlColor(pos.pnl) }}>
                         {fmtPnl(pos.pnl)}
                       </div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{pos.closed_at}</div>
+                      <div style={{ fontSize: '11px', ...MONO, color: 'var(--text-muted)' }}>{pos.closed_at}</div>
                     </div>
                   </div>
                 ))}
@@ -337,10 +402,10 @@ const GoalProgress = ({ label, current, target, unit, color, isLast }) => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '6px' }}>
         <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 500 }}>{label}</span>
         <div style={{ textAlign: 'right' }}>
-          <span style={{ fontSize: '13px', fontWeight: 700, color: done ? '#f87171' : 'var(--text-primary)' }}>
+          <span style={{ fontSize: '13px', fontWeight: 700, ...MONO, color: done ? '#f87171' : 'var(--text-primary)' }}>
             {fmt(current)}{unit}
           </span>
-          <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}> / {fmt(target)}{unit}</span>
+          <span style={{ fontSize: '12px', ...MONO, color: 'var(--text-muted)' }}> / {fmt(target)}{unit}</span>
         </div>
       </div>
       <div style={{ height: '6px', borderRadius: '99px', background: 'var(--bg-secondary)', overflow: 'hidden', marginBottom: '5px' }}>
@@ -350,7 +415,7 @@ const GoalProgress = ({ label, current, target, unit, color, isLast }) => {
           borderRadius: '99px', transition: 'width 0.4s ease',
         }} />
       </div>
-      <div style={{ fontSize: '11px', color: done ? '#f87171' : 'var(--text-muted)', textAlign: 'right' }}>
+      <div style={{ fontSize: '11px', ...MONO, color: done ? '#f87171' : 'var(--text-muted)', textAlign: 'right' }}>
         {done ? '✓ 달성 완료' : `앞으로 ${fmt(remaining)}${unit} 남음`}
       </div>
     </div>
@@ -391,7 +456,7 @@ const GoalCard = ({ goal, goalEdit, setGoalEdit, goalForm, setGoalForm, goalSavi
               <input
                 type="number" value={goalForm[f.key]} placeholder={f.placeholder}
                 onChange={e => setGoalForm(prev => ({ ...prev, [f.key]: e.target.value }))}
-                style={{ flex: 1, padding: '6px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px' }}
+                style={{ flex: 1, padding: '6px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', ...MONO }}
               />
             </div>
           ))}

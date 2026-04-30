@@ -57,6 +57,9 @@ public class TradeJournal {
     @Column(columnDefinition = "TEXT")
     private String memo;
 
+    @Column(columnDefinition = "TEXT")
+    private String image;          // 첨부 이미지 (base64, JPEG 압축)
+
     @OneToMany(mappedBy = "journal", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<JournalStrategyTag> journalStrategyTags = new ArrayList<>();
 
@@ -69,7 +72,7 @@ public class TradeJournal {
     @Builder
     public TradeJournal(User user, Trade trade, LocalDate tradeDate, String symbol,
                         String tradeRefsJson, String entryReason, String exitReason,
-                        String emotion, String memo) {
+                        String emotion, String memo, String image) {
         this.user = user;
         this.trade = trade;
         this.tradeDate = tradeDate != null ? tradeDate : LocalDate.now();
@@ -79,19 +82,21 @@ public class TradeJournal {
         this.exitReason = exitReason;
         this.emotion = emotion;
         this.memo = memo;
+        this.image = image;
         this.createdAt = LocalDateTime.now();
         this.updatedAt = LocalDateTime.now();
     }
 
     // [용도] 일기 내용 수정 / [호출] TradeJournalService.updateJournal()
     public void update(String symbol, String tradeRefsJson, String entryReason,
-                       String exitReason, String emotion, String memo) {
+                       String exitReason, String emotion, String memo, String image) {
         this.symbol = symbol;
         this.tradeRefsJson = tradeRefsJson;
         this.entryReason = entryReason;
         this.exitReason = exitReason;
         this.emotion = emotion;
         this.memo = memo;
+        this.image = image;
         this.updatedAt = LocalDateTime.now();
     }
 

@@ -13,11 +13,15 @@ public record RankingResponse(
     // 랭킹 항목
     public record RankEntry(
             int rank,
+            Long userId,
             String nickname,
+            String avatar,
             int tradeCount,
             double winRate,
             String totalPnl,
-            boolean isMe
+            String totalAssets,
+            boolean isMe,
+            boolean diaryPublic
     ) {}
 
     // 내 랭킹 정보 (집계 기준 미달 시 null)
@@ -26,6 +30,7 @@ public record RankingResponse(
             int tradeCount,
             double winRate,
             String totalPnl,
+            String totalAssets,
             String notice       // null = 정상, "최소 5건 필요" 등
     ) {}
 }

@@ -17,6 +17,12 @@ CREATE TABLE IF NOT EXISTS users (
 ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(100) UNIQUE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS kakao_id VARCHAR(100) UNIQUE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS total_assets DECIMAL(30,2);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS diary_public BOOLEAN;
+UPDATE users SET diary_public = FALSE WHERE diary_public IS NULL;
+ALTER TABLE users ALTER COLUMN diary_public SET NOT NULL;
+ALTER TABLE users ALTER COLUMN diary_public SET DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS assets_updated_at TIMESTAMP;
 ALTER TABLE users ALTER COLUMN password DROP NOT NULL;
 
 -- =============================================
@@ -105,6 +111,7 @@ CREATE TABLE IF NOT EXISTS trade_journals (
     exit_reason     TEXT,                   -- 청산 이유
     emotion         VARCHAR(20),            -- CALM, CONFIDENT, FOMO, GREEDY, FEARFUL, ANXIOUS
     memo            TEXT,                   -- 자유 메모
+    image           TEXT,                   -- 첨부 이미지 (base64, JPEG 압축)
     created_at      TIMESTAMP    NOT NULL DEFAULT NOW(),   -- 실제 작성일시
     updated_at      TIMESTAMP    NOT NULL DEFAULT NOW()
 );
@@ -116,6 +123,9 @@ CREATE TABLE IF NOT EXISTS journal_strategy_tags (
     tag_id          BIGINT NOT NULL REFERENCES strategy_tags(id)  ON DELETE CASCADE,
     UNIQUE (journal_id, tag_id)
 );
+
+-- 기존 trade_journals 마이그레이션
+ALTER TABLE trade_journals ADD COLUMN IF NOT EXISTS image TEXT;
 
 -- 포지션 ↔ 전략태그 다대다 매핑 (포지션 구현 시 사용)
 CREATE TABLE IF NOT EXISTS position_strategy_tags (

@@ -10,6 +10,7 @@ import PositionListPage from './pages/PositionListPage';
 import JournalPage from './pages/JournalPage';
 import StatsPage from './pages/StatsPage';
 import RankingPage from './pages/RankingPage';
+import TraderProfilePage from './pages/TraderProfilePage';
 import DashboardPage from './pages/DashboardPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import Layout from './components/Layout';
@@ -68,6 +69,10 @@ const App = () => {
         <Route
           path="/ranking"
           element={<PrivateRoute><RankingPage /></PrivateRoute>}
+        />
+        <Route
+          path="/trader/:userId"
+          element={<PrivateRoute><TraderProfilePage /></PrivateRoute>}
         />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/oauth/callback" element={<OAuthCallbackPage />} />

@@ -17,7 +17,7 @@ public interface TradeJournalRepository extends JpaRepository<TradeJournal, Long
            "LEFT JOIN FETCH j.journalStrategyTags jst " +
            "LEFT JOIN FETCH jst.tag " +
            "WHERE j.user.id = :userId " +
-           "ORDER BY j.createdAt DESC")
+           "ORDER BY j.tradeDate DESC, j.createdAt DESC")
     List<TradeJournal> findAllByUserId(@Param("userId") Long userId);
 
 

@@ -119,3 +119,21 @@ export const saveMonthlyGoal = (data) =>
 // [용도] 이번 달 승률 기준 랭킹 조회 / [호출] RankingPage.jsx
 export const getMonthlyRanking = () =>
   api.get('/api/ranking/monthly');
+
+// [용도] 다른 사용자의 공개 일기 조회 / [호출] RankingPage.jsx
+export const getPublicJournals = (userId) =>
+  api.get(`/api/journals/public/${userId}`);
+
+// [용도] 일기 공개/비공개 토글 / [호출] SettingsPanel.jsx
+export const updateDiaryPublic = (diaryPublic) =>
+  api.patch('/api/user/diary-public', { diary_public: diaryPublic });
+
+// ── 공개 프로필 API ──────────────────────────────────────────────
+
+// [용도] 다른 사용자의 공개 프로필 조회 / [호출] TraderProfilePage.jsx
+export const getPublicProfile = (userId) =>
+  api.get(`/api/user/public/${userId}/profile`);
+
+// [용도] 다른 사용자의 공개 전략 통계 조회 / [호출] TraderProfilePage.jsx
+export const getPublicStats = (userId) =>
+  api.get(`/api/user/public/${userId}/stats`);

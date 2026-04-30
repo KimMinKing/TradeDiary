@@ -147,4 +147,43 @@ public class BalanceService {
             String avgBuyPrice,   // 평균 매수가 (Upbit only)
             String unitCurrency   // 기준 통화 (KRW 또는 USD)
     ) {}
+
+    // 스테이블코인 목록 (USD 기준으로 바로 합산)
+    private static final java.util.Set<String> STABLECOINS = java.util.Set.of("USDT", "USDC", "BUSD", "DAI", "TUSD");
+
+    // [용도] 거래소 잔고 리스트에서 총 자산(USD) 계산 / [호출] BalanceController.getBalances()
+    public java.math.BigDecimal calculateTotalAssetsValue(List<ExchangeBalance> balances) {
+        java.math.BigDecimal total = java.math.BigDecimal.ZERO;
+
+        for (ExchangeBalance eb : balances) {
+            if (eb.error() != null) continue;  // 오류난 거래소는 스킵
+            for (AssetBalance ab : eb.assets()) {
+                try {
+                    java.math.BigDecimal bal = new java.math.BigDecimal(ab.balance());
+                    if (bal.compareTo(java.math.BigDecimal.ZERO) <= 0) continue;
+
+                    // 스테이블코인은 USD 그대로 합산
+                    if (STABLECOINS.contains(ab.currency())) {
+                        total = total.add(bal);
+                    }
+                    // KRW는 환율 적용 (1 USD ≈ 1350 KRW)
+                    else if ("KRW".equals(ab.currency())) {
+                        total = total.add(bal.divide(java.math.BigDecimal.valueOf(1350), 2, java.math.RoundingMode.HALF_UP));
+                    }
+                    // Upbit 코인: avgBuyPrice가 KRW면 환율 적용
+                    else if ("KRW".equals(ab.unitCurrency()) && ab.avgBuyPrice() != null) {
+                        java.math.BigDecimal krwValue = bal.multiply(new java.math.BigDecimal(ab.avgBuyPrice()));
+                        total = total.add(krwValue.divide(java.math.BigDecimal.valueOf(1350), 2, java.math.RoundingMode.HALF_UP));
+                    }
+                    // USD 단위 코인: balance 그대로 (정확하려면 현재가 필요하지만 스냅샷이므로 생략)
+                    else if ("USD".equals(ab.unitCurrency())) {
+                        total = total.add(bal);
+                    }
+                } catch (NumberFormatException e) {
+                    // 파싱 실패 시 스킵
+                }
+            }
+        }
+        return total;
+    }
 }

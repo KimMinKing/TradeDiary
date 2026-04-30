@@ -2,6 +2,7 @@
 
 package com.tradediary.user;
 
+import com.tradediary.stats.StatsService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.*;
 public class UserController {
 
     private final UserService userService;
+    private final StatsService statsService;
 
     // [용도] 현재 사용자 정보 조회 / [호출] GET /api/user/me
     @GetMapping("/me")
@@ -54,6 +56,34 @@ public class UserController {
         return ResponseEntity.ok().build();
     }
 
+    // [용도] 일기 공개/비공개 토글 / [호출] PATCH /api/user/diary-public
+    @PatchMapping("/diary-public")
+    public ResponseEntity<Void> updateDiaryPublic(
+            @AuthenticationPrincipal Long userId,
+            @RequestBody DiaryPublicRequest request
+    ) {
+        userService.updateDiaryPublic(userId, request.diaryPublic());
+        return ResponseEntity.ok().build();
+    }
+
+    // [용도] 다른 사용자의 공개 프로필 조회 / [호출] TraderProfilePage
+    @GetMapping("/public/{userId}/profile")
+    public ResponseEntity<UserService.PublicProfileResponse> getPublicProfile(
+            @PathVariable Long userId
+    ) {
+        return ResponseEntity.ok(userService.getPublicProfile(userId));
+    }
+
+    // [용도] 다른 사용자의 공개 전략 통계 조회 / [호출] TraderProfilePage
+    @GetMapping("/public/{userId}/stats")
+    public ResponseEntity<StatsService.PublicStatsResponse> getPublicStats(
+            @PathVariable Long userId
+    ) {
+        // diaryPublic 체크는 UserService에서 수행
+        userService.validatePublicProfile(userId);
+        return ResponseEntity.ok(statsService.getPublicStats(userId));
+    }
+
     // 요청 DTO
     public record NicknameRequest(
             @NotBlank @Size(min = 2, max = 20) String nickname
@@ -65,4 +95,6 @@ public class UserController {
     ) {}
 
     public record AvatarRequest(String avatar) {}
+
+    public record DiaryPublicRequest(boolean diaryPublic) {}
 }

@@ -37,6 +37,27 @@ public class StatsService {
     );
     private static final String[] DAY_NAMES = {"월", "화", "수", "목", "금", "토", "일"};
 
+    // [용도] 특정 사용자의 공개 통계 조회 (전략 태그/감정/종목별) / [호출] UserController.getPublicStats()
+    @Transactional(readOnly = true)
+    public PublicStatsResponse getPublicStats(Long userId) {
+        List<Position> positions = positionRepository.findByUserIdOrderByClosedAtDesc(userId);
+        if (positions.isEmpty()) return new PublicStatsResponse(List.of(), List.of(), List.of());
+
+        List<TradeJournal> journals = journalRepository.findAllByUserId(userId);
+        return new PublicStatsResponse(
+                calcTagStats(positions, journals),
+                calcEmotionStats(positions, journals),
+                calcSymbolStats(positions)
+        );
+    }
+
+    // 공개 통계 응답 DTO
+    public record PublicStatsResponse(
+            List<StatsResponse.TagStats> tagStats,
+            List<StatsResponse.EmotionStats> emotionStats,
+            List<StatsResponse.SymbolStats> symbolStats
+    ) {}
+
     // [용도] 통계 전체 조회 / [호출] StatsController.getStats()
     @Transactional(readOnly = true)
     public StatsResponse getStats(Long userId, String exchange) {
@@ -167,7 +188,8 @@ public class StatsService {
     }
 
     // [용도] 종목별 성과 집계 (수익 높은 순) / [호출] getStats()
-    private List<StatsResponse.SymbolStats> calcSymbolStats(List<Position> positions) {
+    // [용도] 종목별 성과 집계 / [호출] getStats(), getPublicStats()
+    List<StatsResponse.SymbolStats> calcSymbolStats(List<Position> positions) {
         return positions.stream()
                 .collect(Collectors.groupingBy(Position::getSymbol))
                 .entrySet().stream()
@@ -210,7 +232,8 @@ public class StatsService {
     // ─────────────────────────────────────────────────────────────────
 
     // [용도] 감정별 승률 계산 (journal.tradeDate + symbol → position 매핑) / [호출] getStats()
-    private List<StatsResponse.EmotionStats> calcEmotionStats(List<Position> positions, List<TradeJournal> journals) {
+    // [용도] 감정별 승률 계산 / [호출] getStats(), getPublicStats()
+    List<StatsResponse.EmotionStats> calcEmotionStats(List<Position> positions, List<TradeJournal> journals) {
         // date_symbol → emotion 매핑 (감정이 있는 일기만)
         Map<String, String> dateSymbolEmotion = journals.stream()
                 .filter(j -> j.getEmotion() != null && !j.getEmotion().isBlank()
@@ -250,7 +273,8 @@ public class StatsService {
     }
 
     // [용도] 전략 태그별 성과 계산 / [호출] getStats()
-    private List<StatsResponse.TagStats> calcTagStats(List<Position> positions, List<TradeJournal> journals) {
+    // [용도] 전략 태그별 성과 계산 / [호출] getStats(), getPublicStats()
+    List<StatsResponse.TagStats> calcTagStats(List<Position> positions, List<TradeJournal> journals) {
         // date_symbol → journal 매핑
         Map<String, TradeJournal> dateSymbolJournal = journals.stream()
                 .filter(j -> j.getSymbol() != null && !j.getSymbol().isBlank()
