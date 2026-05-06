@@ -51,10 +51,10 @@ public class TradeJournalService {
 
     // [용도] 일기 단건 조회 / [호출] TradeJournalController.getJournal()
     @Transactional(readOnly = true)
-    public JournalResponse getJournal(Long userId, Long journalId) {
+    public JournalDetailResponse getJournal(Long userId, Long journalId) {
         TradeJournal journal = journalRepository.findByIdAndUserId(journalId, userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.JOURNAL_NOT_FOUND));
-        return JournalResponse.from(journal);
+        return JournalDetailResponse.from(journal);
     }
 
     // [용도] 일기 작성 / [호출] TradeJournalController.createJournal()
@@ -138,7 +138,7 @@ public class TradeJournalService {
         });
     }
 
-    // 일기 응답 DTO
+    // 일기 목록 응답 DTO (이미지 제외, 응답 크기 절약)
     public record JournalResponse(
             Long id,
             Long tradeId,
@@ -149,7 +149,7 @@ public class TradeJournalService {
             String exitReason,
             String emotion,
             String memo,
-            String image,           // 첨부 이미지 (base64, JPEG 압축)
+            boolean hasImage,       // 이미지 존재 여부만
             List<StrategyTagService.TagResponse> tags,
             String createdAt,
             String updatedAt
@@ -160,6 +160,45 @@ public class TradeJournalService {
                     .toList();
 
             return new JournalResponse(
+                    j.getId(),
+                    j.getTrade() != null ? j.getTrade().getId() : null,
+                    j.getTradeDate().toString(),
+                    j.getSymbol(),
+                    j.getTradeRefsJson(),
+                    j.getEntryReason(),
+                    j.getExitReason(),
+                    j.getEmotion(),
+                    j.getMemo(),
+                    j.getImage() != null,
+                    tags,
+                    j.getCreatedAt().toString(),
+                    j.getUpdatedAt().toString()
+            );
+        }
+    }
+
+    // 일기 단건 응답 DTO (이미지 포함)
+    public record JournalDetailResponse(
+            Long id,
+            Long tradeId,
+            String tradeDate,
+            String symbol,
+            String tradeRefsJson,
+            String entryReason,
+            String exitReason,
+            String emotion,
+            String memo,
+            String image,
+            List<StrategyTagService.TagResponse> tags,
+            String createdAt,
+            String updatedAt
+    ) {
+        public static JournalDetailResponse from(TradeJournal j) {
+            List<StrategyTagService.TagResponse> tags = j.getJournalStrategyTags().stream()
+                    .map(jst -> StrategyTagService.TagResponse.from(jst.getTag()))
+                    .toList();
+
+            return new JournalDetailResponse(
                     j.getId(),
                     j.getTrade() != null ? j.getTrade().getId() : null,
                     j.getTradeDate().toString(),

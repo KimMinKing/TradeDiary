@@ -1,9 +1,11 @@
-// [파일 용도] 대시보드 종합 통계 및 규칙 기반 인사이트 계산 서비스
+// [파일 용도] 대시보드 종합 통계 및 규칙 기반 인사이트 + 매매계획/실적 비교 서비스
 
 package com.tradediary.dashboard;
 
 import com.tradediary.journal.TradeJournal;
 import com.tradediary.journal.TradeJournalRepository;
+import com.tradediary.plan.TradePlan;
+import com.tradediary.plan.TradePlanRepository;
 import com.tradediary.position.Position;
 import com.tradediary.position.PositionRepository;
 import com.tradediary.user.User;
@@ -14,18 +16,20 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.*;
 import java.util.stream.Collectors;
 
-// [클래스] 대시보드용 핵심 지표 + 규칙 기반 인사이트 조합 서비스
+// [클래스] 대시보드용 핵심 지표 + 규칙 기반 인사이트 + 매매계획 비교 조합 서비스
 @Service
 @RequiredArgsConstructor
 public class DashboardService {
 
     private final PositionRepository     positionRepository;
     private final TradeJournalRepository journalRepository;
+    private final TradePlanRepository    planRepository;
     private final UserRepository         userRepository;
 
     // [용도] 대시보드 전체 데이터 조회 / [호출] DashboardController.getDashboard()
@@ -53,14 +57,128 @@ public class DashboardService {
         List<Position> recentForOverall = positionRepository.findRecentByUserId(userId, 1000);
         List<TradeJournal> journals = journalRepository.findAllByUserId(userId);
 
+        // 다음 매매 계획 (오늘 이후 미완료)
+        List<DashboardResponse.UpcomingPlan> upcomingPlans = getUpcomingPlans(userId);
+
+        // 계획 vs 실적 비교 (최근 7일)
+        List<DashboardResponse.PlanComparison> planComparisons = getPlanComparisons(userId);
+
         return new DashboardResponse(
                 user.getNickname(),
                 calcPeriodStats(thisMonth),
                 calcPeriodStats(lastMonth),
                 calcOverallStats(recentForOverall),
                 recentPositions(recent),
-                calcInsights(recentForOverall, journals)
+                calcInsights(recentForOverall, journals),
+                upcomingPlans,
+                planComparisons
         );
+    }
+
+    // [용도] 다음 매매 계획 조회 (오늘~미래, 미완료) / [호출] getDashboard()
+    private List<DashboardResponse.UpcomingPlan> getUpcomingPlans(Long userId) {
+        LocalDate today = LocalDate.now();
+        List<TradePlan> plans = planRepository
+                .findAllByUserIdAndPlanDateGreaterThanEqualAndDoneFalseOrderByPlanDateAscCreatedAtAsc(userId, today);
+
+        return plans.stream()
+                .map(p -> new DashboardResponse.UpcomingPlan(
+                        p.getId(),
+                        p.getPlanDate().toString(),
+                        p.getSymbol(),
+                        p.getDirection(),
+                        p.getContent(),
+                        p.getPlanDate().equals(today)
+                ))
+                .toList();
+    }
+
+    // [용도] 과거 계획 vs 실제 거래 비교 / [호출] getDashboard()
+    private List<DashboardResponse.PlanComparison> getPlanComparisons(Long userId) {
+        LocalDate today = LocalDate.now();
+        LocalDate from = today.minusDays(7);
+
+        // 최근 7일간의 계획 조회 (오늘 제외)
+        List<TradePlan> plans = planRepository
+                .findAllByUserIdAndPlanDateBetweenOrderByPlanDateDesc(userId, from, today.minusDays(1));
+
+        if (plans.isEmpty()) return List.of();
+
+        // 해당 기간 포지션 조회
+        LocalDateTime posFrom = from.atStartOfDay();
+        LocalDateTime posTo   = today.atStartOfDay();
+        List<Position> positions = positionRepository.findByUserIdAndClosedAtRange(userId, posFrom, posTo);
+
+        // 날짜별 포지션 그룹핑
+        Map<LocalDate, List<Position>> positionsByDate = positions.stream()
+                .collect(Collectors.groupingBy(p -> p.getClosedAt().toLocalDate()));
+
+        List<DashboardResponse.PlanComparison> results = new ArrayList<>();
+        for (TradePlan plan : plans) {
+            List<Position> dayPositions = positionsByDate
+                    .getOrDefault(plan.getPlanDate(), List.of());
+
+            if (dayPositions.isEmpty()) {
+                // 해당 날짜에 거래 없음 → 미실행
+                results.add(new DashboardResponse.PlanComparison(
+                        plan.getId(), plan.getPlanDate().toString(),
+                        plan.getSymbol(), plan.getDirection(), plan.getContent(),
+                        "NOT_EXECUTED", null, null, null
+                ));
+                continue;
+            }
+
+            // 계획에 심볼이 있으면 매칭 시도
+            if (plan.getSymbol() != null && !plan.getSymbol().isBlank()) {
+                String plannedSymbol = plan.getSymbol().toUpperCase();
+                // 심볼이 포함된 포지션 찾기 (예: BTCUSDT에 BTC로 계획)
+                List<Position> matched = dayPositions.stream()
+                        .filter(p -> p.getSymbol().toUpperCase().contains(plannedSymbol)
+                                || plannedSymbol.contains(p.getSymbol().toUpperCase()))
+                        .toList();
+
+                if (matched.isEmpty()) {
+                    // 다른 심볼만 거래함
+                    Position actual = dayPositions.get(0);
+                    results.add(new DashboardResponse.PlanComparison(
+                            plan.getId(), plan.getPlanDate().toString(),
+                            plan.getSymbol(), plan.getDirection(), plan.getContent(),
+                            "DIFFERENT_SYMBOL",
+                            actual.getSymbol(), actual.getSide().name(),
+                            actual.getPnl().setScale(2, RoundingMode.HALF_UP).toPlainString()
+                    ));
+                } else {
+                    // 심볼 매칭됨 → 방향 비교
+                    Position actual = matched.get(0);
+                    boolean directionMatch = isDirectionMatch(plan.getDirection(), actual.getSide().name());
+                    results.add(new DashboardResponse.PlanComparison(
+                            plan.getId(), plan.getPlanDate().toString(),
+                            plan.getSymbol(), plan.getDirection(), plan.getContent(),
+                            directionMatch ? "MATCHED" : "DIFFERENT_DIRECTION",
+                            actual.getSymbol(), actual.getSide().name(),
+                            actual.getPnl().setScale(2, RoundingMode.HALF_UP).toPlainString()
+                    ));
+                }
+            } else {
+                // 심볼 없는 계획 → 거래 했으면 일단 실행된 것
+                Position actual = dayPositions.get(0);
+                results.add(new DashboardResponse.PlanComparison(
+                        plan.getId(), plan.getPlanDate().toString(),
+                        null, plan.getDirection(), plan.getContent(),
+                        "MATCHED",
+                        actual.getSymbol(), actual.getSide().name(),
+                        actual.getPnl().setScale(2, RoundingMode.HALF_UP).toPlainString()
+                ));
+            }
+        }
+
+        return results;
+    }
+
+    // [용도] 계획 방향과 실제 방향 일치 여부 / [호출] getPlanComparisons()
+    private boolean isDirectionMatch(String plannedDirection, String actualSide) {
+        if (plannedDirection == null || plannedDirection.isBlank()) return true;
+        return plannedDirection.equalsIgnoreCase(actualSide);
     }
 
     // [용도] 기간별 통계 계산 / [호출] getDashboard()

@@ -3,12 +3,64 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  getJournals, deleteJournal, getStrategyTags,
+  getJournals, getJournal, deleteJournal, getStrategyTags,
   createJournal, updateJournal, createStrategyTag,
 } from '../api/journalApi';
 import { getTrades, getPlans } from '../api/exchangeApi';
 import { getNewsSummary, refreshNewsSummary } from '../api/newsApi';
 import TradePlanPage from './TradePlanPage';
+
+// [컴포넌트] 일기 이미지 지연 로드 (has_image 시 detail API 호출) / [호출] JournalPage 뷰
+const JournalImageViewer = ({ journal, onZoom }) => {
+  const [imgSrc, setImgSrc] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const loadImage = async () => {
+    if (imgSrc || loading) return;
+    setLoading(true);
+    try {
+      const res = await getJournal(journal.id);
+      setImgSrc(res.data.image);
+    } catch { /* ignore */ }
+    setLoading(false);
+  };
+
+  if (!journal.has_image && !imgSrc) return null;
+
+  if (imgSrc) {
+    return (
+      <div style={{ marginTop: '8px' }}>
+        <img
+          src={imgSrc}
+          alt="첨부 이미지"
+          onClick={() => onZoom(imgSrc)}
+          style={{
+            maxHeight: '160px', maxWidth: '100%',
+            borderRadius: '8px', objectFit: 'cover',
+            border: '1px solid var(--border)',
+            cursor: 'pointer',
+            transition: 'opacity 0.15s',
+          }}
+          onMouseEnter={e => e.target.style.opacity = '0.85'}
+          onMouseLeave={e => e.target.style.opacity = '1'}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: '8px' }}>
+      <button onClick={loadImage} disabled={loading} style={{
+        display: 'inline-flex', alignItems: 'center', gap: '6px',
+        padding: '6px 12px', borderRadius: '8px', fontSize: '12px',
+        background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+        color: 'var(--text-secondary)', cursor: 'pointer',
+      }}>
+        {loading ? '로딩...' : '📷 사진 보기'}
+      </button>
+    </div>
+  );
+};
 
 // [컴포넌트] 선택된 거래 참조 태그 표시 / [호출] JournalPage 폼
 const TradeRefChip = ({ trade, onClear }) => (
@@ -255,8 +307,8 @@ const JournalPage = () => {
     setMode('form');
   };
 
-  // [용도] 수정 폼 열기 / [호출] 수정 버튼
-  const openEdit = (journal) => {
+  // [용도] 수정 폼 열기 (detail API로 이미지 로드) / [호출] 수정 버튼
+  const openEdit = async (journal) => {
     setEditTarget(journal);
     setForm({
       symbol:      journal.symbol       ?? '',
@@ -265,7 +317,7 @@ const JournalPage = () => {
       emotion:     journal.emotion      ?? '',
       memo:        journal.memo         ?? '',
       tagIds:      journal.tags?.map(t => t.id) ?? [],
-      image:       journal.image        ?? null,
+      image:       null,
     });
     setFormError('');
     // 수정 시 기존 선택 거래 복원
@@ -277,6 +329,14 @@ const JournalPage = () => {
     setShowTagInput(false);
     if (window.innerWidth < 768) setCalOpen(false);
     setMode('form');
+
+    // 이미지가 있으면 detail API로 실제 이미지 데이터 로드
+    if (journal.has_image) {
+      try {
+        const res = await getJournal(journal.id);
+        setForm(p => ({ ...p, image: res.data.image ?? null }));
+      } catch { /* ignore */ }
+    }
   };
 
   // [용도] 거래 카드 클릭으로 다중선택 토글 / [호출] trade-ref-card onClick
@@ -714,25 +774,8 @@ const JournalPage = () => {
                         </div>
                       )}
 
-                      {/* 첨부 이미지 */}
-                      {journal.image && (
-                        <div style={{ marginTop: '8px' }}>
-                          <img
-                            src={journal.image}
-                            alt="첨부 이미지"
-                            onClick={() => setZoomImage(journal.image)}
-                            style={{
-                              maxHeight: '160px', maxWidth: '100%',
-                              borderRadius: '8px', objectFit: 'cover',
-                              border: '1px solid var(--border)',
-                              cursor: 'pointer',
-                              transition: 'opacity 0.15s',
-                            }}
-                            onMouseEnter={e => e.target.style.opacity = '0.85'}
-                            onMouseLeave={e => e.target.style.opacity = '1'}
-                          />
-                        </div>
-                      )}
+                      {/* 첨부 이미지 (hasImage=true면 detail API로 로드) */}
+                      <JournalImageViewer journal={journal} onZoom={setZoomImage} />
 
                       {/* 수정/삭제 버튼 — 카드 맨 아래 오른쪽 */}
                       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', marginTop: '12px' }}>

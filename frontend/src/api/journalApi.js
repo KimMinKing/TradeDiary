@@ -18,11 +18,11 @@ export const deleteStrategyTag = (id) =>
 
 // ── 매매 일기 ─────────────────────────────────────────
 
-// [용도] 일기 목록 조회 / [호출] JournalPage.jsx
+// [용도] 일기 목록 조회 (hasImage boolean만 포함) / [호출] JournalPage.jsx
 export const getJournals = (params = {}) =>
   api.get('/api/journals', { params });
 
-// [용도] 일기 단건 조회 / [호출] JournalPage.jsx
+// [용도] 일기 단건 조회 (이미지 데이터 포함) / [호출] JournalPage.jsx (이미지 로드 시)
 export const getJournal = (id) =>
   api.get(`/api/journals/${id}`);
 

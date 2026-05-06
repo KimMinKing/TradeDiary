@@ -30,7 +30,7 @@ public class TradeJournalController {
 
     // [용도] 일기 단건 조회 / [호출] GET /api/journals/{id}
     @GetMapping("/{id}")
-    public ResponseEntity<TradeJournalService.JournalResponse> getJournal(
+    public ResponseEntity<TradeJournalService.JournalDetailResponse> getJournal(
             @AuthenticationPrincipal Long userId,
             @PathVariable Long id) {
         return ResponseEntity.ok(journalService.getJournal(userId, id));

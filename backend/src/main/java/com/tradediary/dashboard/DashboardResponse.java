@@ -11,7 +11,9 @@ public record DashboardResponse(
         PeriodStats lastMonth,
         OverallStats overall,
         List<RecentPosition> recentPositions,
-        List<Insight> insights
+        List<Insight> insights,
+        List<UpcomingPlan> upcomingPlans,
+        List<PlanComparison> planComparisons
 ) {
     // 기간별 통계 (이번 달 / 지난 달)
     public record PeriodStats(
@@ -41,5 +43,28 @@ public record DashboardResponse(
     public record Insight(
             String type,    // "good" | "warning" | "info"
             String message
+    ) {}
+
+    // 다음 매매 계획
+    public record UpcomingPlan(
+            Long id,
+            String planDate,
+            String symbol,
+            String direction,
+            String content,
+            boolean isToday
+    ) {}
+
+    // 계획 vs 실적 비교
+    public record PlanComparison(
+            Long planId,
+            String planDate,
+            String plannedSymbol,
+            String plannedDirection,
+            String plannedContent,
+            String status,       // MATCHED | DIFFERENT_DIRECTION | DIFFERENT_SYMBOL | NOT_EXECUTED | EXECUTED_EXTRA
+            String actualSymbol,
+            String actualSide,
+            String actualPnl
     ) {}
 }

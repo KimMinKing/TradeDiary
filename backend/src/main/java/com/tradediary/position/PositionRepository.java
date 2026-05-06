@@ -40,4 +40,10 @@ public interface PositionRepository extends JpaRepository<Position, Long> {
     // [용도] 사용자 최근 N개 포지션 / [호출] DashboardService
     @Query("SELECT p FROM Position p WHERE p.user.id = :userId ORDER BY p.closedAt DESC LIMIT :limit")
     List<Position> findRecentByUserId(@Param("userId") Long userId, @Param("limit") int limit);
+
+    // [용도] 특정 날짜에 청산된 포지션 조회 (계획 vs 실적 비교용) / [호출] DashboardService
+    @Query("SELECT p FROM Position p WHERE p.user.id = :userId AND p.closedAt >= :from AND p.closedAt < :to")
+    List<Position> findByUserIdAndClosedAtRange(@Param("userId") Long userId,
+                                                 @Param("from") LocalDateTime from,
+                                                 @Param("to") LocalDateTime to);
 }
