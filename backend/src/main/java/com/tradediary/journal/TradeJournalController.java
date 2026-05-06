@@ -18,14 +18,16 @@ public class TradeJournalController {
 
     private final TradeJournalService journalService;
 
-    // [용도] 일기 목록 조회 (symbol/from/to 필터 선택) / [호출] GET /api/journals
+    // [용도] 일기 목록 조회 (symbol/from/to/keyword/tagId 필터 선택) / [호출] GET /api/journals
     @GetMapping
     public ResponseEntity<List<TradeJournalService.JournalResponse>> getJournals(
             @AuthenticationPrincipal Long userId,
             @RequestParam(required = false) String symbol,
             @RequestParam(required = false) String from,
-            @RequestParam(required = false) String to) {
-        return ResponseEntity.ok(journalService.getJournals(userId, symbol, from, to));
+            @RequestParam(required = false) String to,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) List<Long> tagId) {
+        return ResponseEntity.ok(journalService.getJournals(userId, symbol, from, to, keyword, tagId));
     }
 
     // [용도] 일기 단건 조회 / [호출] GET /api/journals/{id}

@@ -207,6 +207,13 @@ const JournalPage = () => {
   const [yearMonthPicker, setYearMonthPicker] = useState(false); // 년/월 빠른 선택 팝업
   const [pickerYear,     setPickerYear]     = useState(todayDate.getFullYear()); // 팝업에서 선택 중인 년도
 
+  // 검색 상태
+  const [searchKeyword, setSearchKeyword] = useState('');
+  const [searchTagIds,  setSearchTagIds]  = useState([]);
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching,     setSearching]     = useState(false);
+  const isSearchActive = searchKeyword.trim() !== '' || searchTagIds.length > 0;
+
   // AI 시장 요약 상태
   const [aiSummary,     setAiSummary]     = useState(null);
   const [aiRefreshing,  setAiRefreshing]  = useState(false);
@@ -272,9 +279,47 @@ const JournalPage = () => {
   // ── 파생 데이터 ────────────────────────────────
   const selectedDateStr   = fmtDate(selectedDate);
   const journalDateSet    = new Set(journals.map(j => j.trade_date?.slice(0, 10)));
-  const journalsForDay    = journals.filter(j => j.trade_date?.slice(0, 10) === selectedDateStr);
+  const journalsForDay    = isSearchActive ? searchResults : journals.filter(j => j.trade_date?.slice(0, 10) === selectedDateStr);
   const tradesForDay      = trades.filter(t => t.traded_at?.slice(0, 10) === selectedDateStr);
   const plansForDay       = plans.filter(p => p.plan_date === selectedDateStr);
+
+  // [용도] 검색 실행 (키워드 + 태그) / [호출] 검색바 Enter, 태그 토글
+  const doSearch = useCallback(async (keyword, tagIds) => {
+    if (!keyword.trim() && tagIds.length === 0) { setSearchResults([]); return; }
+    setSearching(true);
+    try {
+      const params = {};
+      if (keyword.trim()) params.keyword = keyword.trim();
+      if (tagIds.length > 0) params.tagId = tagIds;
+      const res = await getJournals(params);
+      setSearchResults(res.data);
+    } catch { setSearchResults([]); }
+    setSearching(false);
+  }, []);
+
+  // [용도] 검색어 변경 시 디바운스 검색 / [호출] searchKeyword 변경
+  useEffect(() => {
+    if (!searchKeyword.trim() && searchTagIds.length === 0) {
+      setSearchResults([]);
+      return;
+    }
+    const timer = setTimeout(() => doSearch(searchKeyword, searchTagIds), 300);
+    return () => clearTimeout(timer);
+  }, [searchKeyword, searchTagIds, doSearch]);
+
+  // [용도] 검색 태그 토글 / [호출] 태그 칩 클릭
+  const toggleSearchTag = (tagId) => {
+    setSearchTagIds(prev =>
+      prev.includes(tagId) ? prev.filter(id => id !== tagId) : [...prev, tagId]
+    );
+  };
+
+  // [용도] 검색 초기화 / [호출] 검색 초기화 버튼
+  const clearSearch = () => {
+    setSearchKeyword('');
+    setSearchTagIds([]);
+    setSearchResults([]);
+  };
 
   // ── 캘린더 계산 ────────────────────────────────
   const year         = currentMonth.getFullYear();
@@ -466,6 +511,60 @@ const JournalPage = () => {
           <p className="empty-state-title">불러오는 중...</p>
         </div>
       ) : (
+        <>
+        {/* ── 검색 바 ──────────────────────────────── */}
+        <div className="anim-fade-up2" style={{
+          marginBottom: '16px', display: 'flex', flexDirection: 'column', gap: '10px',
+        }}>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <div style={{ position: 'relative', flex: 1 }}>
+              <span style={{
+                position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)',
+                color: 'var(--text-muted)', fontSize: '14px', pointerEvents: 'none',
+              }}>🔍</span>
+              <input
+                type="text"
+                className="input"
+                placeholder="일기 내용 검색 (진입이유, 청산이유, 메모)..."
+                value={searchKeyword}
+                onChange={e => setSearchKeyword(e.target.value)}
+                style={{ paddingLeft: '32px' }}
+              />
+            </div>
+            {isSearchActive && (
+              <button className="btn btn-ghost btn-xs" onClick={clearSearch} style={{ flexShrink: 0 }}>
+                ✕ 초기화
+              </button>
+            )}
+          </div>
+          {/* 태그 필터 칩 */}
+          {tags.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+              {tags.map(tag => (
+                <button
+                  key={tag.id}
+                  type="button"
+                  onClick={() => toggleSearchTag(tag.id)}
+                  style={{
+                    padding: '3px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: 500,
+                    border: `1px solid ${searchTagIds.includes(tag.id) ? tag.color : 'var(--border)'}`,
+                    background: searchTagIds.includes(tag.id) ? `${tag.color}20` : 'transparent',
+                    color: searchTagIds.includes(tag.id) ? tag.color : 'var(--text-secondary)',
+                    cursor: 'pointer', transition: 'all 0.15s',
+                  }}
+                >
+                  {tag.name}
+                </button>
+              ))}
+            </div>
+          )}
+          {isSearchActive && (
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+              {searching ? '검색 중...' : `검색 결과: ${searchResults.length}건`}
+            </div>
+          )}
+        </div>
+
         <div className="journal-page-layout anim-fade-up2">
 
           {/* ── 캘린더 패널 ─────────────────────────── */}
@@ -615,7 +714,19 @@ const JournalPage = () => {
 
           {/* ── 콘텐츠 패널 ──────────────────────────── */}
           <div className="journal-content">
-            {/* 날짜 헤더 */}
+            {/* 헤더: 검색 모드 or 날짜 모드 */}
+            {isSearchActive ? (
+              <div className="journal-day-header">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '14px', fontWeight: 600 }}>
+                    🔍 검색 결과
+                    <span className="count-badge" style={{ marginLeft: '6px' }}>
+                      {searchResults.length}건
+                    </span>
+                  </span>
+                </div>
+              </div>
+            ) : (
             <div className="journal-day-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <button
@@ -658,9 +769,10 @@ const JournalPage = () => {
                 </button>
               )}
             </div>
+            )}
 
-            {/* ── 뷰 모드: 일기 목록 + 당일 거래 내역 ── */}
-            {mode === 'view' && (
+            {/* ── 뷰 모드 ── */}
+            {mode === 'view' && !isSearchActive && (
               <div className="form-split">
                 {/* 왼쪽: 일기 목록 */}
                 <div className="form-split-left">
@@ -837,6 +949,78 @@ const JournalPage = () => {
                     )}
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* ── 검색 모드: 검색 결과 목록 ── */}
+            {mode === 'view' && isSearchActive && (
+              <div className="day-journal-list">
+                {searching ? (
+                  <div className="empty-state">
+                    <div className="empty-state-icon" style={{ animation: 'spin 1s linear infinite' }}>◌</div>
+                    <p className="empty-state-title">검색 중...</p>
+                  </div>
+                ) : searchResults.length === 0 ? (
+                  <div className="empty-state">
+                    <span style={{ fontSize: '32px' }}>🔍</span>
+                    <p className="text-muted" style={{ fontSize: '14px', marginTop: '8px' }}>
+                      검색 결과가 없습니다
+                    </p>
+                  </div>
+                ) : (
+                  searchResults.map(journal => (
+                    <div key={journal.id} className="journal-card">
+                      <div className="journal-card-meta" style={{ flexWrap: 'wrap', gap: '4px', marginBottom: '8px' }}>
+                        <span className="mono" style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                          {journal.trade_date?.slice(0, 10)}
+                        </span>
+                        {(() => {
+                          try {
+                            const refs = journal.trade_refs_json ? JSON.parse(journal.trade_refs_json) : [];
+                            if (refs.length > 0) {
+                              return refs.map((t, i) => <TradeRefBadge key={i} ref={t} />);
+                            }
+                          } catch {}
+                          return journal.symbol ? <span className="journal-symbol">{journal.symbol}</span> : null;
+                        })()}
+                        {journal.emotion && (
+                          <span className="journal-emotion">{EMOTION_LABEL[journal.emotion]}</span>
+                        )}
+                      </div>
+                      {journal.tags?.length > 0 && (
+                        <div className="journal-tags">
+                          {journal.tags.map(tag => (
+                            <span key={tag.id} className="tag-chip" style={{ '--tag-color': tag.color }}>
+                              {tag.name}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {journal.entry_reason && (
+                        <div className="journal-section">
+                          <div className="journal-section-label">진입 이유</div>
+                          <p className="journal-section-content">{journal.entry_reason}</p>
+                        </div>
+                      )}
+                      {journal.exit_reason && (
+                        <div className="journal-section">
+                          <div className="journal-section-label">청산 이유</div>
+                          <p className="journal-section-content">{journal.exit_reason}</p>
+                        </div>
+                      )}
+                      {journal.memo && (
+                        <div className="journal-section">
+                          <div className="journal-section-label">메모</div>
+                          <p className="journal-section-content">{journal.memo}</p>
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', marginTop: '12px' }}>
+                        <button className="btn btn-ghost btn-xs" onClick={() => openEdit(journal)}>수정</button>
+                        <button className="btn btn-danger btn-xs" onClick={() => setDeleteConfirm(journal.id)}>삭제</button>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             )}
 
@@ -1162,6 +1346,7 @@ const JournalPage = () => {
             )}
           </div>
         </div>
+        </>
       ))}
 
       {/* 삭제 확인 다이얼로그 */}

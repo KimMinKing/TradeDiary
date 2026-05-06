@@ -15,7 +15,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 // [클래스] 매매 일기 목록 조회 / 단건 조회 / 작성 / 수정 / 삭제
 @Service
@@ -30,12 +32,16 @@ public class TradeJournalService {
     // [용도] 일기 목록 조회 (Java 스트림 필터) / [호출] TradeJournalController.getJournals()
     // PostgreSQL은 null 파라미터 타입 추론 불가 → JPQL 필터 대신 Java 필터링 사용
     @Transactional(readOnly = true)
-    public List<JournalResponse> getJournals(Long userId, String symbol, String from, String to) {
+    public List<JournalResponse> getJournals(Long userId, String symbol, String from, String to,
+                                              String keyword, List<Long> tagIds) {
         LocalDateTime fromDt = (from != null && !from.isBlank())
                 ? LocalDate.parse(from).atStartOfDay() : null;
         LocalDateTime toDt = (to != null && !to.isBlank())
                 ? LocalDate.parse(to).atTime(LocalTime.MAX) : null;
         String symbolFilter = (symbol != null && !symbol.isBlank()) ? symbol.toUpperCase() : null;
+        String keywordFilter = (keyword != null && !keyword.isBlank()) ? keyword.toLowerCase() : null;
+        Set<Long> tagFilter = (tagIds != null && !tagIds.isEmpty())
+                ? new HashSet<>(tagIds) : null;
 
         LocalDate fromD = fromDt != null ? fromDt.toLocalDate() : null;
         LocalDate toD   = toDt   != null ? toDt.toLocalDate()   : null;
@@ -45,8 +51,23 @@ public class TradeJournalService {
                         (j.getSymbol() != null && j.getSymbol().toUpperCase().contains(symbolFilter)))
                 .filter(j -> fromD == null || !j.getTradeDate().isBefore(fromD))
                 .filter(j -> toD   == null || !j.getTradeDate().isAfter(toD))
+                .filter(j -> keywordFilter == null || containsKeyword(j, keywordFilter))
+                .filter(j -> tagFilter == null || hasTag(j, tagFilter))
                 .map(JournalResponse::from)
                 .toList();
+    }
+
+    // [용도] 키워드 검색 (entryReason, exitReason, memo 대소문자 무시) / [호출] getJournals()
+    private boolean containsKeyword(TradeJournal j, String keyword) {
+        return (j.getEntryReason() != null && j.getEntryReason().toLowerCase().contains(keyword))
+            || (j.getExitReason()  != null && j.getExitReason().toLowerCase().contains(keyword))
+            || (j.getMemo()        != null && j.getMemo().toLowerCase().contains(keyword));
+    }
+
+    // [용도] 태그 필터 (일기의 태그 중 tagFilter 집합에 포함된 것이 있는지) / [호출] getJournals()
+    private boolean hasTag(TradeJournal j, Set<Long> tagFilter) {
+        return j.getJournalStrategyTags().stream()
+                .anyMatch(jst -> tagFilter.contains(jst.getTag().getId()));
     }
 
     // [용도] 일기 단건 조회 / [호출] TradeJournalController.getJournal()
