@@ -3,6 +3,7 @@
 package com.tradediary.ai;
 
 import com.tradediary.stats.StatsService;
+import com.tradediary.user.UserLanguageService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -16,6 +17,7 @@ public class AiReportService {
 
     private final StatsService statsService;
     private final AiReportClient aiReportClient;
+    private final UserLanguageService userLanguageService;
 
     // [용도] 사용자 거래 통계 기반 AI 분석 리포트 생성 / [호출] AiReportController.generate()
     public String generateReport(Long userId, String exchange) {
@@ -44,6 +46,7 @@ public class AiReportService {
                 .toList();
 
         AiReportClient.AiReportRequest request = new AiReportClient.AiReportRequest(
+                userLanguageService.get(userId),
                 exchange,
                 stats.summary(),
                 topSymbols,

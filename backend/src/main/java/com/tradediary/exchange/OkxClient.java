@@ -40,7 +40,6 @@ public class OkxClient {
     // [용도] OKX 선물 체결 내역 전체 조회 (SWAP + FUTURES) / [호출] TradeService.syncOkxTrades()
     // startTime: 초기 동기화 = 90일 전, 증분 동기화 = DB 마지막 거래 시각
     public List<OkxOrder> getOrders(String apiKey, String secretKey, String passphrase, LocalDateTime startTime) {
-        log.info("[OKX] API Key 앞 6자리: {}...", apiKey.length() > 6 ? apiKey.substring(0, 6) : apiKey);
 
         LocalDateTime now = LocalDateTime.now(ZoneId.of("Asia/Seoul"));
         LocalDateTime cutoff = now.minusDays(90);
@@ -119,7 +118,7 @@ public class OkxClient {
 
         try (Response response = httpClient.newCall(request).execute()) {
             String body = response.body().string();
-            log.info("[OKX] HTTP {}, body: {}", response.code(),
+            log.debug("[OKX] HTTP {}, body: {}", response.code(),
                     body.length() > 500 ? body.substring(0, 500) + "..." : body);
 
             JsonObject json = gson.fromJson(body, JsonObject.class);
@@ -215,7 +214,7 @@ public class OkxClient {
 
         try (Response response = httpClient.newCall(request).execute()) {
             String body = response.body().string();
-            log.info("[OKX] 잔고 조회 status={}, body 앞 200자: {}",
+            log.debug("[OKX] 잔고 조회 status={}, body 앞 200자: {}",
                     response.code(), body.length() > 200 ? body.substring(0, 200) + "..." : body);
 
             JsonObject json = gson.fromJson(body, JsonObject.class);

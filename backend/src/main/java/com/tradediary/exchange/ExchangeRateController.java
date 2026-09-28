@@ -4,6 +4,7 @@ package com.tradediary.exchange;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.OkHttpClient;
@@ -66,8 +67,21 @@ public class ExchangeRateController {
                     .url("https://api.upbit.com/v1/ticker?markets=KRW-USDT")
                     .get().addHeader("Accept", "application/json").build();
             try (Response resp = httpClient.newCall(req).execute()) {
-                String body = resp.body().string();
-                JsonArray arr = gson.fromJson(body, JsonArray.class);
+                String body = resp.body() != null ? resp.body().string() : "";
+                if (!resp.isSuccessful()) {
+                    throw new RuntimeException("status=" + resp.code() + ", body=" + body);
+                }
+
+                JsonElement element = gson.fromJson(body, JsonElement.class);
+                if (!element.isJsonArray()) {
+                    throw new RuntimeException("unexpected response: " + body);
+                }
+
+                JsonArray arr = element.getAsJsonArray();
+                if (arr.isEmpty()) {
+                    throw new RuntimeException("empty ticker response");
+                }
+
                 return arr.get(0).getAsJsonObject().get("trade_price").getAsBigDecimal();
             }
         } catch (Exception e) {

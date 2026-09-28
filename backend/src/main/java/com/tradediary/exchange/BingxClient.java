@@ -1,16 +1,14 @@
-// [파일 용도] BingX USDT-M 선물 REST API 호출 클라이언트
-
 package com.tradediary.exchange;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.tradediary.trade.TradeSide;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
-import com.tradediary.trade.TradeSide;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.Mac;
@@ -20,18 +18,20 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
 
-// [클래스] BingX USDT-M 선물 거래 내역 조회
-// 1단계: /openApi/swap/v2/quote/contracts 로 심볼 목록 수집
-// 2단계: 심볼별 /openApi/swap/v2/trade/allOrders 로 체결 내역 수집
 @Slf4j
 @Component
 public class BingxClient {
 
-    private static final String BASE_URL  = "https://open-api.bingx.com";
-    private static final int    PAGE_SIZE = 100;
+    private static final String BASE_URL = "https://open-api.bingx.com";
+    private static final int PAGE_SIZE = 100;
 
     private final OkHttpClient httpClient = new OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
@@ -39,32 +39,24 @@ public class BingxClient {
             .build();
     private final Gson gson = new Gson();
 
-    // [용도] 선물 체결 내역 전체 조회 / [호출] TradeService.syncBingxTrades()
-    // 1) 전체 심볼 목록 조회
-    // 2) 심볼별 FILLED 주문 조회 및 합산
     public List<BingxOrder> getTrades(String apiKey, String secretKey, LocalDateTime startTime) {
-        log.info("[BingX] API Key 앞 6자리: {}...", apiKey.length() > 6 ? apiKey.substring(0, 6) : apiKey);
 
         long startMs = startTime.atZone(ZoneId.of("Asia/Seoul")).toInstant().toEpochMilli();
-
         List<String> symbols = fetchSymbols(apiKey, secretKey);
-        log.info("[BingX] 심볼 목록: {}개", symbols.size());
-
         List<BingxOrder> allOrders = new ArrayList<>();
+
         for (String symbol : symbols) {
             List<BingxOrder> orders = fetchOrdersForSymbol(apiKey, secretKey, symbol, startMs);
             if (!orders.isEmpty()) {
-                log.info("[BingX] 심볼={} 체결 {}건", symbol, orders.size());
                 allOrders.addAll(orders);
             }
         }
 
         allOrders.sort(Comparator.comparingLong(o -> o.updateTime));
-        log.info("[BingX] 전체 조회 완료: {}건", allOrders.size());
+        log.info("[BingX] trade sync fetch complete: {} orders", allOrders.size());
         return allOrders;
     }
 
-    // [용도] 영구선물 심볼 목록 조회 / [호출] getTrades()
     private List<String> fetchSymbols(String apiKey, String secretKey) {
         List<String> result = new ArrayList<>();
         TreeMap<String, String> params = new TreeMap<>();
@@ -76,30 +68,36 @@ public class BingxClient {
         Request req = new Request.Builder()
                 .url(url)
                 .header("X-BX-APIKEY", apiKey)
-                .get().build();
+                .get()
+                .build();
 
         try (Response resp = httpClient.newCall(req).execute()) {
             String body = resp.body() != null ? resp.body().string() : "";
             if (!resp.isSuccessful()) {
-                log.warn("[BingX] contracts 오류: {} {}", resp.code(), body);
+                log.warn("[BingX] contracts query failed: status={}, body={}", resp.code(), body);
                 return result;
             }
+
             JsonObject root = gson.fromJson(body, JsonObject.class);
             JsonArray data = root.getAsJsonArray("data");
-            if (data == null) return result;
+            if (data == null) {
+                return result;
+            }
+
             for (JsonElement el : data) {
                 JsonObject obj = el.getAsJsonObject();
-                if (obj.has("symbol") && !obj.get("symbol").isJsonNull()) {
-                    result.add(obj.get("symbol").getAsString());
+                String symbol = getString(obj, "symbol");
+                if (symbol != null) {
+                    result.add(symbol);
                 }
             }
         } catch (Exception e) {
-            log.error("[BingX] contracts 조회 실패", e);
+            log.error("[BingX] contracts query failed", e);
         }
+
         return result;
     }
 
-    // [용도] 심볼별 FILLED 주문 내역 페이지네이션 조회 / [호출] getTrades()
     private List<BingxOrder> fetchOrdersForSymbol(String apiKey, String secretKey, String symbol, long startMs) {
         List<BingxOrder> result = new ArrayList<>();
         Long lastOrderId = null;
@@ -109,79 +107,285 @@ public class BingxClient {
             params.put("symbol", symbol);
             params.put("startTime", String.valueOf(startMs));
             params.put("limit", String.valueOf(PAGE_SIZE));
-            if (lastOrderId != null) params.put("orderId", String.valueOf(lastOrderId));
+            if (lastOrderId != null) {
+                params.put("orderId", String.valueOf(lastOrderId));
+            }
             params.put("timestamp", String.valueOf(ts()));
 
             String sig = sign(secretKey, params);
-            String url = BASE_URL + "/openApi/swap/v2/trade/allOrders?" + buildQuery(params) + "&signature=" + sig;
+            String url = BASE_URL + "/openApi/swap/v2/trade/allFillOrders?" + buildQuery(params) + "&signature=" + sig;
 
             Request req = new Request.Builder()
                     .url(url)
                     .header("X-BX-APIKEY", apiKey)
-                    .get().build();
+                    .get()
+                    .build();
 
             try (Response resp = httpClient.newCall(req).execute()) {
                 String body = resp.body() != null ? resp.body().string() : "";
                 if (!resp.isSuccessful()) {
-                    log.warn("[BingX] allOrders 오류 symbol={}: {} {}", symbol, resp.code(), body);
+                    log.warn("[BingX] allFillOrders failed: symbol={}, status={}, body={}", symbol, resp.code(), body);
                     break;
                 }
+
                 JsonObject root = gson.fromJson(body, JsonObject.class);
                 int code = root.has("code") ? root.get("code").getAsInt() : -1;
-                if (code != 0) break;
+                if (code != 0) {
+                    break;
+                }
 
-                // 응답 구조: { data: { orders: [...] } } 또는 { data: [...] }
                 JsonArray orders = null;
                 JsonElement dataEl = root.get("data");
                 if (dataEl != null && dataEl.isJsonObject()) {
                     JsonElement ordersEl = dataEl.getAsJsonObject().get("orders");
-                    if (ordersEl != null && ordersEl.isJsonArray()) orders = ordersEl.getAsJsonArray();
+                    if (ordersEl != null && ordersEl.isJsonArray()) {
+                        orders = ordersEl.getAsJsonArray();
+                    }
+                    JsonElement fillsEl = dataEl.getAsJsonObject().get("fillOrders");
+                    if ((orders == null || orders.size() == 0) && fillsEl != null && fillsEl.isJsonArray()) {
+                        orders = fillsEl.getAsJsonArray();
+                    }
                 } else if (dataEl != null && dataEl.isJsonArray()) {
                     orders = dataEl.getAsJsonArray();
                 }
 
-                if (orders == null || orders.size() == 0) break;
+                if (orders == null || orders.size() == 0) {
+                    break;
+                }
 
-                long maxOrderId = lastOrderId != null ? lastOrderId : 0;
+                long maxOrderId = lastOrderId != null ? lastOrderId : 0L;
                 for (JsonElement el : orders) {
                     JsonObject obj = el.getAsJsonObject();
                     try {
-                        String status = obj.has("status") ? obj.get("status").getAsString() : "";
-                        if (!"FILLED".equalsIgnoreCase(status) && !"PARTIALLY_FILLED".equalsIgnoreCase(status)) continue;
-
                         BingxOrder order = new BingxOrder();
-                        order.orderId     = obj.get("orderId").getAsLong();
-                        order.symbol      = symbol;
-                        order.side        = obj.get("side").getAsString();
-                        order.executedQty = new BigDecimal(obj.get("executedQty").getAsString());
-                        order.avgPrice    = new BigDecimal(obj.get("avgPrice").getAsString());
-                        // fee 필드: 없거나 음수일 수 있음 → abs
-                        if (obj.has("fee") && !obj.get("fee").isJsonNull()) {
-                            order.fee = new BigDecimal(obj.get("fee").getAsString()).abs();
-                        } else {
-                            order.fee = BigDecimal.ZERO;
+                        order.orderId = getLong(obj, "orderId", "tradeId", "id");
+                        order.symbol = symbol;
+                        order.side = firstNonBlank(obj, "side", "positionSide");
+                        order.executedQty = new BigDecimal(defaultZero(firstNonBlank(obj,
+                                "executedQty", "origQty", "qty", "volume")));
+                        order.avgPrice = new BigDecimal(defaultZero(firstNonBlank(obj,
+                                "avgPrice", "price", "avgDealPrice")));
+                        order.fee = firstNonBlank(obj, "fee", "commission") != null
+                                ? new BigDecimal(firstNonBlank(obj, "fee", "commission")).abs()
+                                : BigDecimal.ZERO;
+                        order.updateTime = getLong(obj, "updateTime", "tradeTime", "time");
+
+                        if (order.side == null || order.executedQty.compareTo(BigDecimal.ZERO) <= 0
+                                || order.avgPrice.compareTo(BigDecimal.ZERO) <= 0 || order.updateTime <= 0) {
+                            continue;
                         }
-                        order.updateTime  = obj.get("updateTime").getAsLong();
 
                         result.add(order);
-                        if (order.orderId > maxOrderId) maxOrderId = order.orderId;
+                        if (order.orderId > maxOrderId) {
+                            maxOrderId = order.orderId;
+                        }
                     } catch (Exception e) {
-                        log.warn("[BingX] order 파싱 실패: {}", obj);
+                        log.warn("[BingX] order parse failed: {}", obj);
                     }
                 }
 
-                if (orders.size() < PAGE_SIZE) break;
+                if (orders.size() < PAGE_SIZE) {
+                    break;
+                }
                 lastOrderId = maxOrderId + 1;
-
             } catch (Exception e) {
-                log.error("[BingX] allOrders 조회 실패 symbol={}", symbol, e);
+                log.error("[BingX] allFillOrders query failed: symbol={}", symbol, e);
                 break;
             }
         }
+
         return result;
     }
 
-    // [용도] BingX HMAC-SHA256 서명 생성 (TreeMap 정렬 기반) / [호출] fetchSymbols, fetchOrdersForSymbol
+    public List<BingxBalance> getBalance(String apiKey, String secretKey) {
+        TreeMap<String, String> params = new TreeMap<>();
+        params.put("timestamp", String.valueOf(ts()));
+
+        String sig = sign(secretKey, params);
+        String url = BASE_URL + "/openApi/swap/v3/user/balance?" + buildQuery(params) + "&signature=" + sig;
+
+        Request req = new Request.Builder()
+                .url(url)
+                .header("X-BX-APIKEY", apiKey)
+                .get()
+                .build();
+
+        try (Response resp = httpClient.newCall(req).execute()) {
+            String body = resp.body() != null ? resp.body().string() : "";
+            log.debug("[BingX] balance status={}, body prefix={}",
+                    resp.code(), body.length() > 200 ? body.substring(0, 200) + "..." : body);
+            if (!resp.isSuccessful()) {
+                throw new RuntimeException("status=" + resp.code());
+            }
+
+            JsonObject json = gson.fromJson(body, JsonObject.class);
+            int code = json.has("code") ? json.get("code").getAsInt() : -1;
+            if (code != 0) {
+                String msg = getString(json, "msg");
+                throw new RuntimeException("code=" + code + ": " + (msg != null ? msg : ""));
+            }
+
+            List<BingxBalance> balances = new ArrayList<>();
+            JsonObject balance = extractBalanceObject(json);
+            if (balance == null) {
+                return balances;
+            }
+
+            BingxBalance b = new BingxBalance();
+            b.asset = firstNonBlank(balance, "asset", "currency");
+            if (b.asset == null) b.asset = "USDT";
+            b.balance = defaultZero(firstNonBlank(balance, "balance", "walletBalance", "marginBalance"));
+            b.equity = firstNonBlank(balance, "equity", "accountEquity");
+            b.availableMargin = defaultZero(firstNonBlank(balance, "availableMargin", "availableBalance", "availableFunds"));
+            b.usedMargin = firstNonBlank(balance, "usedMargin", "positionMargin");
+            b.freezedMargin = firstNonBlank(balance, "freezedMargin", "frozenMargin");
+            b.unrealizedProfit = firstNonBlank(balance, "unrealizedProfit", "unrealizedPnl");
+
+            try {
+                String total = b.equity != null ? b.equity : b.balance;
+                if (new BigDecimal(total).compareTo(BigDecimal.ZERO) > 0) {
+                    balances.add(b);
+                }
+            } catch (NumberFormatException ignored) {
+            }
+
+            return balances;
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException(e.getMessage(), e);
+        }
+    }
+
+    public List<BingxPosition> getPositions(String apiKey, String secretKey) {
+        TreeMap<String, String> params = new TreeMap<>();
+        params.put("timestamp", String.valueOf(ts()));
+
+        String sig = sign(secretKey, params);
+        String url = BASE_URL + "/openApi/swap/v2/user/positions?" + buildQuery(params) + "&signature=" + sig;
+
+        Request req = new Request.Builder()
+                .url(url)
+                .header("X-BX-APIKEY", apiKey)
+                .get()
+                .build();
+
+        try (Response resp = httpClient.newCall(req).execute()) {
+            String body = resp.body() != null ? resp.body().string() : "";
+            log.debug("[BingX] positions status={}, body prefix={}",
+                    resp.code(), body.length() > 200 ? body.substring(0, 200) + "..." : body);
+            if (!resp.isSuccessful()) {
+                throw new RuntimeException("status=" + resp.code());
+            }
+
+            JsonObject json = gson.fromJson(body, JsonObject.class);
+            int code = json.has("code") ? json.get("code").getAsInt() : -1;
+            if (code != 0) {
+                String msg = getString(json, "msg");
+                throw new RuntimeException("code=" + code + ": " + (msg != null ? msg : ""));
+            }
+
+            List<BingxPosition> positions = new ArrayList<>();
+            JsonArray items = extractPositionArray(json);
+            if (items == null) {
+                return positions;
+            }
+
+            for (JsonElement el : items) {
+                JsonObject obj = el.getAsJsonObject();
+                String size = firstNonBlank(obj, "positionAmt", "availableAmt", "positionQty");
+                try {
+                    if (size == null || new BigDecimal(size).compareTo(BigDecimal.ZERO) == 0) {
+                        continue;
+                    }
+                } catch (NumberFormatException ignored) {
+                    continue;
+                }
+
+                BingxPosition p = new BingxPosition();
+                p.symbol = firstNonBlank(obj, "symbol");
+                p.side = normalizePositionSide(firstNonBlank(obj, "positionSide", "side"));
+                p.positionAmt = size;
+                p.availableAmt = defaultZero(firstNonBlank(obj, "availableAmt", "positionAmt"));
+                p.avgPrice = defaultZero(firstNonBlank(obj, "avgPrice", "entryPrice"));
+                p.markPrice = defaultZero(firstNonBlank(obj, "markPrice"));
+                p.unrealizedProfit = defaultZero(firstNonBlank(obj, "unrealizedProfit", "unrealizedPnl"));
+                p.leverage = defaultZero(firstNonBlank(obj, "leverage"));
+                p.marginType = firstNonBlank(obj, "marginType");
+                p.liquidationPrice = defaultZero(firstNonBlank(obj, "liquidationPrice"));
+                p.marginAsset = firstNonBlank(obj, "currency", "marginAsset", "asset");
+                positions.add(p);
+            }
+
+            return positions;
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException(e.getMessage(), e);
+        }
+    }
+
+    private JsonObject extractBalanceObject(JsonObject root) {
+        JsonElement dataEl = root.get("data");
+        if (dataEl == null || dataEl.isJsonNull()) {
+            return null;
+        }
+        if (dataEl.isJsonArray()) {
+            JsonArray data = dataEl.getAsJsonArray();
+            if (!data.isEmpty() && data.get(0).isJsonObject()) {
+                return data.get(0).getAsJsonObject();
+            }
+            return null;
+        }
+        if (dataEl.isJsonObject()) {
+            JsonObject data = dataEl.getAsJsonObject();
+            if (data.has("balance") && data.get("balance").isJsonObject()) {
+                return data.getAsJsonObject("balance");
+            }
+            return data;
+        }
+        return null;
+    }
+
+    private JsonArray extractPositionArray(JsonObject root) {
+        JsonElement dataEl = root.get("data");
+        if (dataEl == null || dataEl.isJsonNull()) {
+            return null;
+        }
+        if (dataEl.isJsonArray()) {
+            return dataEl.getAsJsonArray();
+        }
+        if (dataEl.isJsonObject()) {
+            JsonObject data = dataEl.getAsJsonObject();
+            if (data.has("positions") && data.get("positions").isJsonArray()) {
+                return data.getAsJsonArray("positions");
+            }
+        }
+        return null;
+    }
+
+    private String normalizePositionSide(String side) {
+        if (side == null) return null;
+        String upper = side.toUpperCase(Locale.ROOT);
+        if (upper.contains("LONG")) return "long";
+        if (upper.contains("SHORT")) return "short";
+        if (upper.equals("BUY")) return "long";
+        if (upper.equals("SELL")) return "short";
+        return side.toLowerCase(Locale.ROOT);
+    }
+
+    private long getLong(JsonObject obj, String... keys) {
+        for (String key : keys) {
+            if (obj.has(key) && !obj.get(key).isJsonNull()) {
+                try {
+                    return obj.get(key).getAsLong();
+                } catch (RuntimeException ignored) {
+                }
+            }
+        }
+        return 0L;
+    }
+
     private String sign(String secretKey, TreeMap<String, String> params) {
         StringBuilder sb = new StringBuilder();
         boolean first = true;
@@ -193,7 +397,6 @@ public class BingxClient {
         return hmacSha256(secretKey, sb.toString());
     }
 
-    // [용도] 파라미터 맵으로 쿼리스트링 생성 / [호출] fetchSymbols, fetchOrdersForSymbol
     private String buildQuery(TreeMap<String, String> params) {
         StringBuilder sb = new StringBuilder();
         boolean first = true;
@@ -205,106 +408,91 @@ public class BingxClient {
         return sb.toString();
     }
 
-    // [용도] HMAC-SHA256 계산 후 소문자 hex 반환 / [호출] sign()
     private String hmacSha256(String secretKey, String data) {
         try {
             Mac mac = Mac.getInstance("HmacSHA256");
             mac.init(new SecretKeySpec(secretKey.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
             byte[] hash = mac.doFinal(data.getBytes(StandardCharsets.UTF_8));
             StringBuilder hex = new StringBuilder();
-            for (byte b : hash) hex.append(String.format("%02x", b));
+            for (byte b : hash) {
+                hex.append(String.format("%02x", b));
+            }
             return hex.toString();
         } catch (Exception e) {
-            throw new RuntimeException("BingX 서명 생성 실패", e);
+            throw new RuntimeException("BingX signature generation failed", e);
         }
     }
 
-    // [용도] 현재 Unix 타임스탬프(ms) 반환 / [호출] 서명 파라미터
     private long ts() {
         return Instant.now().toEpochMilli();
     }
 
-    // [용도] 현재 보유 자산 조회 (USDT-M 선물 계정) / [호출] BalanceService.getBingxBalance()
-    public List<BingxBalance> getBalance(String apiKey, String secretKey) {
-        TreeMap<String, String> params = new TreeMap<>();
-        params.put("timestamp", String.valueOf(ts()));
-
-        String sig = sign(secretKey, params);
-        String url = BASE_URL + "/openApi/swap/v2/user/balance?" + buildQuery(params) + "&signature=" + sig;
-
-        Request req = new Request.Builder()
-                .url(url)
-                .header("X-BX-APIKEY", apiKey)
-                .get().build();
-
-        try (Response resp = httpClient.newCall(req).execute()) {
-            String body = resp.body() != null ? resp.body().string() : "";
-            log.info("[BingX] 잔고 조회 status={}, body 앞 200자: {}",
-                    resp.code(), body.length() > 200 ? body.substring(0, 200) + "..." : body);
-            if (!resp.isSuccessful()) {
-                throw new RuntimeException("status=" + resp.code());
-            }
-            JsonObject json = gson.fromJson(body, JsonObject.class);
-            int code = json.has("code") ? json.get("code").getAsInt() : -1;
-            if (code != 0) {
-                String msg = json.has("msg") ? json.get("msg").getAsString() : "";
-                throw new RuntimeException("code=" + code + ": " + msg);
-            }
-
-            List<BingxBalance> balances = new ArrayList<>();
-            if (json.has("data") && !json.get("data").isJsonNull()) {
-                JsonObject data = json.getAsJsonObject("data");
-                if (data.has("balance") && !data.get("balance").isJsonNull()) {
-                    JsonObject bal = data.getAsJsonObject("balance");
-                    BingxBalance b = new BingxBalance();
-                    b.asset = bal.has("asset") ? bal.get("asset").getAsString() : "USDT";
-                    b.balance = bal.has("balance") ? bal.get("balance").getAsString() : "0";
-                    b.availableMargin = bal.has("availableMargin") ? bal.get("availableMargin").getAsString() : "0";
-                    try {
-                        if (new BigDecimal(b.balance).compareTo(BigDecimal.ZERO) > 0) balances.add(b);
-                    } catch (NumberFormatException ignored) {}
-                }
-            }
-            return balances;
-        } catch (RuntimeException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new RuntimeException(e.getMessage(), e);
-        }
+    private String getString(JsonObject obj, String key) {
+        return obj.has(key) && !obj.get(key).isJsonNull() ? obj.get(key).getAsString() : null;
     }
 
-    // BingX 잔고 응답 DTO
+    private String firstNonBlank(JsonObject obj, String... keys) {
+        for (String key : keys) {
+            String value = getString(obj, key);
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private String defaultZero(String value) {
+        return value != null && !value.isBlank() ? value : "0";
+    }
+
     public static class BingxBalance {
         public String asset;
         public String balance;
+        public String equity;
         public String availableMargin;
+        public String usedMargin;
+        public String freezedMargin;
+        public String unrealizedProfit;
     }
 
-    // BingX 주문 원본 DTO
+    public static class BingxPosition {
+        public String symbol;
+        public String side;
+        public String positionAmt;
+        public String availableAmt;
+        public String avgPrice;
+        public String markPrice;
+        public String unrealizedProfit;
+        public String leverage;
+        public String marginType;
+        public String liquidationPrice;
+        public String marginAsset;
+    }
+
     public static class BingxOrder {
-        public long       orderId;
-        public String     symbol;
-        public String     side;         // "BUY" | "SELL"
+        public long orderId;
+        public String symbol;
+        public String side;
         public BigDecimal executedQty;
         public BigDecimal avgPrice;
         public BigDecimal fee;
-        public long       updateTime;   // Unix ms
+        public long updateTime;
     }
 
-    // [용도] 정규화된 거래 DTO / [호출] TradeService
     public record NormalizedTrade(
-            String        exchangeTradeId,
-            String        symbol,
-            TradeSide     side,
-            BigDecimal    qty,
-            BigDecimal    price,
-            BigDecimal    fee,
+            String exchangeTradeId,
+            String symbol,
+            TradeSide side,
+            BigDecimal qty,
+            BigDecimal price,
+            BigDecimal fee,
             LocalDateTime tradedAt
     ) {
         public static NormalizedTrade from(BingxOrder o) {
             TradeSide side = "BUY".equalsIgnoreCase(o.side) ? TradeSide.BUY : TradeSide.SELL;
             LocalDateTime tradedAt = Instant.ofEpochMilli(o.updateTime)
-                    .atZone(ZoneId.of("Asia/Seoul")).toLocalDateTime();
+                    .atZone(ZoneId.of("Asia/Seoul"))
+                    .toLocalDateTime();
             return new NormalizedTrade(
                     String.valueOf(o.orderId),
                     o.symbol,

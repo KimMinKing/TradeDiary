@@ -12,36 +12,49 @@ import org.springframework.http.HttpStatus;
 public enum ErrorCode {
 
     // 공통
-    INVALID_INPUT(HttpStatus.BAD_REQUEST, "입력값이 올바르지 않습니다."),
-    UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "인증이 필요합니다."),
-    FORBIDDEN(HttpStatus.FORBIDDEN, "접근 권한이 없습니다."),
-    NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 리소스를 찾을 수 없습니다."),
-    INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "서버 내부 오류가 발생했습니다."),
+    INVALID_INPUT(HttpStatus.BAD_REQUEST, "Invalid input."),
+    UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "Authentication is required."),
+    FORBIDDEN(HttpStatus.FORBIDDEN, "You do not have permission to access this resource."),
+    PRIVATE_RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "The requested resource was not found."),
+    NOT_FOUND(HttpStatus.NOT_FOUND, "The requested resource was not found."),
+    INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "An internal server error occurred."),
+    RATE_LIMIT_EXCEEDED(HttpStatus.TOO_MANY_REQUESTS, "Too many requests. Try again shortly."),
 
     // 사용자
-    USER_NOT_FOUND(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."),
-    EMAIL_ALREADY_EXISTS(HttpStatus.CONFLICT, "이미 사용 중인 이메일입니다."),
-    INVALID_PASSWORD(HttpStatus.BAD_REQUEST, "비밀번호가 올바르지 않습니다."),
+    USER_NOT_FOUND(HttpStatus.NOT_FOUND, "User not found."),
+    EMAIL_ALREADY_EXISTS(HttpStatus.CONFLICT, "This email address is already in use."),
+    INVALID_PASSWORD(HttpStatus.BAD_REQUEST, "The password is incorrect."),
 
     // JWT
-    INVALID_TOKEN(HttpStatus.UNAUTHORIZED, "유효하지 않은 토큰입니다."),
-    EXPIRED_TOKEN(HttpStatus.UNAUTHORIZED, "만료된 토큰입니다."),
-    REFRESH_TOKEN_NOT_FOUND(HttpStatus.UNAUTHORIZED, "RefreshToken을 찾을 수 없습니다."),
+    INVALID_TOKEN(HttpStatus.UNAUTHORIZED, "Invalid token."),
+    EXPIRED_TOKEN(HttpStatus.UNAUTHORIZED, "The token has expired."),
+    REFRESH_TOKEN_NOT_FOUND(HttpStatus.UNAUTHORIZED, "Refresh token not found."),
 
     // 거래
-    TRADE_NOT_FOUND(HttpStatus.NOT_FOUND, "거래 내역을 찾을 수 없습니다."),
+    TRADE_NOT_FOUND(HttpStatus.NOT_FOUND, "Trade not found."),
 
     // 매매 일기
-    JOURNAL_NOT_FOUND(HttpStatus.NOT_FOUND, "매매 일기를 찾을 수 없습니다."),
-    TAG_NOT_FOUND(HttpStatus.NOT_FOUND, "전략 태그를 찾을 수 없습니다."),
+    JOURNAL_NOT_FOUND(HttpStatus.NOT_FOUND, "Journal not found."),
+    INVALID_JOURNAL_IMAGE(HttpStatus.BAD_REQUEST, "The image is unsupported or corrupted."),
+    JOURNAL_IMAGE_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "Journal images must be 1.5 MB or smaller."),
+    TAG_NOT_FOUND(HttpStatus.NOT_FOUND, "Strategy tag not found."),
 
     // 매매 계획
-    PLAN_NOT_FOUND(HttpStatus.NOT_FOUND, "매매 계획을 찾을 수 없습니다."),
+    COMMUNITY_POST_NOT_FOUND(HttpStatus.NOT_FOUND, "Community post not found."),
+    COMMUNITY_COMMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "Community comment not found."),
+    INVALID_COMMUNITY_IMAGE(HttpStatus.BAD_REQUEST, "Use a PNG, JPEG or WebP image under 1.5 MB."),
+
+    PLAN_NOT_FOUND(HttpStatus.NOT_FOUND, "Trade plan not found."),
+
+    // 체크리스트
+    CHECKLIST_NOT_FOUND(HttpStatus.NOT_FOUND, "Checklist item not found."),
+    DUPLICATE_CHECKLIST(HttpStatus.CONFLICT, "This checklist item already exists."),
+    CHECKLIST_IN_USE(HttpStatus.CONFLICT, "Checklist items in use cannot be deleted."),
 
     // 비밀번호 재설정
-    RESET_TOKEN_NOT_FOUND(HttpStatus.BAD_REQUEST, "유효하지 않거나 만료된 링크입니다."),
-    RESET_TOKEN_EXPIRED(HttpStatus.BAD_REQUEST, "재설정 링크가 만료되었습니다. 다시 요청해주세요."),
-    RESET_TOKEN_USED(HttpStatus.BAD_REQUEST, "이미 사용된 링크입니다. 다시 요청해주세요.");
+    RESET_TOKEN_NOT_FOUND(HttpStatus.BAD_REQUEST, "The reset link is invalid or expired."),
+    RESET_TOKEN_EXPIRED(HttpStatus.BAD_REQUEST, "The reset link has expired. Request a new one."),
+    RESET_TOKEN_USED(HttpStatus.BAD_REQUEST, "This reset link has already been used. Request a new one.");
 
     private final HttpStatus httpStatus;
     private final String message;

@@ -2,6 +2,8 @@
 
 package com.tradediary.user;
 
+import com.tradediary.common.exception.BusinessException;
+import com.tradediary.common.exception.ErrorCode;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -18,6 +20,7 @@ import org.springframework.web.bind.annotation.*;
 public class AuthController {
 
     private final UserService userService;
+    private final AuthRateLimiter authRateLimiter;
 
     // [용도] 회원가입 / [호출] POST /api/auth/signup
     @PostMapping("/signup")
@@ -29,13 +32,24 @@ public class AuthController {
     // [용도] 로그인 → 토큰 발급 / [호출] POST /api/auth/login
     @PostMapping("/login")
     public ResponseEntity<UserService.TokenResponse> login(@Valid @RequestBody LoginRequest request) {
-        return ResponseEntity.ok(userService.login(request.email(), request.password()));
+        authRateLimiter.assertLoginAllowed(request.email());
+        try {
+            UserService.TokenResponse response = userService.login(request.email(), request.password());
+            authRateLimiter.clearLoginFailures(request.email());
+            return ResponseEntity.ok(response);
+        } catch (BusinessException e) {
+            if (e.getErrorCode() == ErrorCode.USER_NOT_FOUND
+                    || e.getErrorCode() == ErrorCode.INVALID_PASSWORD) {
+                authRateLimiter.recordLoginFailure(request.email());
+            }
+            throw e;
+        }
     }
 
     // [용도] AccessToken 재발급 / [호출] POST /api/auth/refresh
     @PostMapping("/refresh")
-    public ResponseEntity<UserService.TokenResponse> refresh(@RequestBody RefreshRequest request) {
-        return ResponseEntity.ok(userService.refresh(request.refreshToken()));
+    public ResponseEntity<UserService.TokenResponse> refresh(@RequestParam("refreshToken") String refreshToken) {
+        return ResponseEntity.ok(userService.refresh(refreshToken));
     }
 
     // [용도] 로그아웃 / [호출] POST /api/auth/logout
@@ -50,6 +64,7 @@ public class AuthController {
     @PostMapping("/password-reset/request")
     public ResponseEntity<Void> requestPasswordReset(
             @Valid @RequestBody PasswordResetRequestDto request) {
+        authRateLimiter.acquirePasswordReset(request.email());
         userService.requestPasswordReset(request.email());
         return ResponseEntity.ok().build();
     }

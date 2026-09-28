@@ -43,7 +43,6 @@ public class BinanceClient {
     // 1) income 엔드포인트로 거래된 심볼 파악
     // 2) 심볼별 userTrades 조회 및 합산
     public List<BinanceTrade> getTrades(String apiKey, String secretKey, LocalDateTime startTime) {
-        log.info("[Binance] API Key 앞 6자리: {}...", apiKey.length() > 6 ? apiKey.substring(0, 6) : apiKey);
 
         long startMs = startTime.atZone(ZoneId.of("Asia/Seoul")).toInstant().toEpochMilli();
 
@@ -206,7 +205,7 @@ public class BinanceClient {
 
         try (Response response = httpClient.newCall(request).execute()) {
             String body = response.body() != null ? response.body().string() : "";
-            log.info("[Binance] 잔고 조회 status={}, body 앞 200자: {}",
+            log.debug("[Binance] 잔고 조회 status={}, body 앞 200자: {}",
                     response.code(), body.length() > 200 ? body.substring(0, 200) + "..." : body);
             if (!response.isSuccessful()) {
                 throw new RuntimeException("status=" + response.code());

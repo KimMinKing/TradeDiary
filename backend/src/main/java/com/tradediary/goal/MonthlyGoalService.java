@@ -2,6 +2,8 @@
 
 package com.tradediary.goal;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.tradediary.common.service.PnlCalculationService;
 import com.tradediary.position.Position;
 import com.tradediary.position.PositionRepository;
 import com.tradediary.user.User;
@@ -11,7 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
+import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -24,6 +26,7 @@ public class MonthlyGoalService {
     private final MonthlyGoalRepository goalRepository;
     private final PositionRepository    positionRepository;
     private final UserRepository        userRepository;
+    private final PnlCalculationService pnlCalculationService;
 
     private static final DateTimeFormatter YM_FMT = DateTimeFormatter.ofPattern("yyyy-MM");
 
@@ -33,10 +36,11 @@ public class MonthlyGoalService {
         String ym = YearMonth.now().format(YM_FMT);
         MonthlyGoal goal = goalRepository.findByUserIdAndYearMonth(userId, ym).orElse(null);
 
-        // 이번 달 포지션 집계
+        // 이번 달 포지션 집계 (RankingService와 동일한 방식으로 기간 조회)
         YearMonth thisYM = YearMonth.now();
-        List<Position> thisMonth = positionRepository.findByUserIdOrderByClosedAtDesc(userId)
-                .stream().filter(p -> YearMonth.from(p.getClosedAt()).equals(thisYM)).toList();
+        LocalDateTime monthStart = thisYM.atDay(1).atStartOfDay();
+        LocalDateTime monthEnd   = thisYM.plusMonths(1).atDay(1).atStartOfDay();
+        List<Position> thisMonth = positionRepository.findByUserIdAndClosedAtBetween(userId, monthStart, monthEnd);
 
         int currentTradeCount = thisMonth.size();
         double currentWinRate = 0.0;
@@ -46,9 +50,8 @@ public class MonthlyGoalService {
             int wins = (int) thisMonth.stream()
                     .filter(p -> p.getPnl().compareTo(BigDecimal.ZERO) > 0).count();
             currentWinRate = Math.round((double) wins / thisMonth.size() * 10000.0) / 100.0;
-            BigDecimal totalPnl = thisMonth.stream().map(Position::getPnl)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-            currentPnl = totalPnl.setScale(2, RoundingMode.HALF_UP).toPlainString();
+            BigDecimal totalPnl = pnlCalculationService.sumKrw(thisMonth);
+            currentPnl = pnlCalculationService.formatKrw(totalPnl);
         }
 
         return new MonthlyGoalResponse(
@@ -84,10 +87,17 @@ public class MonthlyGoalService {
         return getGoal(userId);
     }
 
+    @Transactional
+    public MonthlyGoalResponse deleteGoal(Long userId) {
+        String ym = YearMonth.now().format(YM_FMT);
+        goalRepository.deleteByUserIdAndYearMonth(userId, ym);
+        return getGoal(userId);
+    }
+
     // [용도] 목표 요청 DTO / [호출] MonthlyGoalController
     public record MonthlyGoalRequest(
-            BigDecimal targetWinRate,
-            BigDecimal targetPnl,
-            Integer targetTradeCount
+            @JsonProperty("target_win_rate") BigDecimal targetWinRate,
+            @JsonProperty("target_pnl") BigDecimal targetPnl,
+            @JsonProperty("target_trade_count") Integer targetTradeCount
     ) {}
 }

@@ -1,4 +1,13 @@
 spring:
+  data:
+    web:
+      pageable:
+        max-page-size: 100
+  config:
+    import:
+      - optional:file:.env[.properties]
+      - optional:file:../.env[.properties]
+
   mail:
     host: ${MAIL_HOST:smtp.gmail.com}
     port: ${MAIL_PORT:587}
@@ -38,14 +47,21 @@ spring:
             user-name-attribute: id
 
   datasource:
-    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:tradediary}
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:15432}/${DB_NAME:tradediary}
     username: ${DB_USERNAME:tradediary}
     password: ${DB_PASSWORD:tradediary}
     driver-class-name: org.postgresql.Driver
 
+  flyway:
+    enabled: true
+    locations: classpath:db/current
+    baseline-on-migrate: true
+    baseline-version: 100
+    validate-on-migrate: true
+
   jpa:
     hibernate:
-      ddl-auto: validate
+      ddl-auto: none
     show-sql: false
     properties:
       hibernate:
@@ -61,11 +77,12 @@ server:
 
 jwt:
   secret: ${JWT_SECRET}
-  access-token-expiration: 1800000      # 30분 (ms)
-  refresh-token-expiration: 604800000   # 7일 (ms)
+  access-token-expiration: 7200000      # 2 hours; refreshed while the site remains open
+  refresh-token-expiration: 2592000000  # 30 days; rotated on every successful refresh
 
 ai-server:
-  url: ${AI_SERVER_URL:http://localhost:8000}
+  url: ${AI_SERVER_URL:http://localhost:8000/api}
+  api-key: ${AI_SERVER_API_KEY:}
 
 # 프론트엔드 URL (OAuth2 로그인 후 리다이렉트용)
 frontend:
@@ -77,8 +94,20 @@ aes:
 
 # CryptoCompare 뉴스 API 키 (https://www.cryptocompare.com/cryptopian/api-keys)
 cryptocompare:
-  api-key: ${CRYPTOCOMPARE_API_KEY:e8ae495d9257003f05711ac403a5ba99a2a90f70af1b969a850c3bd2b0a66f0f}
+  api-key: ${CRYPTOCOMPARE_API_KEY:}
 
 # Groq API 키 (https://console.groq.com)
 groq:
   api-key: ${GROQ_API_KEY:}
+
+# DeepSeek API 키 (https://platform.deepseek.com)
+deepseek:
+  api-key: ${DEEPSEEK_API_KEY:}
+
+bybit:
+  base-url: ${BYBIT_BASE_URL:https://api.bybit.com}
+
+trade-sync:
+  scheduler:
+    initial-delay-ms: ${TRADE_SYNC_INITIAL_DELAY_MS:30000}
+    interval-ms: ${TRADE_SYNC_INTERVAL_MS:60000}

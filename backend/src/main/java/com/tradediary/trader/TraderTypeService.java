@@ -1,10 +1,13 @@
-// [파일 용도] 포지션 데이터 기반 트레이더 유형 자동 분류 서비스
+// [파일 용도] 포지션 데이터 기반 트레이더 유형 자동 분류 및 AI 코칭 서비스
 
 package com.tradediary.trader;
 
+import com.tradediary.ai.AiReportClient;
 import com.tradediary.position.Position;
 import com.tradediary.position.PositionRepository;
+import com.tradediary.user.UserLanguageService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -14,20 +17,25 @@ import java.time.Duration;
 import java.util.List;
 import java.util.stream.Collectors;
 
-// [클래스] 포지션 데이터 분석 → 6가지 트레이더 유형 중 하나로 자동 분류
+// [클래스] 포지션 데이터 분석 → 6가지 트레이더 유형 분류 + 유형별 AI 코칭 생성
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class TraderTypeService {
 
     private final PositionRepository positionRepository;
+    private final TraderTypeAdviceRepository adviceRepository;
+    private final AiReportClient aiReportClient;
+    private final UserLanguageService userLanguageService;
 
     // [용도] 사용자 트레이더 유형 분석 및 반환 / [호출] TraderTypeController.getTraderType()
-    @Transactional(readOnly = true)
+    @Transactional
     public TraderTypeResponse analyze(Long userId) {
         List<Position> positions = positionRepository.findByUserIdOrderByClosedAtDesc(userId);
 
         if (positions.size() < 5) {
-            return insufficientData();
+            adviceRepository.deleteByUserId(userId);
+            return insufficientData(positions.size());
         }
 
         // 평균 보유 시간 (시간 단위)
@@ -77,8 +85,88 @@ public class TraderTypeService {
         return buildResponse(typeCode, stats);
     }
 
+    // [용도] 사용자 AI 코칭 결과 조회 (캐시 우선, 없으면 생성) / [호출] TraderTypeController.getAdvice()
+    @Transactional
+    public TraderTypeAdviceResponse getAdvice(Long userId) {
+        TraderTypeResponse analysis = analyze(userId);
+        if ("UNKNOWN".equals(analysis.typeCode())) {
+            return TraderTypeAdviceResponse.empty();
+        }
+
+        return adviceRepository.findByUserId(userId)
+                .map(cached -> {
+                    String cachedText = cached.getAdviceText();
+                    if (cachedText == null || !cachedText.contains(analysis.typeName())
+                            || !userLanguageService.get(userId).equals(cached.getLanguage())) {
+                        return generateAdviceOrEmpty(userId);
+                    }
+                    return new TraderTypeAdviceResponse(cachedText, cached.getGeneratedAt());
+                })
+                .orElseGet(() -> generateAdviceOrEmpty(userId));
+    }
+
+    // [용도] 사용자 AI 코칭 강제 재생성 / [호출] TraderTypeController.refreshAdvice()
+    @Transactional
+    public TraderTypeAdviceResponse refreshAdvice(Long userId) {
+        return generateAdvice(userId);
+    }
+
+    // [용도] 유형 분석 → AI 코칭 생성 → DB upsert / [호출] getAdvice(), refreshAdvice()
+    private TraderTypeAdviceResponse generateAdvice(Long userId) {
+        TraderTypeResponse analysis = analyze(userId);
+        if ("UNKNOWN".equals(analysis.typeCode())) {
+            return TraderTypeAdviceResponse.empty();
+        }
+
+        // AI 요청 생성 (유형 정보 + 통계)
+        TraderTypeResponse.Stats s = analysis.stats();
+        AiReportClient.TraderTypeAdviceRequest request = new AiReportClient.TraderTypeAdviceRequest(
+                userLanguageService.get(userId),
+                analysis.typeCode(),
+                analysis.typeName(),
+                analysis.description(),
+                analysis.strength(),
+                analysis.weakness(),
+                new AiReportClient.TraderTypeAdviceRequest.Stats(
+                        s.totalPositions(), s.avgHoldHours(), s.uniqueSymbols(),
+                        s.winRate(), s.avgPnlPerTrade()
+                )
+        );
+
+        String advice = aiReportClient.analyzeTraderTypeAdvice(request);
+
+        // upsert 저장 (기존 있으면 update, 없으면 insert) — unique 제약 충돌 회피
+        TraderTypeAdvice entity = adviceRepository.findByUserId(userId)
+                .map(existing -> {
+                    existing.update(advice, userLanguageService.get(userId));
+                    return existing;
+                })
+                .orElseGet(() -> TraderTypeAdvice.builder()
+                        .userId(userId)
+                        .adviceText(advice)
+                        .language(userLanguageService.get(userId))
+                        .build());
+        adviceRepository.save(entity);
+
+        return new TraderTypeAdviceResponse(advice, entity.getGeneratedAt());
+    }
+
+    // [용도] 일반 조회에서 AI 서버 장애가 화면 500으로 번지지 않도록 빈 코칭 반환 / [호출] getAdvice()
+    private TraderTypeAdviceResponse generateAdviceOrEmpty(Long userId) {
+        try {
+            return generateAdvice(userId);
+        } catch (RuntimeException e) {
+            log.warn("[TraderType] AI 코칭 생성 실패 - userId={}, message={}", userId, e.getMessage());
+            return TraderTypeAdviceResponse.empty();
+        }
+    }
+
     // [용도] 데이터 부족 시 기본 응답 / [호출] analyze()
     private TraderTypeResponse insufficientData() {
+        return insufficientData(0);
+    }
+
+    private TraderTypeResponse insufficientData(int currentPositions) {
         return new TraderTypeResponse(
                 "UNKNOWN",
                 "분석 중",
@@ -86,7 +174,7 @@ public class TraderTypeService {
                 "포지션 데이터가 5건 이상 필요합니다",
                 "—",
                 "—",
-                new TraderTypeResponse.Stats(0, 0, 0, 0, 0)
+                new TraderTypeResponse.Stats(currentPositions, 0, 0, 0, 0)
         );
     }
 
