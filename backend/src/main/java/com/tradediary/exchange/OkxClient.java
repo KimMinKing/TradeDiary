@@ -10,6 +10,7 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import com.tradediary.trade.TradeSide;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.Mac;
@@ -30,7 +31,8 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class OkxClient {
 
-    private static final String BASE_URL = "https://www.okx.com";
+    @Value("${okx.base-url:https://www.okx.com}")
+    private String baseUrl = "https://www.okx.com";
     private static final String PATH     = "/api/v5/trade/orders-history-archive";
     private static final int    PAGE_SIZE = 100;
 
@@ -67,15 +69,9 @@ public class OkxClient {
         String after = null; // 이전 페이지 마지막 ordId (오래된 데이터 요청용 커서)
 
         while (true) {
-            List<OkxOrder> page;
-            try {
-                page = fetchPage(apiKey, secretKey, passphrase, instType, beginMs, after);
-            } catch (RuntimeException e) {
-                log.error("[OKX] {} 동기화 중단: {}", instType, e.getMessage());
-                break;
-            }
+            List<OkxOrder> page = fetchPage(apiKey, secretKey, passphrase, instType, beginMs, after);
 
-            if (page == null || page.isEmpty()) break;
+            if (page.isEmpty()) break;
             result.addAll(page);
 
             if (page.size() < PAGE_SIZE) break; // 마지막 페이지
@@ -107,7 +103,7 @@ public class OkxClient {
         String signature = sign(secretKey, timestamp, "GET", requestPath, "");
 
         Request request = new Request.Builder()
-                .url(BASE_URL + requestPath)
+                .url(baseUrl + requestPath)
                 .get()
                 .addHeader("OK-ACCESS-KEY", apiKey)
                 .addHeader("OK-ACCESS-SIGN", signature)
@@ -162,7 +158,7 @@ public class OkxClient {
         } catch (Exception e) {
             if (e instanceof RuntimeException re) throw re;
             log.error("[OKX] 호출 실패: {}", e.getMessage());
-            return null;
+            throw new RuntimeException("OKX order request failed for " + instType, e);
         }
     }
 
@@ -203,7 +199,7 @@ public class OkxClient {
         String signature = sign(secretKey, timestamp, "GET", requestPath, "");
 
         Request request = new Request.Builder()
-                .url(BASE_URL + requestPath)
+                .url(baseUrl + requestPath)
                 .get()
                 .addHeader("OK-ACCESS-KEY", apiKey)
                 .addHeader("OK-ACCESS-SIGN", signature)

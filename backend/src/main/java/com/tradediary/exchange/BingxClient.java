@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.Mac;
@@ -30,7 +31,8 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class BingxClient {
 
-    private static final String BASE_URL = "https://open-api.bingx.com";
+    @Value("${bingx.base-url:https://open-api.bingx.com}")
+    private String baseUrl = "https://open-api.bingx.com";
     private static final int PAGE_SIZE = 100;
 
     private final OkHttpClient httpClient = new OkHttpClient.Builder()
@@ -63,7 +65,7 @@ public class BingxClient {
         params.put("timestamp", String.valueOf(ts()));
 
         String sig = sign(secretKey, params);
-        String url = BASE_URL + "/openApi/swap/v2/quote/contracts?" + buildQuery(params) + "&signature=" + sig;
+        String url = baseUrl + "/openApi/swap/v2/quote/contracts?" + buildQuery(params) + "&signature=" + sig;
 
         Request req = new Request.Builder()
                 .url(url)
@@ -74,14 +76,16 @@ public class BingxClient {
         try (Response resp = httpClient.newCall(req).execute()) {
             String body = resp.body() != null ? resp.body().string() : "";
             if (!resp.isSuccessful()) {
-                log.warn("[BingX] contracts query failed: status={}, body={}", resp.code(), body);
-                return result;
+                throw new RuntimeException("BingX contracts HTTP " + resp.code() + ": " + body);
             }
 
             JsonObject root = gson.fromJson(body, JsonObject.class);
+            if (root == null || !root.has("code") || root.get("code").getAsInt() != 0) {
+                throw new RuntimeException("BingX contracts API error: " + body);
+            }
             JsonArray data = root.getAsJsonArray("data");
             if (data == null) {
-                return result;
+                throw new RuntimeException("BingX contracts response has no data array");
             }
 
             for (JsonElement el : data) {
@@ -91,8 +95,10 @@ public class BingxClient {
                     result.add(symbol);
                 }
             }
+        } catch (RuntimeException e) {
+            throw e;
         } catch (Exception e) {
-            log.error("[BingX] contracts query failed", e);
+            throw new RuntimeException("BingX contracts request failed", e);
         }
 
         return result;
@@ -113,7 +119,7 @@ public class BingxClient {
             params.put("timestamp", String.valueOf(ts()));
 
             String sig = sign(secretKey, params);
-            String url = BASE_URL + "/openApi/swap/v2/trade/allFillOrders?" + buildQuery(params) + "&signature=" + sig;
+            String url = baseUrl + "/openApi/swap/v2/trade/allFillOrders?" + buildQuery(params) + "&signature=" + sig;
 
             Request req = new Request.Builder()
                     .url(url)
@@ -124,14 +130,13 @@ public class BingxClient {
             try (Response resp = httpClient.newCall(req).execute()) {
                 String body = resp.body() != null ? resp.body().string() : "";
                 if (!resp.isSuccessful()) {
-                    log.warn("[BingX] allFillOrders failed: symbol={}, status={}, body={}", symbol, resp.code(), body);
-                    break;
+                    throw new RuntimeException("BingX allFillOrders HTTP " + resp.code() + " for " + symbol + ": " + body);
                 }
 
                 JsonObject root = gson.fromJson(body, JsonObject.class);
                 int code = root.has("code") ? root.get("code").getAsInt() : -1;
                 if (code != 0) {
-                    break;
+                    throw new RuntimeException("BingX allFillOrders API code=" + code + " for " + symbol);
                 }
 
                 JsonArray orders = null;
@@ -149,7 +154,10 @@ public class BingxClient {
                     orders = dataEl.getAsJsonArray();
                 }
 
-                if (orders == null || orders.size() == 0) {
+                if (orders == null) {
+                    throw new RuntimeException("BingX allFillOrders response has no orders array for " + symbol);
+                }
+                if (orders.size() == 0) {
                     break;
                 }
 
@@ -180,7 +188,7 @@ public class BingxClient {
                             maxOrderId = order.orderId;
                         }
                     } catch (Exception e) {
-                        log.warn("[BingX] order parse failed: {}", obj);
+                        throw new IllegalStateException("Invalid BingX order for " + symbol, e);
                     }
                 }
 
@@ -188,9 +196,10 @@ public class BingxClient {
                     break;
                 }
                 lastOrderId = maxOrderId + 1;
+            } catch (RuntimeException e) {
+                throw e;
             } catch (Exception e) {
-                log.error("[BingX] allFillOrders query failed: symbol={}", symbol, e);
-                break;
+                throw new RuntimeException("BingX allFillOrders request failed for " + symbol, e);
             }
         }
 
@@ -202,7 +211,7 @@ public class BingxClient {
         params.put("timestamp", String.valueOf(ts()));
 
         String sig = sign(secretKey, params);
-        String url = BASE_URL + "/openApi/swap/v3/user/balance?" + buildQuery(params) + "&signature=" + sig;
+        String url = baseUrl + "/openApi/swap/v3/user/balance?" + buildQuery(params) + "&signature=" + sig;
 
         Request req = new Request.Builder()
                 .url(url)
@@ -262,7 +271,7 @@ public class BingxClient {
         params.put("timestamp", String.valueOf(ts()));
 
         String sig = sign(secretKey, params);
-        String url = BASE_URL + "/openApi/swap/v2/user/positions?" + buildQuery(params) + "&signature=" + sig;
+        String url = baseUrl + "/openApi/swap/v2/user/positions?" + buildQuery(params) + "&signature=" + sig;
 
         Request req = new Request.Builder()
                 .url(url)

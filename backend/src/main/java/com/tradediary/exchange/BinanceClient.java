@@ -11,6 +11,7 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import com.tradediary.trade.TradeSide;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.Mac;
@@ -30,7 +31,8 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class BinanceClient {
 
-    private static final String BASE_URL  = "https://fapi.binance.com";
+    @Value("${binance.base-url:https://fapi.binance.com}")
+    private String baseUrl = "https://fapi.binance.com";
     private static final int    PAGE_SIZE = 1000;
 
     private final OkHttpClient httpClient = new OkHttpClient.Builder()
@@ -71,12 +73,11 @@ public class BinanceClient {
 
         while (true) {
             String params = "startTime=" + cursorMs + "&limit=" + PAGE_SIZE;
-            String url = BASE_URL + "/fapi/v1/income?" + params + "&timestamp=" + ts() + "&signature=";
             // 재조합 (timestamp 고정 필요)
             long timestamp = ts();
             String queryString = params + "&timestamp=" + timestamp;
             String sig = sign(secretKey, queryString);
-            String fullUrl = BASE_URL + "/fapi/v1/income?" + queryString + "&signature=" + sig;
+            String fullUrl = baseUrl + "/fapi/v1/income?" + queryString + "&signature=" + sig;
 
             Request req = new Request.Builder()
                     .url(fullUrl)
@@ -87,10 +88,11 @@ public class BinanceClient {
                 String body = resp.body() != null ? resp.body().string() : "";
                 if (!resp.isSuccessful()) {
                     log.warn("[Binance] income 오류: {} {}", resp.code(), body);
-                    break;
+                    throw new RuntimeException("Binance income HTTP " + resp.code() + ": " + body);
                 }
                 JsonArray arr = gson.fromJson(body, JsonArray.class);
-                if (arr == null || arr.size() == 0) break;
+                if (arr == null) throw new RuntimeException("Binance income returned an empty response");
+                if (arr.size() == 0) break;
 
                 for (JsonElement el : arr) {
                     JsonObject obj = el.getAsJsonObject();
@@ -106,9 +108,10 @@ public class BinanceClient {
                 JsonObject last = arr.get(arr.size() - 1).getAsJsonObject();
                 cursorMs = last.get("time").getAsLong() + 1;
 
+            } catch (RuntimeException e) {
+                throw e;
             } catch (Exception e) {
-                log.error("[Binance] income 조회 실패", e);
-                break;
+                throw new RuntimeException("Binance income request failed", e);
             }
         }
         return symbols;
@@ -125,7 +128,7 @@ public class BinanceClient {
             long timestamp = ts();
             String queryString = params + "&timestamp=" + timestamp;
             String sig = sign(secretKey, queryString);
-            String fullUrl = BASE_URL + "/fapi/v1/userTrades?" + queryString + "&signature=" + sig;
+            String fullUrl = baseUrl + "/fapi/v1/userTrades?" + queryString + "&signature=" + sig;
 
             Request req = new Request.Builder()
                     .url(fullUrl)
@@ -136,10 +139,11 @@ public class BinanceClient {
                 String body = resp.body() != null ? resp.body().string() : "";
                 if (!resp.isSuccessful()) {
                     log.warn("[Binance] userTrades 오류 symbol={}: {} {}", symbol, resp.code(), body);
-                    break;
+                    throw new RuntimeException("Binance userTrades HTTP " + resp.code() + " for " + symbol + ": " + body);
                 }
                 JsonArray arr = gson.fromJson(body, JsonArray.class);
-                if (arr == null || arr.size() == 0) break;
+                if (arr == null) throw new RuntimeException("Binance userTrades returned an empty response for " + symbol);
+                if (arr.size() == 0) break;
 
                 for (JsonElement el : arr) {
                     JsonObject obj = el.getAsJsonObject();
@@ -155,7 +159,7 @@ public class BinanceClient {
                         t.time   = obj.get("time").getAsLong();
                         result.add(t);
                     } catch (Exception e) {
-                        log.warn("[Binance] trade 파싱 실패: {}", obj);
+                        throw new IllegalStateException("Invalid Binance trade for " + symbol, e);
                     }
                 }
 
@@ -164,9 +168,10 @@ public class BinanceClient {
                 // 다음 페이지: 마지막 id + 1
                 fromId = arr.get(arr.size() - 1).getAsJsonObject().get("id").getAsLong() + 1;
 
+            } catch (RuntimeException e) {
+                throw e;
             } catch (Exception e) {
-                log.error("[Binance] userTrades 조회 실패 symbol={}", symbol, e);
-                break;
+                throw new RuntimeException("Binance userTrades request failed for " + symbol, e);
             }
         }
         return result;
@@ -196,7 +201,7 @@ public class BinanceClient {
         long timestamp = ts();
         String queryString = "timestamp=" + timestamp;
         String sig = sign(secretKey, queryString);
-        String fullUrl = BASE_URL + "/fapi/v2/balance?" + queryString + "&signature=" + sig;
+        String fullUrl = baseUrl + "/fapi/v2/balance?" + queryString + "&signature=" + sig;
 
         Request request = new Request.Builder()
                 .url(fullUrl)

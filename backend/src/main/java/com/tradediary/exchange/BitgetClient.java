@@ -9,6 +9,7 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import com.tradediary.trade.TradeSide;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.Mac;
@@ -29,7 +30,8 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class BitgetClient {
 
-    private static final String BASE_URL = "https://api.bitget.com";
+    @Value("${bitget.base-url:https://api.bitget.com}")
+    private String baseUrl = "https://api.bitget.com";
     // V2 Classic Account: USDT 선물
     private static final String PRODUCT_TYPE = "USDT-FUTURES";
     private static final int PAGE_SIZE = 100;
@@ -66,15 +68,9 @@ public class BitgetClient {
             String idLessThan = null;
 
             while (true) {
-                BitgetOrderPage page;
-                try {
-                    page = fetchPage(apiKey, secretKey, passphrase, startMs, endMs, idLessThan);
-                } catch (RuntimeException e) {
-                    log.error("[Bitget] 동기화 중단: {}", e.getMessage());
-                    return result;
-                }
+                BitgetOrderPage page = fetchPage(apiKey, secretKey, passphrase, startMs, endMs, idLessThan);
 
-                if (page == null || page.orders().isEmpty()) break;
+                if (page.orders().isEmpty()) break;
 
                 result.addAll(page.orders());
 
@@ -88,8 +84,9 @@ public class BitgetClient {
             try { TimeUnit.MILLISECONDS.sleep(WINDOW_DELAY_MS); } catch (InterruptedException ignored) {}
         }
 
-        log.info("[Bitget] 전체 조회 완료: {}건", result.size());
-        return result;
+        List<BitgetOrder> merged = mergeFills(result);
+        log.info("[Bitget] 전체 조회 완료: {}건", merged.size());
+        return merged;
     }
 
     // [용도] 단일 페이지 API 호출 (V2 fills) / [호출] getOrders()
@@ -109,7 +106,7 @@ public class BitgetClient {
         String signature = sign(secretKey, timestamp, "GET", requestPath, qs.toString(), "");
 
         Request request = new Request.Builder()
-                .url(BASE_URL + requestPath + "?" + qs)
+                .url(baseUrl + requestPath + "?" + qs)
                 .get()
                 .addHeader("ACCESS-KEY", apiKey)
                 .addHeader("ACCESS-SIGN", signature)
@@ -171,14 +168,12 @@ public class BitgetClient {
                 }
             }
 
-            // 같은 orderId의 부분 체결(fill)을 하나의 주문으로 합산
-            List<BitgetOrder> merged = mergeFills(orders);
-            return new BitgetOrderPage(merged, endId);
+            return new BitgetOrderPage(orders, endId);
 
         } catch (Exception e) {
             if (e instanceof RuntimeException re) throw re;
             log.error("[Bitget] 호출 실패: {}", e.getMessage());
-            return null;
+            throw new RuntimeException("Bitget order request failed", e);
         }
     }
 
@@ -293,7 +288,7 @@ public class BitgetClient {
         String signature = sign(secretKey, timestamp, "GET", requestPath, queryString, "");
 
         Request request = new Request.Builder()
-                .url(BASE_URL + requestPath + "?" + queryString)
+                .url(baseUrl + requestPath + "?" + queryString)
                 .get()
                 .addHeader("ACCESS-KEY", apiKey)
                 .addHeader("ACCESS-SIGN", signature)
@@ -352,7 +347,7 @@ public class BitgetClient {
         String signature = sign(secretKey, timestamp, "GET", requestPath, queryString, "");
 
         Request request = new Request.Builder()
-                .url(BASE_URL + requestPath + "?" + queryString)
+                .url(baseUrl + requestPath + "?" + queryString)
                 .get()
                 .addHeader("ACCESS-KEY", apiKey)
                 .addHeader("ACCESS-SIGN", signature)
