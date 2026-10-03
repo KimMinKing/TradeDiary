@@ -25,7 +25,7 @@ cd ~/tradediary
 ```
 
 ```bash
-git pull origin main
+git pull origin master
 ```
 
 ```bash

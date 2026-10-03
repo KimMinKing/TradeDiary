@@ -1,8 +1,6 @@
 name: Deploy to Oracle Cloud
 
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
     inputs:
       environment:
@@ -18,6 +16,9 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: ${{ github.event.inputs.environment || 'production' }}
+    concurrency:
+      group: oracle-${{ github.event.inputs.environment || 'production' }}
+      cancel-in-progress: false
 
     steps:
     - name: Checkout code
@@ -117,22 +118,21 @@ jobs:
               restart: unless-stopped
           EOF
 
-          # 기존 컨테이너 중지
+          # 새 이미지를 받은 뒤 백엔드 컨테이너만 교체
           cd /opt/tradediary
-          docker-compose -f docker-compose.prod.yml down
-
-          # 새로 시작
-          docker-compose -f docker-compose.prod.yml up -d
+          docker compose -f docker-compose.prod.yml config --quiet
+          docker compose -f docker-compose.prod.yml pull app
+          docker compose -f docker-compose.prod.yml up -d --no-deps app
 
           # Flyway 적용 및 DB 연결을 포함한 컨테이너 헬스체크 대기
           for attempt in $(seq 1 30); do
-            STATUS=$(docker inspect --format='{{.State.Health.Status}}' $(docker-compose -f docker-compose.prod.yml ps -q app) 2>/dev/null || true)
+            STATUS=$(docker inspect --format='{{.State.Health.Status}}' $(docker compose -f docker-compose.prod.yml ps -q app) 2>/dev/null || true)
             if [ "$STATUS" = "healthy" ]; then
               echo "Backend deployment is healthy"
               break
             fi
             if [ "$STATUS" = "unhealthy" ] || [ "$attempt" = "30" ]; then
-              docker-compose -f docker-compose.prod.yml logs --tail=200 app
+              docker compose -f docker-compose.prod.yml logs --tail=200 app
               echo "Backend health check failed: $STATUS"
               exit 1
             fi
