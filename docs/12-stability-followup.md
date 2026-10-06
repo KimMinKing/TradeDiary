@@ -26,3 +26,7 @@ npm run build
 cd ../backend
 ./gradlew test
 ```
+
+## 개발용 데이터 스크립트
+
+`/api/scripts/**`와 `/admin/scripts/**`는 데이터 삭제·생성 또는 일기 데이터 변경을 수행할 수 있습니다. `local`·`dev` 프로필에서도 기본적으로 등록되지 않으며, 격리된 개발 DB에서만 `--tradediary.admin-scripts.enabled=true`를 명시해 사용합니다. `prod` 프로필에서는 이 설정을 켜도 등록되지 않습니다.

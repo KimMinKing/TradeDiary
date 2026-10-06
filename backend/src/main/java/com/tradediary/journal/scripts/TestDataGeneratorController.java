@@ -18,6 +18,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.context.annotation.Profile;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -28,7 +29,8 @@ import java.util.*;
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/scripts")
-@Profile({"local", "dev"})
+@Profile("!prod & (local | dev)")
+@ConditionalOnProperty(prefix = "tradediary.admin-scripts", name = "enabled", havingValue = "true")
 public class TestDataGeneratorController {
 
     private final UserRepository userRepository;

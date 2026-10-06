@@ -6,11 +6,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.context.annotation.Profile;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 
 @RestController
 @RequestMapping("/api/scripts")
 @RequiredArgsConstructor
-@Profile({"local", "dev"})
+@Profile("!prod & (local | dev)")
+@ConditionalOnProperty(prefix = "tradediary.admin-scripts", name = "enabled", havingValue = "true")
 public class JournalExchangeUpdateController {
 
     private final JournalExchangeUpdater journalExchangeUpdater;
