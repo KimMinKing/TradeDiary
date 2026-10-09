@@ -394,12 +394,11 @@ public class TradeService {
         int savedCount = 0;
         List<TradeNotificationData> newTrades = new ArrayList<>();
         for (BinanceClient.BinanceTrade raw : trades) {
-            if (!existingTradeIds.add(String.valueOf(raw.id))) {
-                continue;
-            }
-
             BinanceClient.NormalizedTrade normalized = BinanceClient.NormalizedTrade.from(raw);
             if (!normalized.isValid()) {
+                continue;
+            }
+            if (!existingTradeIds.add(normalized.exchangeTradeId())) {
                 continue;
             }
 

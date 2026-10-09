@@ -47,7 +47,7 @@ const EXCHANGE_CONFIG = {
     label: 'Binance',
     color: '#f0b90b',
     activeClass: 'active-binance',
-    guide: 'Binance → Account → API Management. Enable read access for futures execution history. An IP restriction is recommended.',
+    guide: 'Binance → Account → API Management. Enable read access for futures execution history. An IP restriction is recommended. Binance API sync supports the most recent 3 months of USDⓈ-M futures trades.',
     apiKeyPlaceholder: 'API Key',
     secretKeyPlaceholder: 'Secret Key',
     hasPassphrase: false,
