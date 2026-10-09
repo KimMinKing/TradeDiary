@@ -12,6 +12,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.List;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 
 // [클래스] 매매 계획 메모 CRUD 처리
 @Service
@@ -72,9 +75,9 @@ public class TradePlanService {
     // 요청 DTO
     public record PlanRequest(
             LocalDate planDate,
-            String symbol,
-            String direction,
-            String content
+            @Size(max = 40) String symbol,
+            @Pattern(regexp = "(?i)^(LONG|SHORT|BUY|SELL)?$") String direction,
+            @NotBlank @Size(max = 5000) String content
     ) {}
 
     // 응답 DTO

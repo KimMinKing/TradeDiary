@@ -1,17 +1,21 @@
-// [파일 용도] 거래 내역 동기화 및 조회 비즈니스 로직
-
 package com.tradediary.trade;
 
 import com.tradediary.common.exception.BusinessException;
 import com.tradediary.common.exception.ErrorCode;
-import com.tradediary.exchange.ExchangeKey;
-import com.tradediary.exchange.ExchangeKeyService;
 import com.tradediary.exchange.BinanceClient;
 import com.tradediary.exchange.BingxClient;
 import com.tradediary.exchange.BitgetClient;
 import com.tradediary.exchange.BybitClient;
+import com.tradediary.exchange.ExchangeKey;
+import com.tradediary.exchange.ExchangeKeyRepository;
+import com.tradediary.exchange.ExchangeKeyService;
 import com.tradediary.exchange.OkxClient;
+import com.tradediary.exchange.KrakenClient;
 import com.tradediary.exchange.UpbitClient;
+import com.tradediary.follow.Follow;
+import com.tradediary.follow.FollowService;
+import com.tradediary.notification.NotificationService;
+import com.tradediary.notification.NotificationType;
 import com.tradediary.position.PositionService;
 import com.tradediary.user.User;
 import com.tradediary.user.UserRepository;
@@ -20,17 +24,26 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
-// [클래스] Upbit/Bybit/Bitget/OKX/Binance/BingX 거래 내역 동기화 및 거래 목록 조회
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class TradeService {
 
+    private static final Set<String> ACTIVE_SYNC_KEYS = ConcurrentHashMap.newKeySet();
+    private static final ThreadLocal<LocalDateTime> START_TIME_OVERRIDE = new ThreadLocal<>();
+
     private final TradeRepository tradeRepository;
     private final ExchangeKeyService exchangeKeyService;
+    private final ExchangeKeyRepository exchangeKeyRepository;
     private final UserRepository userRepository;
     private final UpbitClient upbitClient;
     private final BybitClient bybitClient;
@@ -38,11 +51,97 @@ public class TradeService {
     private final OkxClient okxClient;
     private final BinanceClient binanceClient;
     private final BingxClient bingxClient;
+    private final KrakenClient krakenClient;
     private final PositionService positionService;
+    private final NotificationService notificationService;
+    private final FollowService followService;
 
-    // [용도] Upbit 거래 내역 동기화 (신규 건만 저장) / [호출] TradeController.syncTrades()
-    // - 초기 동기화: DB에 거래 없으면 최근 1년 전체 조회
-    // - 증분 동기화: DB 마지막 거래 이후만 조회
+    @Transactional
+    public int syncTrades(Long userId, ExchangeKey.Exchange exchange) {
+        String syncKey = buildSyncKey(userId, exchange);
+        if (!ACTIVE_SYNC_KEYS.add(syncKey)) {
+            log.info("[TradeSync] duplicate sync skipped - userId={}, exchange={}", userId, exchange);
+            return 0;
+        }
+
+        try {
+            return switch (exchange) {
+                case UPBIT -> syncUpbitTrades(userId);
+                case BYBIT -> syncBybitTrades(userId);
+                case BITGET -> syncBitgetTrades(userId);
+                case OKX -> syncOkxTrades(userId);
+                case BINANCE -> syncBinanceTrades(userId);
+                case BINGX -> syncBingxTrades(userId);
+                case KRAKEN -> syncKrakenTrades(userId);
+            };
+        } finally {
+            ACTIVE_SYNC_KEYS.remove(syncKey);
+        }
+    }
+
+    @Transactional
+    public int syncRecentTrades(Long userId, ExchangeKey.Exchange exchange) {
+        return syncWithStartTime(userId, exchange,
+                LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul")).minusDays(7));
+    }
+
+    @Transactional
+    public int backfillTrades(Long userId, ExchangeKey.Exchange exchange) {
+        int days = switch (exchange) {
+            case BITGET, OKX, BINGX -> 90;
+            default -> 365;
+        };
+        return syncWithStartTime(userId, exchange,
+                LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul")).minusDays(days));
+    }
+
+    private int syncWithStartTime(Long userId, ExchangeKey.Exchange exchange, LocalDateTime startTime) {
+        START_TIME_OVERRIDE.set(startTime);
+        try {
+            return syncTrades(userId, exchange);
+        } finally {
+            START_TIME_OVERRIDE.remove();
+        }
+    }
+
+    private LocalDateTime resolveStartTime(Long userId, ExchangeKey.Exchange exchange, int defaultLookbackDays) {
+        LocalDateTime override = START_TIME_OVERRIDE.get();
+        if (override != null) return override;
+        return tradeRepository.findTopByUserIdAndExchangeOrderByTradedAtDesc(userId, exchange)
+                .map(Trade::getTradedAt)
+                .orElse(LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul")).minusDays(defaultLookbackDays));
+    }
+
+    @Transactional
+    public int syncKrakenTrades(Long userId) {
+        ExchangeKeyService.DecryptedKey keys =
+                exchangeKeyService.getDecryptedKey(userId, ExchangeKey.Exchange.KRAKEN);
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+        Set<String> existingTradeIds = existingTradeIds(userId, ExchangeKey.Exchange.KRAKEN);
+        LocalDateTime startTime = resolveStartTime(userId, ExchangeKey.Exchange.KRAKEN, 365);
+        List<KrakenClient.KrakenTrade> trades = krakenClient.getTrades(
+                keys.apiKey(), keys.secretKey(), startTime);
+        int savedCount = 0;
+        List<TradeNotificationData> newTrades = new ArrayList<>();
+        for (KrakenClient.KrakenTrade trade : trades) {
+            if (!existingTradeIds.add(trade.id())) continue;
+            Trade saved = tradeRepository.save(Trade.builder()
+                    .user(user).exchange(ExchangeKey.Exchange.KRAKEN)
+                    .exchangeTradeId(trade.id()).symbol(trade.symbol()).side(trade.side())
+                    .qty(trade.qty()).price(trade.price()).fee(trade.fee()).tradedAt(trade.tradedAt())
+                    .build());
+            savedCount++;
+            newTrades.add(TradeNotificationData.from(saved));
+        }
+        if (savedCount > 0) runPostSyncTasks(userId, ExchangeKey.Exchange.KRAKEN, newTrades);
+        return savedCount;
+    }
+
+    private String buildSyncKey(Long userId, ExchangeKey.Exchange exchange) {
+        return userId + ":" + exchange.name();
+    }
+
     @Transactional
     public int syncUpbitTrades(Long userId) {
         ExchangeKeyService.DecryptedKey keys =
@@ -50,34 +149,29 @@ public class TradeService {
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+        Set<String> existingTradeIds = existingTradeIds(userId, ExchangeKey.Exchange.UPBIT);
 
-        // 초기 동기화: 최근 1년 / 증분 동기화: DB 마지막 거래 시각 이후
-        LocalDateTime startTime = tradeRepository
-                .findTopByUserIdAndExchangeOrderByTradedAtDesc(userId, ExchangeKey.Exchange.UPBIT)
-                .map(Trade::getTradedAt)
-                .orElse(LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul")).minusYears(1));
-
-        log.info("Upbit 동기화 시작 - userId: {}, startTime: {}, 방식: {}",
-                userId, startTime, isInitialSync(userId) ? "초기(1년)" : "증분");
+        LocalDateTime startTime = resolveStartTime(userId, ExchangeKey.Exchange.UPBIT, 365);
 
         List<UpbitClient.UpbitOrder> orders =
                 upbitClient.getClosedOrders(keys.apiKey(), keys.secretKey(), startTime);
 
         int savedCount = 0;
+        List<TradeNotificationData> newTrades = new ArrayList<>();
         for (UpbitClient.UpbitOrder order : orders) {
-            // 수량이 0인 미체결/취소 주문 제외
-            if (order.executed_volume == null || "0".equals(order.executed_volume)) continue;
-
-            // 중복 저장 방지 (exchange_trade_id unique)
-            if (tradeRepository.existsByUserIdAndExchangeAndExchangeTradeId(
-                    userId, ExchangeKey.Exchange.UPBIT, order.uuid)) continue;
+            if (order.executed_volume == null || "0".equals(order.executed_volume)) {
+                continue;
+            }
+            if (!existingTradeIds.add(order.uuid)) {
+                continue;
+            }
 
             UpbitClient.NormalizedTrade normalized = UpbitClient.NormalizedTrade.from(order);
+            if (!normalized.isValid()) {
+                continue;
+            }
 
-            // 가격/수량이 0인 유효하지 않은 주문 제외
-            if (!normalized.isValid()) continue;
-
-            tradeRepository.save(Trade.builder()
+            Trade savedTrade = tradeRepository.save(Trade.builder()
                     .user(user)
                     .exchange(ExchangeKey.Exchange.UPBIT)
                     .exchangeTradeId(normalized.exchangeTradeId())
@@ -89,33 +183,33 @@ public class TradeService {
                     .tradedAt(normalized.tradedAt())
                     .build());
             savedCount++;
+            newTrades.add(TradeNotificationData.from(savedTrade));
         }
 
-        log.info("Upbit 거래 동기화 완료 - userId: {}, 조회: {}건, 신규 저장: {}건",
+        log.info("Upbit sync complete - userId={}, fetchedCount={}, savedCount={}",
                 userId, orders.size(), savedCount);
 
-        // 신규 거래가 있을 때만 포지션 재계산
         if (savedCount > 0) {
-            positionService.rebuildPositions(userId, ExchangeKey.Exchange.UPBIT);
+            runPostSyncTasks(userId, ExchangeKey.Exchange.UPBIT, newTrades);
         }
         return savedCount;
     }
 
-    // [용도] 거래 목록 조회 (exchange 필터 선택) / [호출] TradeController.getTrades()
     @Transactional(readOnly = true)
     public List<TradeResponse> getTrades(Long userId, String exchange) {
         if (exchange != null && !exchange.isBlank()) {
             ExchangeKey.Exchange exchangeEnum = ExchangeKey.Exchange.valueOf(exchange.toUpperCase());
             return tradeRepository.findByUserIdAndExchangeOrderByTradedAtDesc(userId, exchangeEnum)
-                    .stream().map(TradeResponse::from).toList();
+                    .stream()
+                    .map(TradeResponse::from)
+                    .toList();
         }
+
         return tradeRepository.findByUserIdOrderByTradedAtDesc(userId).stream()
-                .map(TradeResponse::from).toList();
+                .map(TradeResponse::from)
+                .toList();
     }
 
-    // [용도] Bybit 거래 내역 동기화 (신규 건만 저장) / [호출] TradeController.syncBybitTrades()
-    // - 초기 동기화: DB에 Bybit 거래 없으면 최근 1년
-    // - 증분 동기화: DB 마지막 Bybit 거래 이후
     @Transactional
     public int syncBybitTrades(Long userId) {
         ExchangeKeyService.DecryptedKey keys =
@@ -123,27 +217,26 @@ public class TradeService {
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+        Set<String> existingTradeIds = existingTradeIds(userId, ExchangeKey.Exchange.BYBIT);
 
-        LocalDateTime startTime = tradeRepository
-                .findTopByUserIdAndExchangeOrderByTradedAtDesc(userId, ExchangeKey.Exchange.BYBIT)
-                .map(Trade::getTradedAt)
-                .orElse(LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul")).minusYears(1));
-
-        log.info("Bybit 동기화 시작 - userId: {}, startTime: {}", userId, startTime);
+        LocalDateTime startTime = resolveStartTime(userId, ExchangeKey.Exchange.BYBIT, 365);
 
         List<BybitClient.BybitExecution> executions =
                 bybitClient.getExecutions(keys.apiKey(), keys.secretKey(), startTime);
 
         int savedCount = 0;
+        List<TradeNotificationData> newTrades = new ArrayList<>();
         for (BybitClient.BybitExecution exec : executions) {
-            // 중복 저장 방지
-            if (tradeRepository.existsByUserIdAndExchangeAndExchangeTradeId(
-                    userId, ExchangeKey.Exchange.BYBIT, exec.execId)) continue;
+            if (!existingTradeIds.add(exec.execId)) {
+                continue;
+            }
 
             BybitClient.NormalizedTrade normalized = BybitClient.NormalizedTrade.from(exec);
-            if (!normalized.isValid()) continue;
+            if (!normalized.isValid()) {
+                continue;
+            }
 
-            tradeRepository.save(Trade.builder()
+            Trade savedTrade = tradeRepository.save(Trade.builder()
                     .user(user)
                     .exchange(ExchangeKey.Exchange.BYBIT)
                     .exchangeTradeId(normalized.exchangeTradeId())
@@ -155,54 +248,52 @@ public class TradeService {
                     .tradedAt(normalized.tradedAt())
                     .build());
             savedCount++;
+            newTrades.add(TradeNotificationData.from(savedTrade));
         }
 
-        log.info("Bybit 거래 동기화 완료 - userId: {}, 조회: {}건, 신규 저장: {}건",
+        log.info("Bybit sync complete - userId={}, fetchedCount={}, savedCount={}",
                 userId, executions.size(), savedCount);
 
-        // 신규 거래가 있을 때만 포지션 재계산
         if (savedCount > 0) {
-            positionService.rebuildPositions(userId, ExchangeKey.Exchange.BYBIT);
+            runPostSyncTasks(userId, ExchangeKey.Exchange.BYBIT, newTrades);
         }
         return savedCount;
     }
 
-    // [용도] Bitget 거래 내역 동기화 (선물 UMCBL) / [호출] TradeController.syncBitgetTrades()
-    // - 초기 동기화: DB에 Bitget 거래 없으면 최근 1년
-    // - 증분 동기화: DB 마지막 Bitget 거래 이후
     @Transactional
     public int syncBitgetTrades(Long userId) {
         ExchangeKeyService.DecryptedKey keys =
                 exchangeKeyService.getDecryptedKey(userId, ExchangeKey.Exchange.BITGET);
 
         if (keys.passphrase() == null || keys.passphrase().isBlank()) {
-            throw new RuntimeException("Bitget passphrase가 등록되지 않았습니다. API Key를 다시 등록해주세요.");
+            throw new RuntimeException("Bitget passphrase is required.");
         }
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+        Set<String> existingTradeIds = new HashSet<>(
+                tradeRepository.findExchangeTradeIdsByUserIdAndExchange(userId, ExchangeKey.Exchange.BITGET)
+        );
+        Set<String> importedTradeIds = new HashSet<>();
 
-        // Bitget은 최대 90일만 조회 가능하므로 매번 전체 재동기화
-        // 기존 데이터를 삭제하고 재저장하여 side 오류 등을 자동 정정
-        tradeRepository.deleteAllByUserIdAndExchange(userId, ExchangeKey.Exchange.BITGET);
-        positionService.rebuildPositions(userId, ExchangeKey.Exchange.BITGET); // 포지션도 초기화
-
-        LocalDateTime startTime = LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul")).minusDays(90);
-
-        log.info("Bitget 동기화 시작 - userId: {}, startTime: {}", userId, startTime);
-
+        LocalDateTime startTime = resolveStartTime(userId, ExchangeKey.Exchange.BITGET, 90);
         List<BitgetClient.BitgetOrder> orders =
                 bitgetClient.getOrders(keys.apiKey(), keys.secretKey(), keys.passphrase(), startTime);
 
         int savedCount = 0;
+        int newTradeCount = 0;
+        List<TradeNotificationData> newTrades = new ArrayList<>();
         for (BitgetClient.BitgetOrder order : orders) {
-            if (tradeRepository.existsByUserIdAndExchangeAndExchangeTradeId(
-                    userId, ExchangeKey.Exchange.BITGET, order.orderId)) continue;
-
             BitgetClient.NormalizedTrade normalized = BitgetClient.NormalizedTrade.from(order);
-            if (!normalized.isValid()) continue;
+            if (!normalized.isValid()) {
+                continue;
+            }
+            if (!importedTradeIds.add(normalized.exchangeTradeId())
+                    || existingTradeIds.contains(normalized.exchangeTradeId())) {
+                continue;
+            }
 
-            tradeRepository.save(Trade.builder()
+            Trade savedTrade = tradeRepository.save(Trade.builder()
                     .user(user)
                     .exchange(ExchangeKey.Exchange.BITGET)
                     .exchangeTradeId(normalized.exchangeTradeId())
@@ -214,51 +305,55 @@ public class TradeService {
                     .tradedAt(normalized.tradedAt())
                     .build());
             savedCount++;
+
+            if (!existingTradeIds.contains(normalized.exchangeTradeId())) {
+                newTradeCount++;
+                newTrades.add(TradeNotificationData.from(savedTrade));
+            }
         }
 
-        log.info("Bitget 거래 동기화 완료 - userId: {}, 조회: {}건, 신규 저장: {}건",
-                userId, orders.size(), savedCount);
+        log.info("Bitget sync complete - userId={}, fetchedCount={}, savedCount={}, newTradeCount={}",
+                userId, orders.size(), savedCount, newTradeCount);
 
-        if (savedCount > 0) {
+        if (newTradeCount > 0) {
+            runPostSyncTasks(userId, ExchangeKey.Exchange.BITGET, newTrades);
+        } else {
             positionService.rebuildPositions(userId, ExchangeKey.Exchange.BITGET);
         }
         return savedCount;
     }
 
-    // [용도] OKX 거래 내역 동기화 (SWAP + FUTURES) / [호출] TradeController.syncOkxTrades()
-    // - 초기 동기화: DB에 OKX 거래 없으면 최근 90일
-    // - 증분 동기화: DB 마지막 OKX 거래 이후
     @Transactional
     public int syncOkxTrades(Long userId) {
         ExchangeKeyService.DecryptedKey keys =
                 exchangeKeyService.getDecryptedKey(userId, ExchangeKey.Exchange.OKX);
 
         if (keys.passphrase() == null || keys.passphrase().isBlank()) {
-            throw new RuntimeException("OKX passphrase가 등록되지 않았습니다. API Key를 다시 등록해주세요.");
+            throw new RuntimeException("OKX passphrase is required.");
         }
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+        Set<String> existingTradeIds = existingTradeIds(userId, ExchangeKey.Exchange.OKX);
 
-        LocalDateTime startTime = tradeRepository
-                .findTopByUserIdAndExchangeOrderByTradedAtDesc(userId, ExchangeKey.Exchange.OKX)
-                .map(Trade::getTradedAt)
-                .orElse(LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul")).minusDays(90));
-
-        log.info("OKX 동기화 시작 - userId: {}, startTime: {}", userId, startTime);
+        LocalDateTime startTime = resolveStartTime(userId, ExchangeKey.Exchange.OKX, 90);
 
         List<OkxClient.OkxOrder> orders =
                 okxClient.getOrders(keys.apiKey(), keys.secretKey(), keys.passphrase(), startTime);
 
         int savedCount = 0;
+        List<TradeNotificationData> newTrades = new ArrayList<>();
         for (OkxClient.OkxOrder order : orders) {
-            if (tradeRepository.existsByUserIdAndExchangeAndExchangeTradeId(
-                    userId, ExchangeKey.Exchange.OKX, order.orderId)) continue;
+            if (!existingTradeIds.add(order.orderId)) {
+                continue;
+            }
 
             OkxClient.NormalizedTrade normalized = OkxClient.NormalizedTrade.from(order);
-            if (!normalized.isValid()) continue;
+            if (!normalized.isValid()) {
+                continue;
+            }
 
-            tradeRepository.save(Trade.builder()
+            Trade savedTrade = tradeRepository.save(Trade.builder()
                     .user(user)
                     .exchange(ExchangeKey.Exchange.OKX)
                     .exchangeTradeId(normalized.exchangeTradeId())
@@ -270,19 +365,18 @@ public class TradeService {
                     .tradedAt(normalized.tradedAt())
                     .build());
             savedCount++;
+            newTrades.add(TradeNotificationData.from(savedTrade));
         }
 
-        log.info("OKX 거래 동기화 완료 - userId: {}, 조회: {}건, 신규 저장: {}건",
+        log.info("OKX sync complete - userId={}, fetchedCount={}, savedCount={}",
                 userId, orders.size(), savedCount);
 
         if (savedCount > 0) {
-            positionService.rebuildPositions(userId, ExchangeKey.Exchange.OKX);
+            runPostSyncTasks(userId, ExchangeKey.Exchange.OKX, newTrades);
         }
         return savedCount;
     }
 
-    // [용도] Binance USDT-M 선물 거래 내역 동기화 / [호출] TradeController.syncBinanceTrades()
-    // 1) income API로 거래된 심볼 파악 → 2) 심볼별 userTrades 조회 → 저장
     @Transactional
     public int syncBinanceTrades(Long userId) {
         ExchangeKeyService.DecryptedKey keys =
@@ -290,26 +384,25 @@ public class TradeService {
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+        Set<String> existingTradeIds = existingTradeIds(userId, ExchangeKey.Exchange.BINANCE);
 
-        LocalDateTime startTime = tradeRepository
-                .findTopByUserIdAndExchangeOrderByTradedAtDesc(userId, ExchangeKey.Exchange.BINANCE)
-                .map(Trade::getTradedAt)
-                .orElse(LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul")).minusYears(1));
-
-        log.info("Binance 동기화 시작 - userId: {}, startTime: {}", userId, startTime);
+        LocalDateTime startTime = resolveStartTime(userId, ExchangeKey.Exchange.BINANCE, 365);
 
         List<BinanceClient.BinanceTrade> trades =
                 binanceClient.getTrades(keys.apiKey(), keys.secretKey(), startTime);
 
         int savedCount = 0;
+        List<TradeNotificationData> newTrades = new ArrayList<>();
         for (BinanceClient.BinanceTrade raw : trades) {
-            if (tradeRepository.existsByUserIdAndExchangeAndExchangeTradeId(
-                    userId, ExchangeKey.Exchange.BINANCE, String.valueOf(raw.id))) continue;
-
             BinanceClient.NormalizedTrade normalized = BinanceClient.NormalizedTrade.from(raw);
-            if (!normalized.isValid()) continue;
+            if (!normalized.isValid()) {
+                continue;
+            }
+            if (!existingTradeIds.add(normalized.exchangeTradeId())) {
+                continue;
+            }
 
-            tradeRepository.save(Trade.builder()
+            Trade savedTrade = tradeRepository.save(Trade.builder()
                     .user(user)
                     .exchange(ExchangeKey.Exchange.BINANCE)
                     .exchangeTradeId(normalized.exchangeTradeId())
@@ -321,20 +414,18 @@ public class TradeService {
                     .tradedAt(normalized.tradedAt())
                     .build());
             savedCount++;
+            newTrades.add(TradeNotificationData.from(savedTrade));
         }
 
-        log.info("Binance 거래 동기화 완료 - userId: {}, 조회: {}건, 신규 저장: {}건",
+        log.info("Binance sync complete - userId={}, fetchedCount={}, savedCount={}",
                 userId, trades.size(), savedCount);
 
         if (savedCount > 0) {
-            positionService.rebuildPositions(userId, ExchangeKey.Exchange.BINANCE);
+            runPostSyncTasks(userId, ExchangeKey.Exchange.BINANCE, newTrades);
         }
         return savedCount;
     }
 
-    // [용도] BingX USDT-M 선물 거래 내역 동기화 / [호출] TradeController.syncBingxTrades()
-    // - 초기 동기화: DB에 BingX 거래 없으면 최근 90일
-    // - 증분 동기화: DB 마지막 BingX 거래 이후
     @Transactional
     public int syncBingxTrades(Long userId) {
         ExchangeKeyService.DecryptedKey keys =
@@ -342,26 +433,26 @@ public class TradeService {
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+        Set<String> existingTradeIds = existingTradeIds(userId, ExchangeKey.Exchange.BINGX);
 
-        LocalDateTime startTime = tradeRepository
-                .findTopByUserIdAndExchangeOrderByTradedAtDesc(userId, ExchangeKey.Exchange.BINGX)
-                .map(Trade::getTradedAt)
-                .orElse(LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul")).minusDays(90));
-
-        log.info("BingX 동기화 시작 - userId: {}, startTime: {}", userId, startTime);
+        LocalDateTime startTime = resolveStartTime(userId, ExchangeKey.Exchange.BINGX, 90);
 
         List<BingxClient.BingxOrder> orders =
                 bingxClient.getTrades(keys.apiKey(), keys.secretKey(), startTime);
 
         int savedCount = 0;
+        List<TradeNotificationData> newTrades = new ArrayList<>();
         for (BingxClient.BingxOrder raw : orders) {
-            if (tradeRepository.existsByUserIdAndExchangeAndExchangeTradeId(
-                    userId, ExchangeKey.Exchange.BINGX, String.valueOf(raw.orderId))) continue;
+            if (!existingTradeIds.add(String.valueOf(raw.orderId))) {
+                continue;
+            }
 
             BingxClient.NormalizedTrade normalized = BingxClient.NormalizedTrade.from(raw);
-            if (!normalized.isValid()) continue;
+            if (!normalized.isValid()) {
+                continue;
+            }
 
-            tradeRepository.save(Trade.builder()
+            Trade savedTrade = tradeRepository.save(Trade.builder()
                     .user(user)
                     .exchange(ExchangeKey.Exchange.BINGX)
                     .exchangeTradeId(normalized.exchangeTradeId())
@@ -373,23 +464,154 @@ public class TradeService {
                     .tradedAt(normalized.tradedAt())
                     .build());
             savedCount++;
+            newTrades.add(TradeNotificationData.from(savedTrade));
         }
 
-        log.info("BingX 거래 동기화 완료 - userId: {}, 조회: {}건, 신규 저장: {}건",
+        log.info("BingX sync complete - userId={}, fetchedCount={}, savedCount={}",
                 userId, orders.size(), savedCount);
 
         if (savedCount > 0) {
-            positionService.rebuildPositions(userId, ExchangeKey.Exchange.BINGX);
+            runPostSyncTasks(userId, ExchangeKey.Exchange.BINGX, newTrades);
         }
         return savedCount;
     }
 
-    // [용도] 초기 동기화 여부 확인 / [호출] syncUpbitTrades()
-    private boolean isInitialSync(Long userId) {
-        return !tradeRepository.existsByUserIdAndExchange(userId, ExchangeKey.Exchange.UPBIT);
+    private void runPostSyncTasks(Long userId, ExchangeKey.Exchange exchange, List<TradeNotificationData> newTrades) {
+        List<TradeNotificationData> sortedTrades = newTrades.stream()
+                .sorted(Comparator.comparing(TradeNotificationData::tradedAt))
+                .toList();
+
+        positionService.rebuildPositions(userId, exchange);
+
+        try {
+            createTradeNotifications(userId, exchange, sortedTrades);
+            notifyFollowersAboutTrades(userId, exchange, sortedTrades);
+        } catch (RuntimeException e) {
+            log.warn("[TradeSync] trade notification creation failed - userId={}, exchange={}, newTradeCount={}",
+                    userId, exchange, sortedTrades.size(), e);
+        }
     }
 
-    // 거래 응답 DTO
+    private Set<String> existingTradeIds(Long userId, ExchangeKey.Exchange exchange) {
+        return new HashSet<>(tradeRepository.findExchangeTradeIdsByUserIdAndExchange(userId, exchange));
+    }
+
+    private void createTradeNotifications(Long userId, ExchangeKey.Exchange exchange, List<TradeNotificationData> newTrades) {
+        if (newTrades.isEmpty()) {
+            return;
+        }
+
+        ExchangeKey exchangeKey = exchangeKeyRepository.findByUserIdAndExchange(userId, exchange)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+
+        LocalDateTime lastTradeNotifiedAt = exchangeKey.getLastTradeNotifiedAt();
+        LocalDateTime latestTradeAt = newTrades.get(newTrades.size() - 1).tradedAt();
+        if (lastTradeNotifiedAt == null) {
+            exchangeKey.updateLastTradeNotifiedAt(latestTradeAt);
+            return;
+        }
+
+        LocalDateTime maxNotifiedAt = lastTradeNotifiedAt;
+        for (TradeNotificationData trade : newTrades) {
+            if (!trade.tradedAt().isAfter(lastTradeNotifiedAt)) {
+                continue;
+            }
+
+            notificationService.createNotification(
+                    userId,
+                    NotificationType.TRADE_EXECUTED,
+                    buildTradeTitle(trade),
+                    buildTradeMessage(exchange, trade),
+                    trade.symbol(),
+                    "trade-executed-" + exchange.name() + "-" + trade.exchangeTradeId()
+            );
+            maxNotifiedAt = trade.tradedAt();
+        }
+
+        exchangeKey.updateLastTradeNotifiedAt(maxNotifiedAt);
+    }
+
+    private void notifyFollowersAboutTrades(Long userId, ExchangeKey.Exchange exchange, List<TradeNotificationData> newTrades) {
+        if (newTrades.isEmpty()) {
+            return;
+        }
+
+        List<Follow> follows = followService.getFollowersWithFollower(userId);
+        if (follows.isEmpty()) {
+            return;
+        }
+
+        User trader = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+        LocalDateTime latestTradeAt = newTrades.get(newTrades.size() - 1).tradedAt();
+
+        for (Follow follow : follows) {
+            LocalDateTime lastNotifiedAt = follow.getLastFollowerTradeNotifiedAt();
+            if (lastNotifiedAt == null) {
+                follow.updateLastFollowerTradeNotifiedAt(latestTradeAt);
+                continue;
+            }
+
+            LocalDateTime maxNotifiedAt = lastNotifiedAt;
+            for (TradeNotificationData trade : newTrades) {
+                if (!trade.tradedAt().isAfter(lastNotifiedAt)) {
+                    continue;
+                }
+
+                notificationService.createNotification(
+                        follow.getFollower().getId(),
+                        NotificationType.FOLLOWER_TRADE,
+                        trader.getNickname() + " · " + buildTradeTitle(trade),
+                        buildTradeMessage(exchange, trade),
+                        trade.symbol(),
+                        "follower-trade-" + follow.getId() + "-" + trade.exchangeTradeId()
+                );
+                maxNotifiedAt = trade.tradedAt();
+            }
+
+            follow.updateLastFollowerTradeNotifiedAt(maxNotifiedAt);
+        }
+    }
+
+    private String buildTradeTitle(TradeNotificationData trade) {
+        return String.format("%s %s executed",
+                trade.symbol(),
+                trade.side() == TradeSide.BUY ? "BUY" : "SELL");
+    }
+
+    private String buildTradeMessage(ExchangeKey.Exchange exchange, TradeNotificationData trade) {
+        return String.format("%s · %s · %s · Qty %s · Price %s",
+                exchange.name(),
+                trade.symbol(),
+                trade.side() == TradeSide.BUY ? "BUY" : "SELL",
+                formatDecimal(trade.qty()),
+                formatDecimal(trade.price()));
+    }
+
+    private String formatDecimal(BigDecimal value) {
+        return value.stripTrailingZeros().toPlainString();
+    }
+
+    private record TradeNotificationData(
+            String exchangeTradeId,
+            String symbol,
+            TradeSide side,
+            BigDecimal qty,
+            BigDecimal price,
+            LocalDateTime tradedAt
+    ) {
+        private static TradeNotificationData from(Trade trade) {
+            return new TradeNotificationData(
+                    trade.getExchangeTradeId(),
+                    trade.getSymbol(),
+                    trade.getSide(),
+                    trade.getQty(),
+                    trade.getPrice(),
+                    trade.getTradedAt()
+            );
+        }
+    }
+
     public record TradeResponse(
             Long id,
             String exchange,

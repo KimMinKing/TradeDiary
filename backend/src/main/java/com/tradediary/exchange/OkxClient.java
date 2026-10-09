@@ -10,6 +10,7 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import com.tradediary.trade.TradeSide;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.Mac;
@@ -30,7 +31,8 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class OkxClient {
 
-    private static final String BASE_URL = "https://www.okx.com";
+    @Value("${okx.base-url:https://www.okx.com}")
+    private String baseUrl = "https://www.okx.com";
     private static final String PATH     = "/api/v5/trade/orders-history-archive";
     private static final int    PAGE_SIZE = 100;
 
@@ -40,7 +42,6 @@ public class OkxClient {
     // [용도] OKX 선물 체결 내역 전체 조회 (SWAP + FUTURES) / [호출] TradeService.syncOkxTrades()
     // startTime: 초기 동기화 = 90일 전, 증분 동기화 = DB 마지막 거래 시각
     public List<OkxOrder> getOrders(String apiKey, String secretKey, String passphrase, LocalDateTime startTime) {
-        log.info("[OKX] API Key 앞 6자리: {}...", apiKey.length() > 6 ? apiKey.substring(0, 6) : apiKey);
 
         LocalDateTime now = LocalDateTime.now(ZoneId.of("Asia/Seoul"));
         LocalDateTime cutoff = now.minusDays(90);
@@ -68,15 +69,9 @@ public class OkxClient {
         String after = null; // 이전 페이지 마지막 ordId (오래된 데이터 요청용 커서)
 
         while (true) {
-            List<OkxOrder> page;
-            try {
-                page = fetchPage(apiKey, secretKey, passphrase, instType, beginMs, after);
-            } catch (RuntimeException e) {
-                log.error("[OKX] {} 동기화 중단: {}", instType, e.getMessage());
-                break;
-            }
+            List<OkxOrder> page = fetchPage(apiKey, secretKey, passphrase, instType, beginMs, after);
 
-            if (page == null || page.isEmpty()) break;
+            if (page.isEmpty()) break;
             result.addAll(page);
 
             if (page.size() < PAGE_SIZE) break; // 마지막 페이지
@@ -108,7 +103,7 @@ public class OkxClient {
         String signature = sign(secretKey, timestamp, "GET", requestPath, "");
 
         Request request = new Request.Builder()
-                .url(BASE_URL + requestPath)
+                .url(baseUrl + requestPath)
                 .get()
                 .addHeader("OK-ACCESS-KEY", apiKey)
                 .addHeader("OK-ACCESS-SIGN", signature)
@@ -119,7 +114,7 @@ public class OkxClient {
 
         try (Response response = httpClient.newCall(request).execute()) {
             String body = response.body().string();
-            log.info("[OKX] HTTP {}, body: {}", response.code(),
+            log.debug("[OKX] HTTP {}, body: {}", response.code(),
                     body.length() > 500 ? body.substring(0, 500) + "..." : body);
 
             JsonObject json = gson.fromJson(body, JsonObject.class);
@@ -163,7 +158,7 @@ public class OkxClient {
         } catch (Exception e) {
             if (e instanceof RuntimeException re) throw re;
             log.error("[OKX] 호출 실패: {}", e.getMessage());
-            return null;
+            throw new RuntimeException("OKX order request failed for " + instType, e);
         }
     }
 
@@ -204,7 +199,7 @@ public class OkxClient {
         String signature = sign(secretKey, timestamp, "GET", requestPath, "");
 
         Request request = new Request.Builder()
-                .url(BASE_URL + requestPath)
+                .url(baseUrl + requestPath)
                 .get()
                 .addHeader("OK-ACCESS-KEY", apiKey)
                 .addHeader("OK-ACCESS-SIGN", signature)
@@ -215,7 +210,7 @@ public class OkxClient {
 
         try (Response response = httpClient.newCall(request).execute()) {
             String body = response.body().string();
-            log.info("[OKX] 잔고 조회 status={}, body 앞 200자: {}",
+            log.debug("[OKX] 잔고 조회 status={}, body 앞 200자: {}",
                     response.code(), body.length() > 200 ? body.substring(0, 200) + "..." : body);
 
             JsonObject json = gson.fromJson(body, JsonObject.class);

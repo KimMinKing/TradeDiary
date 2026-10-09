@@ -2,6 +2,7 @@
 
 package com.tradediary.dashboard;
 
+import com.tradediary.common.service.PnlCalculationService;
 import com.tradediary.journal.TradeJournal;
 import com.tradediary.journal.TradeJournalRepository;
 import com.tradediary.plan.TradePlan;
@@ -15,7 +16,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
@@ -31,6 +31,7 @@ public class DashboardService {
     private final TradeJournalRepository journalRepository;
     private final TradePlanRepository    planRepository;
     private final UserRepository         userRepository;
+    private final PnlCalculationService  pnlCalculationService;
 
     // [용도] 대시보드 전체 데이터 조회 / [호출] DashboardController.getDashboard()
     @Transactional(readOnly = true)
@@ -145,7 +146,7 @@ public class DashboardService {
                             plan.getSymbol(), plan.getDirection(), plan.getContent(),
                             "DIFFERENT_SYMBOL",
                             actual.getSymbol(), actual.getSide().name(),
-                            actual.getPnl().setScale(2, RoundingMode.HALF_UP).toPlainString()
+                            pnlCalculationService.formatKrw(pnlCalculationService.toKrw(actual))
                     ));
                 } else {
                     // 심볼 매칭됨 → 방향 비교
@@ -156,7 +157,7 @@ public class DashboardService {
                             plan.getSymbol(), plan.getDirection(), plan.getContent(),
                             directionMatch ? "MATCHED" : "DIFFERENT_DIRECTION",
                             actual.getSymbol(), actual.getSide().name(),
-                            actual.getPnl().setScale(2, RoundingMode.HALF_UP).toPlainString()
+                            pnlCalculationService.formatKrw(pnlCalculationService.toKrw(actual))
                     ));
                 }
             } else {
@@ -167,7 +168,7 @@ public class DashboardService {
                         null, plan.getDirection(), plan.getContent(),
                         "MATCHED",
                         actual.getSymbol(), actual.getSide().name(),
-                        actual.getPnl().setScale(2, RoundingMode.HALF_UP).toPlainString()
+                        pnlCalculationService.formatKrw(pnlCalculationService.toKrw(actual))
                 ));
             }
         }
@@ -187,10 +188,9 @@ public class DashboardService {
         int total = positions.size();
         int wins  = (int) positions.stream().filter(p -> p.getPnl().compareTo(BigDecimal.ZERO) > 0).count();
         double winRate = round2((double) wins / total * 100);
-        BigDecimal totalPnl = positions.stream().map(Position::getPnl)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalPnl = pnlCalculationService.sumKrw(positions);
         return new DashboardResponse.PeriodStats(total, wins, winRate,
-                totalPnl.setScale(2, RoundingMode.HALF_UP).toPlainString());
+                pnlCalculationService.formatKrw(totalPnl));
     }
 
     // [용도] 전체 기간 요약 통계 / [호출] getDashboard()
@@ -198,10 +198,9 @@ public class DashboardService {
         if (all.isEmpty()) return new DashboardResponse.OverallStats(0, 0.0, "0");
         int total = all.size();
         int wins  = (int) all.stream().filter(p -> p.getPnl().compareTo(BigDecimal.ZERO) > 0).count();
-        BigDecimal totalPnl = all.stream().map(Position::getPnl)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalPnl = pnlCalculationService.sumKrw(all);
         return new DashboardResponse.OverallStats(total, round2((double) wins / total * 100),
-                totalPnl.setScale(2, RoundingMode.HALF_UP).toPlainString());
+                pnlCalculationService.formatKrw(totalPnl));
     }
 
     // [용도] 최근 포지션 5개 DTO 변환 / [호출] getDashboard()
@@ -210,7 +209,7 @@ public class DashboardService {
                 p.getSymbol(),
                 p.getExchange().name(),
                 p.getSide().name(),
-                p.getPnl().setScale(2, RoundingMode.HALF_UP).toPlainString(),
+                pnlCalculationService.formatKrw(pnlCalculationService.toKrw(p)),
                 p.getClosedAt().toLocalDate().toString()
         )).toList();
     }

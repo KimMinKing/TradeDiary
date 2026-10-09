@@ -11,4 +11,6 @@ public interface MonthlyGoalRepository extends JpaRepository<MonthlyGoal, Long> 
 
     // [용도] 특정 사용자의 특정 월 목표 조회 / [호출] MonthlyGoalService.getGoal()
     Optional<MonthlyGoal> findByUserIdAndYearMonth(Long userId, String yearMonth);
+
+    void deleteByUserIdAndYearMonth(Long userId, String yearMonth);
 }

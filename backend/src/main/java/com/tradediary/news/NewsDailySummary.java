@@ -28,6 +28,9 @@ public class NewsDailySummary {
     @Column(name = "summary_ko", nullable = false, columnDefinition = "TEXT")
     private String summaryKo;
 
+    @Column(name = "summary_en", columnDefinition = "TEXT")
+    private String summaryEn;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 

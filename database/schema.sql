@@ -127,6 +127,28 @@ CREATE TABLE IF NOT EXISTS journal_strategy_tags (
 -- 기존 trade_journals 마이그레이션
 ALTER TABLE trade_journals ADD COLUMN IF NOT EXISTS image TEXT;
 
+-- =============================================
+-- 체크리스트 항목 정의
+-- =============================================
+CREATE TABLE IF NOT EXISTS checklist_items (
+    id              BIGSERIAL PRIMARY KEY,
+    user_id         BIGINT       REFERENCES users(id) ON DELETE CASCADE,  -- NULL = 시스템 기본 제공
+    category        VARCHAR(20)  NOT NULL,  -- ENTRY(매수 전), EXIT(매도 전), REVIEW(복기)
+    content         TEXT         NOT NULL,
+    sort_order      INT          NOT NULL DEFAULT 0,
+    is_active       BOOLEAN      NOT NULL DEFAULT TRUE,
+    created_at      TIMESTAMP    NOT NULL DEFAULT NOW()
+);
+
+-- 일기별 체크리스트 체크 상태
+CREATE TABLE IF NOT EXISTS journal_checklist (
+    id              BIGSERIAL PRIMARY KEY,
+    journal_id      BIGINT       NOT NULL REFERENCES trade_journals(id) ON DELETE CASCADE,
+    checklist_id    BIGINT       NOT NULL REFERENCES checklist_items(id)  ON DELETE CASCADE,
+    checked         BOOLEAN      NOT NULL DEFAULT FALSE,
+    UNIQUE (journal_id, checklist_id)
+);
+
 -- 포지션 ↔ 전략태그 다대다 매핑 (포지션 구현 시 사용)
 CREATE TABLE IF NOT EXISTS position_strategy_tags (
     position_id     BIGINT NOT NULL REFERENCES positions(id) ON DELETE CASCADE,

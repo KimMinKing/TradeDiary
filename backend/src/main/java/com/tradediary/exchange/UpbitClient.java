@@ -12,28 +12,33 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import com.tradediary.trade.TradeSide;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.lang.reflect.Type;
 import java.math.BigDecimal;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
+import java.time.Duration;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 
 // [클래스] Upbit /v1/orders/closed API 호출 (7일 슬라이딩 윈도우 방식)
 @Slf4j
 @Component
 public class UpbitClient {
 
-    private static final String BASE_URL = "https://api.upbit.com/v1";
+    @Value("${upbit.base-url:https://api.upbit.com/v1}")
+    private String baseUrl = "https://api.upbit.com/v1";
     // /v1/orders/closed 최대 조회 기간: 7일 / 최대 limit: 1000
     private static final int WINDOW_DAYS = 7;
     private static final int PAGE_LIMIT = 1000;
+    private static final int TICKER_MAX_RETRIES = 3;
+    private static final long TICKER_RETRY_DELAY_MS = 5000L;
 
     private final OkHttpClient httpClient = new OkHttpClient();
     private final Gson gson = new Gson();
@@ -43,7 +48,7 @@ public class UpbitClient {
     // API 오류(IP 차단 등) 발생 시 즉시 루프 중단하여 불필요한 추가 요청 방지
     public List<UpbitOrder> getClosedOrders(String accessKey, String secretKey, LocalDateTime startTime) {
         // 복호화된 Key 앞 6자리만 로그 (검증용)
-        log.info("[Upbit] Access Key 앞 6자리: {}...", accessKey.length() > 6 ? accessKey.substring(0, 6) : accessKey);
+        log.debug("[Upbit] Access Key 앞 6자리: {}...", accessKey.length() > 6 ? accessKey.substring(0, 6) : accessKey);
 
         List<UpbitOrder> allOrders = new ArrayList<>();
         LocalDateTime windowStart = startTime.truncatedTo(ChronoUnit.SECONDS);
@@ -69,10 +74,6 @@ public class UpbitClient {
 
             windowStart = windowEnd;
 
-            // rate limit 방지: 윈도우 이동 시 200ms 딜레이
-            if (windowStart.isBefore(now)) {
-                try { TimeUnit.MILLISECONDS.sleep(200); } catch (InterruptedException ignored) {}
-            }
         }
 
         log.info("[Upbit] 전체 조회 완료: {}건", allOrders.size());
@@ -82,6 +83,25 @@ public class UpbitClient {
     // [용도] 특정 7일 윈도우 내 주문 조회 / [호출] getClosedOrders()
     private List<UpbitOrder> fetchWindow(String accessKey, String secretKey,
                                           LocalDateTime windowStart, LocalDateTime windowEnd) {
+        List<UpbitOrder> orders = fetchWindowPage(accessKey, secretKey, windowStart, windowEnd);
+        if (orders.size() < PAGE_LIMIT) return orders;
+
+        long seconds = Duration.between(windowStart, windowEnd).getSeconds();
+        if (seconds < 2) {
+            throw new IllegalStateException("Upbit 종료 주문 1,000건 조회 한도 초과: "
+                    + windowStart + " ~ " + windowEnd);
+        }
+
+        LocalDateTime midpoint = windowStart.plusSeconds(seconds / 2);
+        log.warn("[Upbit] {} ~ {} 구간이 1,000건에 도달하여 분할 조회", windowStart, windowEnd);
+        List<UpbitOrder> result = new ArrayList<>(orders.size());
+        result.addAll(fetchWindow(accessKey, secretKey, windowStart, midpoint));
+        result.addAll(fetchWindow(accessKey, secretKey, midpoint, windowEnd));
+        return result;
+    }
+
+    private List<UpbitOrder> fetchWindowPage(String accessKey, String secretKey,
+                                              LocalDateTime windowStart, LocalDateTime windowEnd) {
         // state 미지정 → 기본값 done+cancel 모두 반환
         // cancel 포함 이유: 시장가 매수(ord_type=price)는 소수점 잔량으로 인해 state=cancel로 끝날 수 있음
         // 실제 체결 여부는 executed_volume > 0 으로 판단 (TradeService에서 필터링)
@@ -99,12 +119,13 @@ public class UpbitClient {
         String jwtToken = createJwt(accessKey, secretKey, hashQueryString);
 
         Request request = new Request.Builder()
-                .url(BASE_URL + "/orders/closed?" + urlQueryString)
+                .url(baseUrl + "/orders/closed?" + urlQueryString)
                 .get()
                 .addHeader("Accept", "application/json")
                 .addHeader("Authorization", "Bearer " + jwtToken)
                 .build();
 
+        RateLimitUtils.waitForNextRequest();
         try (Response response = httpClient.newCall(request).execute()) {
             String body = response.body().string();
             log.info("[Upbit] status={}, body 앞 200자: {}",
@@ -116,8 +137,8 @@ public class UpbitClient {
                 throw new RuntimeException("Upbit API 오류 (status=" + response.code() + "): " + body);
             }
 
-            List<UpbitOrder> orders = gson.fromJson(body,
-                    new TypeToken<List<UpbitOrder>>() {}.getType());
+            Type type = new TypeToken<List<UpbitOrder>>() {}.getType();
+            List<UpbitOrder> orders = gson.fromJson(body, type);
             return orders != null ? orders : Collections.emptyList();
 
         } catch (RuntimeException e) {
@@ -192,7 +213,7 @@ public class UpbitClient {
         String jwtToken = createJwt(accessKey, secretKey, null);
 
         Request request = new Request.Builder()
-                .url(BASE_URL + "/accounts")
+                .url(baseUrl + "/accounts")
                 .get()
                 .addHeader("Accept", "application/json")
                 .addHeader("Authorization", "Bearer " + jwtToken)
@@ -200,18 +221,97 @@ public class UpbitClient {
 
         try (Response response = httpClient.newCall(request).execute()) {
             String body = response.body().string();
-            log.info("[Upbit] 잔고 조회 status={}, body 앞 200자: {}",
+            log.debug("[Upbit] 잔고 조회 status={}, body 앞 200자: {}",
                     response.code(), body.length() > 200 ? body.substring(0, 200) + "..." : body);
             if (!response.isSuccessful()) {
                 throw new RuntimeException("status=" + response.code());
             }
-            List<UpbitBalance> result = gson.fromJson(body,
-                    new TypeToken<List<UpbitBalance>>() {}.getType());
+            Type type = new TypeToken<List<UpbitBalance>>() {}.getType();
+            List<UpbitBalance> result = gson.fromJson(body, type);
             return result != null ? result : Collections.emptyList();
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
             throw new RuntimeException(e.getMessage(), e);
+        }
+    }
+
+        // [용도] 현재 시세 조회 / [호출] MarketController.getCurrentPrice()
+    public List<Map<String, Object>> getTicker(String market) {
+        for (int attempt = 1; attempt <= TICKER_MAX_RETRIES; attempt++) {
+            RateLimitUtils.waitForNextRequest();
+
+            Request request = new Request.Builder()
+                    .url(baseUrl + "/ticker?markets=" + market)
+                    .get()
+                    .addHeader("Accept", "application/json")
+                    .build();
+
+            try (Response response = httpClient.newCall(request).execute()) {
+                String body = response.body().string();
+                log.debug("[Upbit] Ticker status={}, market={}, body={}",
+                        response.code(), market, body.length() > 200 ? body.substring(0, 200) + "..." : body);
+
+                if (!response.isSuccessful()) {
+                    if (response.code() == 429 && attempt < TICKER_MAX_RETRIES) {
+                        log.warn("[Upbit] Ticker rate limit. market={}, retry={}/{} after {}ms",
+                                market, attempt, TICKER_MAX_RETRIES, TICKER_RETRY_DELAY_MS);
+                        sleepTickerRetry();
+                        continue;
+                    }
+                    throw new RuntimeException("Upbit Ticker API 오류: " + body);
+                }
+
+                Type type = new TypeToken<List<Map<String, Object>>>() {}.getType();
+                List<Map<String, Object>> result = gson.fromJson(body, type);
+                return result != null ? result : Collections.emptyList();
+            } catch (RuntimeException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new RuntimeException("Upbit Ticker 호출 실패: " + e.getMessage(), e);
+            }
+        }
+
+        return Collections.emptyList();
+    }
+
+    private void sleepTickerRetry() {
+        try {
+            Thread.sleep(TICKER_RETRY_DELAY_MS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    // [용도] 시간별 캔들 조회 / [호출] MarketController.getCandles()
+    public List<UpbitCandle> getCandles(String market, String unit, Integer count, String to) {
+        StringBuilder url = new StringBuilder(baseUrl + "/candles/" + unit + "?market=" + market);
+        if (count != null) {
+            url.append("&count=").append(count);
+        }
+        if (to != null && !to.isEmpty()) {
+            url.append("&to=").append(to);
+        }
+
+        Request request = new Request.Builder()
+                .url(url.toString())
+                .get()
+                .addHeader("Accept", "application/json")
+                .build();
+
+        try (Response response = httpClient.newCall(request).execute()) {
+            String body = response.body().string();
+            log.debug("[Upbit] Candles status={}, body: {}", response.code(), body);
+
+            if (!response.isSuccessful()) {
+                throw new RuntimeException("Upbit Candles API 오류: " + body);
+            }
+
+            Type type = new TypeToken<List<UpbitCandle>>() {}.getType();
+            List<UpbitCandle> result = gson.fromJson(body, type);
+            return result != null ? result : Collections.emptyList();
+        } catch (Exception e) {
+            throw new RuntimeException("Upbit Candles 호출 실패: " + e.getMessage(), e);
         }
     }
 
@@ -236,6 +336,28 @@ public class UpbitClient {
         public String executed_funds;   // 총 체결 금액
         public String paid_fee;         // 수수료
         public String created_at;       // ISO 8601 +09:00
+    }
+
+    // Upbit 캔들 응답 DTO
+    public static class UpbitCandle {
+        public String market;
+        public String candl_date_time_utc;
+        public String opening_price;
+        public String high_price;
+        public String low_price;
+        public String trade_price;
+        public String candle_date_time_kst;
+        public String timestamp;
+        public String candle_acc_trade_price;
+        public String candle_acc_trade_volume;
+
+        public String getDateTime() { return candl_date_time_utc; }
+        public String getOpen() { return opening_price; }
+        public String getHigh() { return high_price; }
+        public String getLow() { return low_price; }
+        public String getClose() { return trade_price; }
+        public String getDateTimeKst() { return candle_date_time_kst; }
+        public String getTimestamp() { return timestamp; }
     }
 
     // [용도] UpbitOrder를 공통 형식으로 변환 / [호출] TradeService.syncUpbitTrades()

@@ -1,15 +1,17 @@
-// [파일 용도] 거래소 API Key 관리 페이지 (관리 → 선택 → 연결 3단계)
+// [파일 용도] Exchange API Key 관리 페이지 (관리 → 선택 → 연결 3단계)
 
 import { useState, useEffect, useRef } from 'react';
-import { saveExchangeKey, getMyExchangeKeys, deleteExchangeKey } from '../api/exchangeApi';
+import { siBinance, siOkx } from 'simple-icons';
+import { saveExchangeKey, getMyExchangeKeys, deleteExchangeKey, syncTrades, getSyncStatus } from '../api/exchangeApi';
+import { invalidateCache } from '../api/requestCache';
 
-// [상수] 거래소별 설정
+// [상수] Exchange별 Settings
 const EXCHANGE_CONFIG = {
   UPBIT: {
     label: 'Upbit',
     color: '#3b82f6',
     activeClass: 'active-upbit',
-    guide: 'Upbit → 마이페이지 → Open API 관리에서 자산조회, 주문조회 권한으로 발급하세요.',
+    guide: 'Upbit → My Page → Open API Management. Enable the View Assets and View Orders permissions.',
     apiKeyPlaceholder: 'Access Key',
     secretKeyPlaceholder: 'Secret Key',
     hasPassphrase: false,
@@ -18,7 +20,7 @@ const EXCHANGE_CONFIG = {
     label: 'Bybit',
     color: '#f97316',
     activeClass: 'active-bybit',
-    guide: 'Bybit → 계정 → API 관리에서 포지션, 주문, 거래 조회 권한으로 발급하세요.',
+    guide: 'Bybit → Account → API Management. Enable read access for positions, orders, and executions.',
     apiKeyPlaceholder: 'API Key',
     secretKeyPlaceholder: 'Secret Key',
     hasPassphrase: false,
@@ -27,7 +29,7 @@ const EXCHANGE_CONFIG = {
     label: 'Bitget',
     color: '#00c0a3',
     activeClass: 'active-bitget',
-    guide: 'Bitget → API Key 관리에서 읽기전용 권한으로 발급하세요. Passphrase는 API Key 생성 시 직접 설정한 비밀번호입니다.',
+    guide: 'Bitget → API Key Management. Create a read-only key. The passphrase is the password you set when creating the key.',
     apiKeyPlaceholder: 'API Key',
     secretKeyPlaceholder: 'Secret Key',
     hasPassphrase: true,
@@ -36,7 +38,7 @@ const EXCHANGE_CONFIG = {
     label: 'OKX',
     color: '#e4a400',
     activeClass: 'active-okx',
-    guide: 'OKX → 계정 → API → API Key 생성에서 Read 권한으로 발급하세요. Passphrase는 API Key 생성 시 직접 설정한 비밀번호입니다.',
+    guide: 'OKX → Account → API → Create API Key. Enable Read permission. The passphrase is the password you set when creating the key.',
     apiKeyPlaceholder: 'API Key',
     secretKeyPlaceholder: 'Secret Key',
     hasPassphrase: true,
@@ -45,7 +47,7 @@ const EXCHANGE_CONFIG = {
     label: 'Binance',
     color: '#f0b90b',
     activeClass: 'active-binance',
-    guide: 'Binance → 계정 → API 관리에서 읽기 권한(선물 거래 내역 조회)으로 발급하세요. IP 제한 설정을 권장합니다.',
+    guide: 'Binance → Account → API Management. Enable read access for futures execution history. An IP restriction is recommended. Binance API sync supports the most recent 3 months of USDⓈ-M futures trades.',
     apiKeyPlaceholder: 'API Key',
     secretKeyPlaceholder: 'Secret Key',
     hasPassphrase: false,
@@ -54,16 +56,66 @@ const EXCHANGE_CONFIG = {
     label: 'BingX',
     color: '#1db8c0',
     activeClass: 'active-bingx',
-    guide: 'BingX → 사용자센터 → API 관리에서 읽기 전용 권한으로 발급하세요. IP 화이트리스트 설정을 권장합니다.',
+    guide: 'BingX → User Center → API Management. Create a read-only key. An IP allowlist is recommended.',
     apiKeyPlaceholder: 'API Key',
     secretKeyPlaceholder: 'Secret Key',
     hasPassphrase: false,
   },
+  KRAKEN: {
+    label: 'Kraken',
+    color: '#7252f3',
+    activeClass: 'active-kraken',
+    guide: 'For Kraken, enable Query Funds and Query Closed Orders & Trades. Withdrawal permission is not required.',
+    apiKeyPlaceholder: 'API Key',
+    secretKeyPlaceholder: 'Private Key (Base64)',
+    hasPassphrase: false,
+  },
+};
+
+const EXCHANGE_MARKS = {
+  UPBIT: { label: 'UP', color: '#1261c9' },
+  BYBIT: { label: 'BY', color: '#f7a600' },
+  BITGET: { label: 'BG', color: '#00b8a9' },
+  OKX: { icon: siOkx, color: '#111827' },
+  BINANCE: { icon: siBinance, color: '#f0b90b' },
+  BINGX: { label: 'BX', color: '#10a7b5' },
+  KRAKEN: { label: 'KR', color: '#5741d9' },
+};
+
+const ExchangeMark = ({ exchange, size = 24 }) => {
+  const mark = EXCHANGE_MARKS[exchange] || { label: 'EX', color: '#64748b' };
+  return (
+    <span className="exchange-brand-mark" style={{ width: size, height: size, '--exchange-color': mark.color }}>
+      {mark.icon ? (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d={mark.icon.path} fill="currentColor" />
+        </svg>
+      ) : (
+        <span>{mark.label}</span>
+      )}
+    </span>
+  );
 };
 
 const SERVER_IP = '152.69.206.56';
 
-// [컴포넌트] 거래소 API Key 관리 화면 / [호출] App.jsx 라우터
+// CSS-in-JS 스타일
+const style = document.createElement('style');
+style.textContent = `
+  @keyframes slideIn {
+    from {
+      transform: translateX(100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+`;
+document.head.appendChild(style);
+
+// [컴포넌트] Exchange API Key 관리 화면 / [호출] App.jsx 라우터
 const ExchangeKeyPage = () => {
   // step: 'manage' | 'select' | 'connect'
   const [step,                setStep]                = useState('manage');
@@ -76,10 +128,31 @@ const ExchangeKeyPage = () => {
   const [message,             setMessage]             = useState('');
   const [error,               setError]               = useState('');
   const [ipCopied,            setIpCopied]            = useState(false);
+  const [syncStates,          setSyncStates]          = useState({});
+  const latestReadyRef = useRef({});
 
-  useEffect(() => { fetchRegisteredKeys(); }, []);
+  useEffect(() => {
+    fetchRegisteredKeys();
+    const refreshSyncState = async () => {
+      try {
+        const { data } = await getSyncStatus();
+        const nextStates = Object.fromEntries((data.connections || []).map(item => [item.exchange, item]));
+        for (const item of data.connections || []) {
+          if (item.latest_ready && latestReadyRef.current[item.exchange] === false) {
+            invalidateCache('dashboard', 'positions', 'trades', 'stats', 'balances');
+            window.dispatchEvent(new CustomEvent('autoSyncComplete', { detail: { exchange: item.exchange } }));
+          }
+          latestReadyRef.current[item.exchange] = item.latest_ready;
+        }
+        setSyncStates(nextStates);
+      } catch { /* The connections list remains usable if status polling fails. */ }
+    };
+    void refreshSyncState();
+    const timer = window.setInterval(refreshSyncState, 3000);
+    return () => window.clearInterval(timer);
+  }, []);
 
-  // [용도] 등록된 거래소 목록 조회 / [호출] useEffect, handleSubmit, handleDelete
+  // [용도] Add된 Exchange 목록 조회 / [호출] useEffect, handleSubmit, handleDelete
   const fetchRegisteredKeys = async () => {
     try {
       const res = await getMyExchangeKeys();
@@ -92,7 +165,7 @@ const ExchangeKeyPage = () => {
     }
   };
 
-  // [용도] 연결하기 버튼 클릭 → connect 단계로 / [호출] 선택 화면
+  // [용도] Connect 버튼 클릭 → connect 단계로 / [호출] 선택 화면
   const handleGoConnect = () => {
     if (!selectedExchange) return;
     setApiKey('');
@@ -103,7 +176,7 @@ const ExchangeKeyPage = () => {
     setStep('connect');
   };
 
-  // [용도] API Key 등록 제출 / [호출] form onSubmit
+  // [용도] API Key Add 제출 / [호출] form onSubmit
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -111,76 +184,100 @@ const ExchangeKeyPage = () => {
     setLoading(true);
     try {
       await saveExchangeKey(selectedExchange, apiKey.trim(), secretKey.trim(), passphrase.trim() || null);
-      setMessage(`${EXCHANGE_CONFIG[selectedExchange].label} API Key가 등록되었습니다.`);
+      let syncMessage = `${EXCHANGE_CONFIG[selectedExchange].label} API Key registered.`;
+      try {
+        await syncTrades(selectedExchange);
+        syncMessage += ' Loading your latest trades now. Full history will continue in the background.';
+      } catch (syncErr) {
+        syncMessage += ' Trade history sync can be retried later.';
+        console.error(syncErr);
+      }
+      setMessage(syncMessage);
       setApiKey('');
       setSecretKey('');
       setPassphrase('');
       localStorage.setItem(`syncStartTime_${selectedExchange}`, Date.now());
       fetchRegisteredKeys();
-      // 등록 성공 후 1.2초 뒤 관리 화면으로 복귀
+      // ?? ?? ? 1.2? ? ?? ???? ??
       setTimeout(() => { setStep('manage'); setSelectedExchange(null); }, 1200);
     } catch (err) {
-      setError(err.response?.data?.message || '등록에 실패했습니다.');
+      setError(err.response?.data?.message || 'Registration failed.');
     } finally {
       setLoading(false);
     }
   };
 
-  // [용도] API Key 삭제 / [호출] 관리 화면 삭제 버튼
+  // [용도] API Key Delete / [호출] 관리 화면 Delete 버튼
   const handleDelete = async (exchange) => {
-    if (!window.confirm(`${exchange} API Key를 삭제할까요?`)) return;
+    if (!window.confirm(`Delete the ${exchange} API key?`)) return;
+
+    const shouldCleanup = window.confirm('Run cleanup mode?\n\nCleanup mode deletes all executions, positions, and journals imported from this exchange.\nCancel keeps execution history and deletes only positions.');
+
     try {
-      await deleteExchangeKey(exchange);
+      await deleteExchangeKey(exchange, shouldCleanup);
+      setMessage(shouldCleanup ? 'Connection and all imported exchange data were deleted.' : 'Connection and positions were deleted. Execution history was retained.');
       fetchRegisteredKeys();
     } catch {
-      setError('삭제에 실패했습니다.');
+      setError('Could not delete the exchange connection.');
     }
   };
 
   // ── 관리 화면 ──────────────────────────────────────────────────
   if (step === 'manage') {
     return (
-      <div className="page" style={{ maxWidth: '640px' }}>
-        <div style={{ marginBottom: '28px' }}>
-          <h1 className="syne page-title">거래소 관리</h1>
+      <div className="page exchange-connections-page">
+        <div className="exchange-connections-heading">
+          <h1 className="syne page-title">Exchange Connections</h1>
           <p className="text-sm text-secondary" style={{ marginTop: '4px' }}>
-            연동된 거래소의 API Key를 관리합니다
+            Manage read-only API connections
           </p>
         </div>
 
-        {/* 연동된 거래소 목록 */}
-        <div className="card" style={{ marginBottom: '16px' }}>
-          <p className="section-title" style={{ marginBottom: '16px' }}>연동된 거래소</p>
+        {/* Connected Exchange 목록 */}
+        <div className="card exchange-connections-card">
+          <div className="exchange-connections-card-head">
+            <p className="section-title">Connected exchanges</p>
+            <span>{registeredExchanges.length} connected</span>
+          </div>
           {registeredExchanges.length === 0 ? (
             <div className="empty-state" style={{ padding: '32px 20px' }}>
               <div className="empty-state-icon">🔗</div>
-              <p className="empty-state-title">연동된 거래소가 없습니다</p>
-              <p className="empty-state-desc">아래 버튼을 눌러 거래소를 연결하세요</p>
+              <p className="empty-state-title">No connected exchanges</p>
+              <p className="empty-state-desc">Use the button below to connect an exchange.</p>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div className="exchange-connections-list">
               {registeredExchanges.map((item) => {
                 const cfg = EXCHANGE_CONFIG[item.exchange];
                 if (!cfg) return null;
+                const syncState = syncStates[item.exchange];
+                const syncLabel = item.reconnectRequired
+                  ? 'Reconnect required'
+                  : syncState?.status === 'ACTION_REQUIRED'
+                  ? 'Connection needs attention'
+                  : syncState?.status === 'BACKOFF'
+                    ? 'Import paused — retrying'
+                    : !syncState || syncState.sync_phase === 'READY'
+                      ? 'Up to date'
+                      : syncState.latest_ready
+                        ? 'Importing history'
+                        : 'Loading latest data';
                 return (
                   <div key={item.exchange} className="exmgr-row">
-                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <img
-                        src={`/exchanges/${item.exchange.toLowerCase()}_logo.png`}
-                        alt={cfg.label}
-                        style={{ height: '20px', width: 'auto', objectFit: 'contain', opacity: 0.9 }}
-                        onError={e => { e.target.style.display='none'; e.target.nextSibling.style.display='inline'; }}
-                      />
-                      <span className="syne" style={{ fontWeight: 700, fontSize: '15px', display: 'none' }}>{cfg.label}</span>
-                      {item.maskedApiKey && (
-                        <span className="mono text-muted" style={{ fontSize: '12px', marginLeft: '10px' }}>
-                          {item.maskedApiKey}
-                        </span>
-                      )}
+                    <div className="exmgr-identity">
+                      <ExchangeMark exchange={item.exchange} size={30} />
+                      <div className="exmgr-name-key">
+                        <span className="exmgr-name">{cfg.label}</span>
+                        {item.maskedApiKey && <span className="exmgr-key">{item.maskedApiKey}</span>}
+                      </div>
                     </div>
+                    <div className={`exmgr-status${item.reconnectRequired || syncState?.status === 'ACTION_REQUIRED' ? ' is-warning' : ''}`}>
+                      <span className="exmgr-status-dot" />
+                      {syncLabel}
+                    </div>
+                    <div className="exmgr-actions">
                     <button
-                      className="btn btn-ghost btn-sm"
-                      style={{ fontSize: '13px', padding: '4px 10px', color: 'var(--text-muted)' }}
+                      className="exmgr-action"
                       onClick={() => {
                         setSelectedExchange(item.exchange);
                         setStep('connect');
@@ -188,15 +285,35 @@ const ExchangeKeyPage = () => {
                         setMessage(''); setError('');
                       }}
                     >
-                      재연결
+                      Reconnect
                     </button>
-                    <button
-                      className="btn btn-danger btn-sm"
-                      style={{ fontSize: '13px', padding: '4px 10px' }}
-                      onClick={() => handleDelete(item.exchange)}
-                    >
-                      삭제
-                    </button>
+                    <>
+                      <button
+                        className="exmgr-action exmgr-action-danger"
+                        onClick={() => handleDelete(item.exchange)}
+                      >
+                        Delete
+                      </button>
+                      {message && (
+                        <div className="msg-success" style={{
+                          position: 'fixed',
+                          top: '12px',
+                          right: '20px',
+                          padding: '12px 20px',
+                          background: 'rgba(34, 197, 94, 0.1)',
+                          border: '1px solid rgba(34, 197, 94, 0.3)',
+                          borderRadius: '8px',
+                          color: '#22c55e',
+                          fontSize: '14px',
+                          fontWeight: 500,
+                          zIndex: 1000,
+                          animation: 'slideIn 0.3s ease-out',
+                        }}>
+                          {message}
+                        </div>
+                      )}
+                    </>
+                    </div>
                   </div>
                 );
               })}
@@ -214,12 +331,12 @@ const ExchangeKeyPage = () => {
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
             <span style={{ fontSize: '16px' }}>⚠️</span>
-            <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--warning)' }}>IP 화이트리스트 설정 필수</span>
+            <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--warning)' }}>IP allowlist required</span>
           </div>
           <p style={{ fontSize: '13px', color: 'var(--warning-text)', lineHeight: '1.7', margin: 0 }}>
-            거래소 API Key 발급 시 <strong style={{ color: 'var(--warning)' }}>IP 제한(화이트리스트)</strong> 설정이 있다면
-            아래 서버 IP를 반드시 추가하세요.<br />
-            추가하지 않으면 데이터 동기화가 되지 않습니다.
+            If your exchange API key supports an <strong style={{ color: 'var(--warning)' }}>IP allowlist</strong>,
+            add the server IP shown below.<br />
+            Synchronization will fail when the server IP is not allowed.
           </p>
           <div style={{
             marginTop: '10px',
@@ -262,31 +379,31 @@ const ExchangeKeyPage = () => {
                 flexShrink: 0,
               }}
             >
-              {ipCopied ? '복사됨 ✓' : '복사'}
+              {ipCopied ? 'Copied ✓' : 'Copy'}
             </button>
           </div>
         </div>
 
-        {/* 거래소 연결 버튼 */}
+        {/* Exchange 연결 버튼 */}
         <button
           className="btn btn-primary btn-full"
           onClick={() => { setSelectedExchange(null); setStep('select'); }}
         >
-          + 거래소 연결
+          + Connect exchange
         </button>
       </div>
     );
   }
 
-  // ── 거래소 선택 화면 ──────────────────────────────────────────
+  // ── Exchange 선택 화면 ──────────────────────────────────────────
   if (step === 'select') {
     return (
       <div className="page" style={{ maxWidth: '640px' }}>
         <div style={{ marginBottom: '28px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <button className="btn btn-ghost btn-sm" onClick={() => setStep('manage')}>← 뒤로</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setStep('manage')}>← Back</button>
           <div>
-            <h1 className="syne page-title">거래소 선택</h1>
-            <p className="text-sm text-secondary" style={{ marginTop: '2px' }}>연결할 거래소를 선택하세요</p>
+            <h1 className="syne page-title">Select Exchange</h1>
+            <p className="text-sm text-secondary" style={{ marginTop: '2px' }}>Choose an exchange to connect</p>
           </div>
         </div>
 
@@ -302,30 +419,25 @@ const ExchangeKeyPage = () => {
                 style={isSelected ? { borderColor: cfg.color, background: `${cfg.color}18` } : {}}
                 onClick={() => setSelectedExchange(key)}
               >
-                <img
-                  src={`/exchanges/${key.toLowerCase()}_logo.png`}
-                  alt={cfg.label}
-                  style={{ height: '22px', width: 'auto', objectFit: 'contain', maxWidth: '90px' }}
-                  onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'inline'; }}
-                />
-                <span className="syne" style={{ fontSize: '16px', fontWeight: 700, display: 'none' }}>{cfg.label}</span>
+                <ExchangeMark exchange={key} size={26} />
+                <span className="syne" style={{ fontSize: '16px', fontWeight: 700 }}>{cfg.label}</span>
                 {isRegistered && (
-                  <span className="exsel-badge" style={{ background: cfg.color }}>연동됨</span>
+                  <span className="exsel-badge" style={{ background: cfg.color }}>Connected</span>
                 )}
               </button>
             );
           })}
         </div>
 
-        {/* 연결하기 버튼 */}
+        {/* Connect 버튼 */}
         <button
           className="btn btn-primary btn-full"
           disabled={!selectedExchange}
           onClick={handleGoConnect}
         >
           {selectedExchange
-            ? `${EXCHANGE_CONFIG[selectedExchange].label} 연결하기`
-            : '거래소를 선택하세요'}
+            ? `${EXCHANGE_CONFIG[selectedExchange].label} Connect`
+            : 'Select an exchange'}
         </button>
       </div>
     );
@@ -338,18 +450,18 @@ const ExchangeKeyPage = () => {
   return (
     <div className="page" style={{ maxWidth: '640px' }}>
       <div style={{ marginBottom: '28px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-        <button className="btn btn-ghost btn-sm" onClick={() => setStep('select')}>← 뒤로</button>
+        <button className="btn btn-ghost btn-sm" onClick={() => setStep('select')}>← Back</button>
         <div>
-          <h1 className="syne page-title">{config.label} 연결</h1>
-          <p className="text-sm text-secondary" style={{ marginTop: '2px' }}>API Key를 입력하세요</p>
+          <h1 className="syne page-title">Connect {config.label}</h1>
+          <p className="text-sm text-secondary" style={{ marginTop: '2px' }}>Enter your read-only API credentials</p>
         </div>
       </div>
 
       <div className="card">
-        {/* 이미 연동된 경우 안내 */}
+        {/* 이미 Connected 경우 안내 */}
         {isRegistered && (
           <div style={{ marginBottom: '16px', padding: '10px 14px', borderRadius: '8px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)' }}>
-            <span style={{ fontSize: '13px', color: '#fbbf24' }}>이미 연동된 거래소입니다. 입력 시 기존 Key를 덮어씁니다.</span>
+            <span style={{ fontSize: '13px', color: '#fbbf24' }}>This exchange is already connected. Saving will replace the existing credentials.</span>
           </div>
         )}
 
@@ -388,7 +500,7 @@ const ExchangeKeyPage = () => {
               <input
                 className="input"
                 type="password"
-                placeholder="API Key 생성 시 설정한 Passphrase"
+                placeholder="Passphrase set when the API key was created"
                 value={passphrase}
                 onChange={(e) => setPassphrase(e.target.value)}
                 required
@@ -406,7 +518,7 @@ const ExchangeKeyPage = () => {
             disabled={loading}
             style={{ marginTop: '4px' }}
           >
-            {loading ? '등록 중...' : `${config.label} API Key 등록`}
+            {loading ? 'Connecting...' : `Connect ${config.label}`}
           </button>
         </form>
       </div>

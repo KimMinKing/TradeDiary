@@ -3,6 +3,7 @@
 package com.tradediary.plan;
 
 import lombok.RequiredArgsConstructor;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -28,7 +29,7 @@ public class TradePlanController {
     @PostMapping
     public ResponseEntity<TradePlanService.PlanDto> create(
             @AuthenticationPrincipal Long userId,
-            @RequestBody TradePlanService.PlanRequest req) {
+            @Valid @RequestBody TradePlanService.PlanRequest req) {
         return ResponseEntity.ok(planService.create(userId, req));
     }
 
@@ -37,7 +38,7 @@ public class TradePlanController {
     public ResponseEntity<TradePlanService.PlanDto> update(
             @AuthenticationPrincipal Long userId,
             @PathVariable Long id,
-            @RequestBody TradePlanService.PlanRequest req) {
+            @Valid @RequestBody TradePlanService.PlanRequest req) {
         return ResponseEntity.ok(planService.update(userId, id, req));
     }
 
