@@ -27,13 +27,13 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-// [클래스] PostgreSQL 16 기반 스키마 생성·무결성 회귀 테스트
+// [클래스] PostgreSQL 16 기반 스키마 생성·기존 데이터 업그레이드 회귀 테스트
 @Tag("migration")
 class FlywayMigrationTest {
 
-    // [용도] 빈 DB에 모든 마이그레이션 적용 후 핵심 구조와 시드 검증 / [호출] Gradle migrationTest
+    // [용도] 빈 DB 생성 후 V117을 기존 거래 데이터에 적용하고 핵심 구조 검증 / [호출] Gradle migrationTest
     @Test
-    void migratesEmptyPostgresDatabase() throws Exception {
+    void migratesExistingBinanceTradesOnUpgrade() throws Exception {
         String containerName = "tradediary-migration-test-" + UUID.randomUUID().toString().substring(0, 8);
         try {
             docker("run", "-d", "--name", containerName,
@@ -45,6 +45,24 @@ class FlywayMigrationTest {
             String jdbcUrl = "jdbc:postgresql://127.0.0.1:" + port + "/tradediary";
             waitUntilReady(containerName, jdbcUrl);
 
+            Flyway flywayThrough116 = Flyway.configure()
+                    .dataSource(jdbcUrl, "tradediary", "tradediary")
+                    .locations("classpath:db/current")
+                    .baselineOnMigrate(true)
+                    .baselineVersion("100")
+                    .target("116")
+                    .validateOnMigrate(true)
+                    .load();
+            assertThat(flywayThrough116.migrate().migrationsExecuted).isEqualTo(16);
+
+            JdbcTemplate jdbc = new JdbcTemplate(new DriverManagerDataSource(jdbcUrl, "tradediary", "tradediary"));
+            jdbc.update("INSERT INTO users(email,nickname) VALUES (?,?)", "migration@example.com", "Migration");
+            Long userId = jdbc.queryForObject("SELECT id FROM users WHERE email=?", Long.class,
+                    "migration@example.com");
+            insertTrade(jdbc, userId, "BINANCE", "42", "BTCUSDT");
+            insertTrade(jdbc, userId, "BINANCE", "43", "ETHUSDT");
+            insertTrade(jdbc, userId, "BYBIT", "42", "BTCUSDT");
+
             Flyway flyway = Flyway.configure()
                     .dataSource(jdbcUrl, "tradediary", "tradediary")
                     .locations("classpath:db/current")
@@ -52,14 +70,20 @@ class FlywayMigrationTest {
                     .baselineVersion("100")
                     .validateOnMigrate(true)
                     .load();
-
-            assertThat(flyway.migrate().migrationsExecuted).isGreaterThanOrEqualTo(16);
+            assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);
             flyway.validate();
+            assertThat(jdbc.queryForList(
+                    "SELECT exchange_trade_id FROM trades WHERE user_id=? AND exchange='BINANCE' ORDER BY symbol",
+                    String.class, userId)).containsExactly("BTCUSDT:42", "ETHUSDT:43");
+            assertThat(jdbc.queryForObject(
+                    "SELECT exchange_trade_id FROM trades WHERE user_id=? AND exchange='BYBIT'",
+                    String.class, userId)).isEqualTo("42");
+            assertThat(flyway.migrate().migrationsExecuted).isZero();
 
             try (Connection connection = DriverManager.getConnection(jdbcUrl, "tradediary", "tradediary");
                  Statement statement = connection.createStatement()) {
                 assertThat(singleLong(statement,
-                        "SELECT COUNT(*) FROM flyway_schema_history WHERE success = TRUE")).isGreaterThanOrEqualTo(16);
+                        "SELECT COUNT(*) FROM flyway_schema_history WHERE success = TRUE")).isEqualTo(17);
                 assertThat(singleLong(statement,
                         "SELECT character_maximum_length FROM information_schema.columns " +
                                 "WHERE table_name='exchange_keys' AND column_name='api_key'"))
@@ -98,10 +122,6 @@ class FlywayMigrationTest {
 
             String testSecret = "0123456789abcdef0123456789abcdef";
             AesUtil crypto = new AesUtil(testSecret);
-            JdbcTemplate jdbc = new JdbcTemplate(new DriverManagerDataSource(jdbcUrl, "tradediary", "tradediary"));
-            jdbc.update("INSERT INTO users(email,nickname) VALUES (?,?)", "migration@example.com", "Migration");
-            Long userId = jdbc.queryForObject("SELECT id FROM users WHERE email=?", Long.class,
-                    "migration@example.com");
             jdbc.update("INSERT INTO exchange_keys(user_id,exchange,api_key,secret_key,passphrase) VALUES (?,?,?,?,?)",
                     userId, "BITGET", legacyEncrypt("api-key", testSecret),
                     legacyEncrypt("secret-key", testSecret), legacyEncrypt("passphrase", testSecret));
@@ -120,6 +140,12 @@ class FlywayMigrationTest {
         } finally {
             dockerIgnoringFailure("rm", "-f", containerName);
         }
+    }
+
+    private void insertTrade(JdbcTemplate jdbc, Long userId, String exchange, String tradeId, String symbol) {
+        jdbc.update("INSERT INTO trades(user_id,exchange,exchange_trade_id,symbol,side,qty,price,fee,traded_at) " +
+                        "VALUES (?,?,?,?,?,1,10,0,NOW())",
+                userId, exchange, tradeId, symbol, "BUY");
     }
 
     private String legacyEncrypt(String value, String secret) throws Exception {
