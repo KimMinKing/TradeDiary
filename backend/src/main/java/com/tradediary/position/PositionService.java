@@ -4,6 +4,8 @@ package com.tradediary.position;
 
 import com.tradediary.exchange.ExchangeKey;
 import com.tradediary.exchange.ExchangeKeyRepository;
+import com.tradediary.notification.NotificationService;
+import com.tradediary.notification.NotificationType;
 import com.tradediary.trade.Trade;
 import com.tradediary.trade.TradeRepository;
 import com.tradediary.trade.TradeSide;
@@ -17,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -32,14 +35,23 @@ public class PositionService {
     private final TradeRepository tradeRepository;
     private final UserRepository userRepository;
     private final ExchangeKeyRepository exchangeKeyRepository;
+    private final NotificationService notificationService;
 
     // [용도] 등록된 모든 거래소 포지션 일괄 재계산 / [호출] PositionController.rebuildAll()
     @Transactional
     public void rebuildAllPositions(Long userId) {
         List<ExchangeKey> keys = exchangeKeyRepository.findAllByUserId(userId);
         log.info("[Position] 전체 재계산 시작 - userId={}, 거래소 {}개", userId, keys.size());
+
+        // 각 거래소에 실제로 거래 내역이 있는지 확인
         for (ExchangeKey key : keys) {
-            rebuildPositions(userId, key.getExchange());
+            // 거래 내역이 있는 경우에만 재계산 수행
+            if (tradeRepository.existsByUserIdAndExchange(userId, key.getExchange())) {
+                log.debug("[Position] 거래 내역 있음 - 재계산 수행: exchange={}", key.getExchange());
+                rebuildPositions(userId, key.getExchange());
+            } else {
+                log.debug("[Position] 거래 내역 없음 - 재계산 생략: exchange={}", key.getExchange());
+            }
         }
         log.info("[Position] 전체 재계산 완료 - userId={}", userId);
     }
@@ -73,13 +85,21 @@ public class PositionService {
         for (Map.Entry<String, List<Trade>> entry : bySymbol.entrySet()) {
             int count = groupBySymbol(user, exchange, entry.getValue());
             totalPositions += count;
-            log.info("[Position] 심볼={}: {}개 포지션 생성", entry.getKey(), count);
+            log.debug("[Position] 심볼={}: {}개 포지션 생성", entry.getKey(), count);
         }
 
         log.info("[Position] 재계산 완료 - 총 {}개 포지션 생성", totalPositions);
     }
 
-    // [용도] 심볼별 미청산(오픈) 포지션 윈도우 조회 / [호출] PositionController.getOpenWindows()
+    // [용도] 특정 거래소의 모든 포지션 삭제 / [호출] ExchangeKeyService.deleteKey()
+    @Transactional
+    public void deletePositionsByExchange(Long userId, ExchangeKey.Exchange exchange) {
+        log.info("[Position] 거래소 삭제로 인한 포지션 삭제 시작 - userId={}, exchange={}", userId, exchange);
+        positionRepository.deleteByUserIdAndExchange(userId, exchange);
+        log.info("[Position] 포지션 삭제 완료");
+    }
+
+    // [용도] 미청산(오픈) 포지션 윈도우 조회 / [호출] PositionController.getOpenWindows()
     // 각 심볼의 현재 누적 수량(net)을 계산해 아직 닫히지 않은 상태를 반환
     @Transactional(readOnly = true)
     public List<OpenWindowResponse> getOpenWindows(Long userId, ExchangeKey.Exchange exchange) {
@@ -91,53 +111,62 @@ public class PositionService {
 
         List<OpenWindowResponse> result = new ArrayList<>();
         for (Map.Entry<String, List<Trade>> entry : bySymbol.entrySet()) {
-            BigDecimal net = BigDecimal.ZERO;
-            int windowSize = 0;
-            log.info("[OpenWindow] 심볼={} 계산 시작, 거래 {}건", entry.getKey(), entry.getValue().size());
-            for (Trade t : entry.getValue()) {
-                BigDecimal delta  = t.getSide() == TradeSide.BUY ? t.getQty() : t.getQty().negate();
-                BigDecimal newNet = net.add(delta);
-
-                // 부호 반전(zero crossing) 감지: 고아 윈도우(데이터 범위 밖 미청산) 폐기 후 새 윈도우 시작
-                if (net.signum() != 0 && newNet.signum() != 0 && net.signum() != newNet.signum()) {
-                    log.info("[OpenWindow] 부호 반전 감지 - 윈도우 폐기 후 재시작: symbol={}, net={} → newNet={}", entry.getKey(), net.toPlainString(), newNet.toPlainString());
-                    net = BigDecimal.ZERO;
-                    windowSize = 0;
-                    newNet = delta;
-                }
-
-                windowSize++;
-                net = newNet;
-                log.info("[OpenWindow] {} {} qty={} → net={} (window={}건)", t.getTradedAt(), t.getSide(), t.getQty().toPlainString(), net.toPlainString(), windowSize);
-
-                if (net.abs().compareTo(ZERO_THRESHOLD) < 0) {
-                    log.info("[OpenWindow] 포지션 종료 - net={} (threshold 이하)", net.toPlainString());
-                    net = BigDecimal.ZERO;
-                    windowSize = 0;
-                }
-            }
-            log.info("[OpenWindow] 심볼={} 결과: windowSize={}, net={}", entry.getKey(), windowSize, net.toPlainString());
-            // 윈도우가 남아있으면 미청산
-            if (windowSize > 0) {
-                result.add(new OpenWindowResponse(entry.getKey(), net.toPlainString(), windowSize));
+            OpenPositionCalculator.OpenPosition open = OpenPositionCalculator.calculate(entry.getValue());
+            if (open != null) {
+                result.add(new OpenWindowResponse(entry.getKey(), open.netQty().toPlainString(), open.tradeCount()));
             }
         }
         return result;
     }
+
+    // [용도] 미청산 포지션 목록 조회 / [호출] MarketController.getProfitRates()
+    @Transactional(readOnly = true)
+    public List<OpenPositionResponse> getOpenPositions(Long userId, ExchangeKey.Exchange exchange) {
+        List<Trade> trades = tradeRepository
+                .findByUserIdAndExchangeOrderBySymbolAscTradedAtAsc(userId, exchange);
+
+        Map<String, List<Trade>> bySymbol = trades.stream()
+                .collect(Collectors.groupingBy(Trade::getSymbol, LinkedHashMap::new, Collectors.toList()));
+
+        List<OpenPositionResponse> result = new ArrayList<>();
+        for (Map.Entry<String, List<Trade>> entry : bySymbol.entrySet()) {
+            OpenPositionCalculator.OpenPosition open = OpenPositionCalculator.calculate(entry.getValue());
+            if (open != null) {
+                result.add(new OpenPositionResponse(entry.getKey(), open.averageEntry(), open.netQty(), open.side()));
+            }
+        }
+        return result;
+    }
+
+    // 미청산 포지션 응답 DTO
+    public record OpenPositionResponse(
+        String symbol,
+        BigDecimal avgBuyPrice,
+        BigDecimal qty,
+        PositionSide side
+    ) {}
 
     public record OpenWindowResponse(String symbol, String netQty, int tradeCount) {}
 
     // [용도] 포지션 목록 조회 / [호출] PositionController.getPositions()
     @Transactional(readOnly = true)
     public List<PositionResponse> getPositions(Long userId, String exchange) {
-        List<Position> positions;
         if (exchange != null && !exchange.isBlank()) {
             ExchangeKey.Exchange exchangeEnum = ExchangeKey.Exchange.valueOf(exchange.toUpperCase());
-            positions = positionRepository.findByUserIdAndExchangeOrderByClosedAtDesc(userId, exchangeEnum);
-        } else {
-            positions = positionRepository.findByUserIdOrderByClosedAtDesc(userId);
+            return positionRepository.findByUserIdAndExchangeOrderByClosedAtDesc(userId, exchangeEnum).stream()
+                    .map(PositionResponse::from)
+                    .toList();
         }
-        return positions.stream().map(PositionResponse::from).toList();
+        return positionRepository.findByUserIdOrderByClosedAtDesc(userId).stream()
+                .map(PositionResponse::from)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<PositionResponse> getAllPositions(Long userId) {
+        return positionRepository.findByUserIdOrderByClosedAtDesc(userId).stream()
+                .map(PositionResponse::from)
+                .toList();
     }
 
     // [용도] 한 심볼의 거래 목록을 포지션 단위로 묶어 저장 / [호출] rebuildPositions()
@@ -149,22 +178,26 @@ public class PositionService {
         int savedCount = 0;
         String symbol = trades.get(0).getSymbol();
 
-        log.info("[Position] 심볼={} 그루핑 시작, 전체 거래 {}건", symbol, trades.size());
+        log.debug("[Position] 심볼={} 그루핑 시작, 전체 거래 {}건", symbol, trades.size());
 
         for (Trade trade : trades) {
             BigDecimal delta  = (trade.getSide() == TradeSide.BUY) ? trade.getQty() : trade.getQty().negate();
             BigDecimal newNet = netPosition.add(delta);
 
-            // 부호 반전(zero crossing) 감지: 고아 윈도우 폐기 후 새 윈도우 시작
-            // 예) 동기화 범위 이전의 미청산 SELL이 net을 오염시킬 때
+            // One execution can close the current position and open the opposite side.
             if (netPosition.signum() != 0 && newNet.signum() != 0
                     && netPosition.signum() != newNet.signum()) {
-                log.warn("[Position] net 부호 반전 - 기존 윈도우 {}건 폐기, 새 윈도우 시작: symbol={}, trade={}",
-                        window.size(), symbol, trade.getTradedAt());
-                netPosition = BigDecimal.ZERO;
-                positionSide = null;
+                BigDecimal closingQty = netPosition.abs();
+                BigDecimal closingFee = trade.getFee().multiply(closingQty)
+                        .divide(trade.getQty(), 10, RoundingMode.HALF_UP);
+                window.add(splitTrade(trade, closingQty, closingFee));
+                savePosition(user, exchange, positionSide, window);
+                savedCount++;
                 window = new ArrayList<>();
-                newNet = delta; // 현재 거래만으로 net 재계산
+                window.add(splitTrade(trade, newNet.abs(), trade.getFee().subtract(closingFee)));
+                netPosition = newNet;
+                positionSide = trade.getSide() == TradeSide.BUY ? PositionSide.LONG : PositionSide.SHORT;
+                continue;
             }
 
             // 포지션 시작: 최초 진입 방향으로 side 결정
@@ -175,7 +208,7 @@ public class PositionService {
             window.add(trade);
             netPosition = newNet;
 
-            log.info("[Position] {} {} qty={} → net={} (window={}건)",
+            log.debug("[Position] {} {} qty={} → net={} (window={}건)",
                     trade.getTradedAt(), trade.getSide(), trade.getQty().toPlainString(),
                     netPosition.toPlainString(), window.size());
 
@@ -183,7 +216,7 @@ public class PositionService {
             if (netPosition.abs().compareTo(ZERO_THRESHOLD) < 0) {
                 savePosition(user, exchange, positionSide, window);
                 savedCount++;
-                log.info("[Position] {} 포지션 종료 ({}번째) - window {}건", symbol, savedCount, window.size());
+                log.debug("[Position] {} 포지션 종료 ({}번째) - window {}건", symbol, savedCount, window.size());
                 netPosition = BigDecimal.ZERO;
                 positionSide = null;
                 window = new ArrayList<>();
@@ -197,6 +230,20 @@ public class PositionService {
         }
 
         return savedCount;
+    }
+
+    private Trade splitTrade(Trade source, BigDecimal qty, BigDecimal fee) {
+        return Trade.builder()
+                .user(source.getUser())
+                .exchange(source.getExchange())
+                .exchangeTradeId(source.getExchangeTradeId())
+                .symbol(source.getSymbol())
+                .side(source.getSide())
+                .qty(qty)
+                .price(source.getPrice())
+                .fee(fee)
+                .tradedAt(source.getTradedAt())
+                .build();
     }
 
     // [용도] 포지션 계산 및 저장 / [호출] groupBySymbol()
@@ -256,7 +303,7 @@ public class PositionService {
         LocalDateTime openedAt = trades.get(0).getTradedAt();
         LocalDateTime closedAt = trades.get(trades.size() - 1).getTradedAt();
 
-        positionRepository.save(Position.builder()
+        Position position = positionRepository.save(Position.builder()
                 .user(user)
                 .exchange(exchange)
                 .symbol(trades.get(0).getSymbol())
@@ -269,6 +316,8 @@ public class PositionService {
                 .openedAt(openedAt)
                 .closedAt(closedAt)
                 .build());
+
+        // 포지션 종료 알림 생성
     }
 
     // 포지션 응답 DTO
@@ -300,5 +349,35 @@ public class PositionService {
                     p.getClosedAt().toString()
             );
         }
+    }
+
+    // [용도] 포지션 관련 알림 생성 / [호출] savePosition()
+    private void createPositionNotification(User user, String symbol, PositionSide side, Position position) {
+        String positionSideText = side == PositionSide.LONG ? "롱 포지션" : "숏 포지션";
+
+        // PnL에 따른 알림 타입 결정
+        NotificationType notificationType;
+        String message;
+
+        if (position.getPnl().compareTo(BigDecimal.ZERO) >= 0) {
+            // 수익 발생
+            notificationType = NotificationType.PROFIT_TAKEN;
+            message = String.format("🎉 %s가 종료되었습니다. 수익률: %s%%",
+                positionSideText, position.getPnlRate());
+        } else {
+            // 손실 발생
+            notificationType = NotificationType.LOSS_CUT;
+            message = String.format("⚠️ %s가 손절되었습니다. 손실률: %s%%",
+                positionSideText, position.getPnlRate());
+        }
+
+        notificationService.createNotification(
+            user.getId(),
+            notificationType,
+            String.format("%s 종료 알림", positionSideText),
+            message,
+            symbol,
+            position.getId().toString()
+        );
     }
 }

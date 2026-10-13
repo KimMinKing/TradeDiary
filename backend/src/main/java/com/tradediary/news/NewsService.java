@@ -34,17 +34,23 @@ public class NewsService {
     private static final String CRYPTOCOMPARE_BASE = "https://min-api.cryptocompare.com/data/v2/news/";
 
     // [용도] 오늘의 AI 시장 요약 조회 / [호출] NewsController.getSummary()
-    public Optional<SummaryDto> getTodaySummary() {
+    public Optional<SummaryDto> getTodaySummary(String language) {
         return summaryRepository.findBySummaryDate(LocalDate.now())
-                .map(s -> new SummaryDto(s.getSummaryKo(), s.getUpdatedAt().toString()));
+                .map(s -> toDto(s, language));
     }
 
     // [용도] 오늘 요약 강제 재생성 / [호출] NewsController.refreshSummary()
-    public SummaryDto refreshTodaySummary() {
+    public SummaryDto refreshTodaySummary(String language) {
         newsScheduler.generateSummaryForDate(LocalDate.now(), true);
         return summaryRepository.findBySummaryDate(LocalDate.now())
-                .map(s -> new SummaryDto(s.getSummaryKo(), s.getUpdatedAt().toString()))
-                .orElse(new SummaryDto("요약 생성에 실패했습니다.", ""));
+                .map(s -> toDto(s, language))
+                .orElse(new SummaryDto("Could not generate the summary.", ""));
+    }
+
+    private SummaryDto toDto(NewsDailySummary summary, String language) {
+        String text = "ko".equals(language) ? summary.getSummaryKo() : summary.getSummaryEn();
+        if (text == null || text.isBlank()) text = summary.getSummaryKo();
+        return new SummaryDto(text, summary.getUpdatedAt().toString());
     }
 
     // [용도] CryptoCompare 원문 영어 기사 목록 조회 (프록시) / [호출] NewsController.getRawNews()

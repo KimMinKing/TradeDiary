@@ -1,0 +1,226 @@
+/* 거래 동기화 페이지 스타일 */
+.trade-sync-page {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+/* 헤더 */
+.sync-header {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.sync-header h1 {
+  font-size: 32px;
+  font-weight: 700;
+  color: #1f2937;
+  margin-bottom: 8px;
+}
+
+.sync-header p {
+  color: #6b7280;
+  font-size: 16px;
+}
+
+/* 동기화 그리드 */
+.sync-grid {
+  display: grid;
+  gap: 20px;
+  margin-bottom: 40px;
+}
+
+/* 동기화 카드 */
+.sync-card {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  padding: 24px;
+  transition: box-shadow 0.2s;
+}
+
+.sync-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.exchange-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.exchange-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.exchange-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.exchange-info h3 {
+  font-size: 20px;
+  font-weight: 600;
+  color: #1f2937;
+  margin: 0;
+}
+
+.exchange-status {
+  color: #059669;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* 거래소 상세 정보 */
+.exchange-details {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.last-sync {
+  color: #6b7280;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.sync-tip {
+  color: #4b5563;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* 빈 상태 */
+.empty-state {
+  text-align: center;
+  padding: 60px 24px;
+  background: #f9fafb;
+  border-radius: 12px;
+}
+
+.empty-state h2 {
+  font-size: 24px;
+  color: #1f2937;
+  margin-bottom: 16px;
+}
+
+.empty-state p {
+  color: #6b7280;
+  margin-bottom: 24px;
+}
+
+.goto-exchange-btn {
+  background: #9d6ff7;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.goto-exchange-btn:hover {
+  background: #8b5cf6;
+}
+
+/* 정보 섹션 */
+.sync-info {
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.info-box h4 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 16px;
+}
+
+.info-box ul {
+  list-style: none;
+  padding: 0;
+}
+
+.info-box li {
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.info-box li:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.info-box strong {
+  color: #1f2937;
+}
+
+.info-box br {
+  margin-bottom: 4px;
+}
+
+/* 로딩 */
+.loading-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #f3f4f6;
+  border-top-color: #9d6ff7;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 16px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 반응형 */
+@media (max-width: 768px) {
+  .trade-sync-page {
+    padding: 16px;
+  }
+
+  .sync-header h1 {
+    font-size: 24px;
+  }
+
+  .sync-grid {
+    gap: 16px;
+  }
+
+  .exchange-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .sync-card {
+    padding: 20px;
+  }
+}

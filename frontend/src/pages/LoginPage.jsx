@@ -1,4 +1,4 @@
-// [파일 용도] 로그인 페이지
+// [파일 용도] Sign in 페이지
 
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -7,7 +7,7 @@ import useAuthStore from '../store/authStore';
 
 const SAVED_EMAIL_KEY = 'savedEmail';
 
-// [컴포넌트] 이메일/비밀번호 로그인 화면 / [호출] App.jsx 라우터
+// [컴포넌트] 이메일/비밀번호 Sign in 화면 / [호출] App.jsx 라우터
 const LoginPage = () => {
   const navigate    = useNavigate();
   const setLoggedIn = useAuthStore((state) => state.setLoggedIn);
@@ -18,7 +18,7 @@ const LoginPage = () => {
   const [error,     setError]     = useState('');
   const [loading,   setLoading]   = useState(false);
 
-  // [용도] 저장된 이메일 불러오기 / [호출] 마운트 시
+  // [용도] Save된 이메일 불러오기 / [호출] 마운트 시
   useEffect(() => {
     const saved = localStorage.getItem(SAVED_EMAIL_KEY);
     if (saved) {
@@ -41,7 +41,7 @@ const LoginPage = () => {
       setLoggedIn();
       navigate('/dashboard');
     } catch (err) {
-      setError(err.response?.data?.message || '이메일 또는 비밀번호가 올바르지 않습니다.');
+      setError(err.response?.data?.message || 'Incorrect email or password.');
     } finally {
       setLoading(false);
     }
@@ -52,12 +52,12 @@ const LoginPage = () => {
       <div className="auth-card">
         {/* 로고 */}
         <div className="auth-logo">TradeDiary</div>
-        <p className="auth-subtitle">거래 기록 기반 성장 분석 플랫폼</p>
+        <p className="auth-subtitle">Sign in to your trading workspace</p>
 
         {/* 폼 */}
         <form className="form" onSubmit={handleSubmit}>
           <div>
-            <label className="input-label">이메일</label>
+            <label className="input-label">Email</label>
             <input
               className="input"
               type="email"
@@ -69,7 +69,7 @@ const LoginPage = () => {
             />
           </div>
           <div>
-            <label className="input-label">비밀번호</label>
+            <label className="input-label">Password</label>
             <input
               className="input"
               type="password"
@@ -81,14 +81,14 @@ const LoginPage = () => {
             />
           </div>
 
-          {/* 아이디 저장 */}
+          {/* 아이디 Save */}
           <label className="login-remember-row">
             <input
               type="checkbox"
               checked={rememberMe}
               onChange={(e) => setRememberMe(e.target.checked)}
             />
-            <span>아이디 저장</span>
+            <span>Remember email</span>
           </label>
 
           {error && <p className="msg-error">{error}</p>}
@@ -99,14 +99,14 @@ const LoginPage = () => {
             disabled={loading}
             style={{ marginTop: '4px' }}
           >
-            {loading ? '로그인 중...' : '로그인'}
+            {loading ? 'Signing in...' : 'Sign in'}
           </button>
         </form>
 
         <p className="auth-footer">
-          계정이 없으신가요?{' '}
+          New to Trade Diary?{' '}
           <Link to="/signup" style={{ color: 'var(--accent)', fontWeight: 600 }}>
-            회원가입
+            Create account
           </Link>
         </p>
       </div>

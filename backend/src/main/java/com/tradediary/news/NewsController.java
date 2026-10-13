@@ -5,6 +5,8 @@ package com.tradediary.news;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import com.tradediary.user.UserLanguageService;
 
 import java.util.List;
 import java.util.Map;
@@ -16,19 +18,20 @@ import java.util.Map;
 public class NewsController {
 
     private final NewsService newsService;
+    private final UserLanguageService userLanguageService;
 
     // [용도] 오늘의 AI 시장 요약 조회 / [호출] GET /api/news/summary
     @GetMapping("/summary")
-    public ResponseEntity<?> getSummary() {
-        return newsService.getTodaySummary()
+    public ResponseEntity<?> getSummary(@AuthenticationPrincipal Long userId) {
+        return newsService.getTodaySummary(userLanguageService.get(userId))
                 .<ResponseEntity<?>>map(ResponseEntity::ok)
                 .orElse(ResponseEntity.ok(Map.of("summaryKo", "", "updatedAt", "")));
     }
 
     // [용도] 오늘 요약 강제 재생성 / [호출] POST /api/news/summary/refresh
     @PostMapping("/summary/refresh")
-    public ResponseEntity<NewsService.SummaryDto> refreshSummary() {
-        return ResponseEntity.ok(newsService.refreshTodaySummary());
+    public ResponseEntity<NewsService.SummaryDto> refreshSummary(@AuthenticationPrincipal Long userId) {
+        return ResponseEntity.ok(newsService.refreshTodaySummary(userLanguageService.get(userId)));
     }
 
     // [용도] CryptoCompare 원문 영어 기사 목록 조회 / [호출] GET /api/news?category=all|BTC|ETH|...

@@ -1,4 +1,4 @@
-// [파일 용도] 사용자 프로필 조회 및 변경 API 호출
+// [파일 용도] 사용자 Profile 조회 및 변경 API 호출
 
 import api from './authApi';
 
@@ -6,14 +6,20 @@ import api from './authApi';
 export const getMe = () =>
   api.get('/api/user/me');
 
-// [용도] 닉네임 변경 / [호출] SettingsPanel.jsx
+// [용도] Change display name / [호출] SettingsPanel.jsx
 export const updateNickname = (nickname) =>
   api.patch('/api/user/nickname', { nickname });
 
-// [용도] 비밀번호 변경 / [호출] SettingsPanel.jsx
+// [용도] Change password / [호출] SettingsPanel.jsx
 export const updatePassword = (currentPassword, newPassword) =>
   api.patch('/api/user/password', { current_password: currentPassword, new_password: newPassword });
 
-// [용도] 프로필 아바타 변경 (base64) / [호출] SettingsPanel.jsx
+// [용도] Profile 아바타 변경 (base64) / [호출] SettingsPanel.jsx
 export const updateAvatar = (avatar) =>
   api.patch('/api/user/avatar', { avatar });
+
+export const updatePrivacy = (privacy) =>
+  api.put('/api/user/privacy', privacy);
+
+export const updateLanguage = (language) =>
+  api.patch('/api/user/language', { language });

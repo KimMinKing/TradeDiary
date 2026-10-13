@@ -8,6 +8,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestParam;
 
 // [클래스] 월별 트레이더 랭킹 조회 API / [엔드포인트] GET /api/ranking/monthly
 @RestController
@@ -20,7 +21,8 @@ public class RankingController {
     // [용도] 이번 달 승률 기준 랭킹 조회 / [호출] GET /api/ranking/monthly
     @GetMapping("/monthly")
     public ResponseEntity<RankingResponse> getMonthlyRanking(
-            @AuthenticationPrincipal Long userId) {
-        return ResponseEntity.ok(rankingService.getRanking(userId));
+            @AuthenticationPrincipal Long userId,
+            @RequestParam(defaultValue = "score") String category) {
+        return ResponseEntity.ok(rankingService.getRanking(userId, category));
     }
 }

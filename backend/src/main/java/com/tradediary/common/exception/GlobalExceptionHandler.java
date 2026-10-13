@@ -7,6 +7,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.http.HttpStatus;
+import com.tradediary.portfolio.TooManyPublicRequestsException;
 
 import java.util.Map;
 
@@ -14,6 +16,11 @@ import java.util.Map;
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    @ExceptionHandler(TooManyPublicRequestsException.class)
+    public ResponseEntity<Map<String, String>> handleRateLimit(TooManyPublicRequestsException e) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(Map.of("message", e.getMessage()));
+    }
 
     // [용도] 비즈니스 예외 처리 / [호출] BusinessException 발생 시 자동 호출
     @ExceptionHandler(BusinessException.class)
@@ -32,6 +39,13 @@ public class GlobalExceptionHandler {
                 .findFirst()
                 .orElse("입력값이 올바르지 않습니다.");
         return ResponseEntity.badRequest().body(Map.of("message", message));
+    }
+
+    @ExceptionHandler({IllegalArgumentException.class, IllegalStateException.class})
+    public ResponseEntity<Map<String, String>> handleInvalidOperation(RuntimeException e) {
+        log.warn("Invalid operation: {}", e.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of("message", e.getMessage() == null ? "The request could not be completed." : e.getMessage()));
     }
 
     // [용도] 예상치 못한 예외 처리 / [호출] 처리되지 않은 예외 발생 시 자동 호출

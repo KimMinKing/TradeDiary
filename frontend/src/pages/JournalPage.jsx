@@ -1,16 +1,38 @@
-// [파일 용도] 매매 일기 페이지 (캘린더 뷰 + 일기 작성/거래 내역 분할 패널)
+// [파일 용도] Trading journal 페이지 (캘린더 뷰 + Journal 작성/Trade history 분할 패널)
 
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   getJournals, getJournal, deleteJournal, getStrategyTags,
-  createJournal, updateJournal, createStrategyTag,
+  createJournal, updateJournal, createStrategyTag, deleteStrategyTag,
+  getChecklist,
+  getJournalFeedback, getPeriodReview, getPlanFeedback,
 } from '../api/journalApi';
-import { getTrades, getPlans } from '../api/exchangeApi';
+import { getTrades, getPlans, togglePlanDone } from '../api/exchangeApi';
 import { getNewsSummary, refreshNewsSummary } from '../api/newsApi';
+import MarkdownContent from '../components/MarkdownContent';
 import TradePlanPage from './TradePlanPage';
+import usePreferredLanguage from '../hooks/usePreferredLanguage';
 
-// [컴포넌트] 일기 이미지 지연 로드 (has_image 시 detail API 호출) / [호출] JournalPage 뷰
+const JOURNAL_TRANSLATIONS = {
+  '매수': 'Buy', '매도': 'Sell', '단기투자': 'Short-term', '장기투자': 'Long-term',
+  '매매 기법': 'Trading setup', '추세 매매': 'Trend trading', '뉴스 기반': 'News-driven',
+  '롱 전략': 'Long strategy', '숏 전략': 'Short strategy', '블록 사이드': 'Block side',
+  '매수 기준(조건)이 충족되었는가?': 'Were the entry criteria met?',
+  '손절가를 설정했는가?': 'Was a stop-loss set?',
+  '포지션 사이즈가 적절한가?': 'Was the position size appropriate?',
+  '리스크-리워드 비율이 1:2 이상인가?': 'Was the risk-reward ratio at least 1:2?',
+  '매도 기준(조건)에 도달했는가?': 'Were the exit criteria reached?',
+  '욕심 때문에 늦게 매도하진 않았는가?': 'Was the exit delayed by greed?',
+  '손절가를 지켰는가?': 'Was the stop-loss respected?',
+  '계획대로 실행했는가?': 'Was the trade executed as planned?',
+  '감정이 판단에 영향을 미쳤는가?': 'Did emotion affect the decision?',
+  '다음에 개선할 점은?': 'What should be improved next time?',
+};
+
+const journalText = (value, language) => language === 'ko' ? value : (JOURNAL_TRANSLATIONS[value] || value);
+
+// [컴포넌트] Journal 이미지 지연 로드 (has_image 시 detail API 호출) / [호출] JournalPage 뷰
 const JournalImageViewer = ({ journal, onZoom }) => {
   const [imgSrc, setImgSrc] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -32,7 +54,7 @@ const JournalImageViewer = ({ journal, onZoom }) => {
       <div style={{ marginTop: '8px' }}>
         <img
           src={imgSrc}
-          alt="첨부 이미지"
+          alt="Journal attachment"
           onClick={() => onZoom(imgSrc)}
           style={{
             maxHeight: '160px', maxWidth: '100%',
@@ -56,13 +78,13 @@ const JournalImageViewer = ({ journal, onZoom }) => {
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
         color: 'var(--text-secondary)', cursor: 'pointer',
       }}>
-        {loading ? '로딩...' : '📷 사진 보기'}
+        {loading ? 'Loading...' : 'View image'}
       </button>
     </div>
   );
 };
 
-// [컴포넌트] 선택된 거래 참조 태그 표시 / [호출] JournalPage 폼
+// [컴포넌트] 선택된 Trade 참조 태그 표시 / [호출] JournalPage 폼
 const TradeRefChip = ({ trade, onClear }) => (
   <div style={{
     display: 'inline-flex', alignItems: 'center', gap: '6px',
@@ -72,7 +94,7 @@ const TradeRefChip = ({ trade, onClear }) => (
     color: 'var(--text-secondary)',
   }}>
     <span style={{ color: trade.side === 'BUY' ? '#4ade80' : '#f87171', fontWeight: 700 }}>
-      {trade.side === 'BUY' ? '매수' : '매도'}
+      {trade.side === 'BUY' ? 'Buy' : 'Sell'}
     </span>
     <span className="mono" style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{trade.symbol}</span>
     <span className="mono">{Number(trade.price).toLocaleString()}</span>
@@ -84,8 +106,8 @@ const TradeRefChip = ({ trade, onClear }) => (
   </div>
 );
 
-// [컴포넌트] 뷰 모드에서 저장된 거래 참조 1건 표시 (상세 카드) / [호출] JournalPage 뷰
-const TradeRefBadge = ({ ref: t }) => {
+// [컴포넌트] 뷰 모드에서 Save된 Trade 참조 1 표시 (상세 카드) / [호출] JournalPage 뷰
+const TradeRefBadge = ({ tradeRef: t }) => {
   const isBuy = t.side === 'BUY';
   const sideColor = isBuy ? '#4ade80' : '#f87171';
   return (
@@ -101,13 +123,13 @@ const TradeRefBadge = ({ ref: t }) => {
           background: 'rgba(255,255,255,0.06)', color: 'var(--text-muted)', fontWeight: 600,
         }}>{t.exchange}</span>
       )}
-      <span style={{ color: sideColor, fontWeight: 700 }}>{isBuy ? '매수' : '매도'}</span>
+      <span style={{ color: sideColor, fontWeight: 700 }}>{isBuy ? 'Buy' : 'Sell'}</span>
       <span className="mono" style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{t.symbol}</span>
       <span className="mono" style={{ color: 'var(--text-secondary)' }}>
         {Number(t.price).toLocaleString()}
       </span>
       <span className="mono" style={{ color: 'var(--text-secondary)' }}>
-        수량 {parseFloat(Number(t.qty).toFixed(8)).toString()}
+        Quantity {parseFloat(Number(t.qty).toFixed(8)).toString()}
       </span>
       {t.traded_at && (
         <span className="mono" style={{ color: 'var(--text-muted)', fontSize: '11px' }}>
@@ -118,21 +140,18 @@ const TradeRefBadge = ({ ref: t }) => {
   );
 };
 
-const WEEKDAYS  = ['일', '월', '화', '수', '목', '금', '토'];
-const MONTHS_KR = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
+const WEEKDAYS  = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS_KR = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
 const EMOTIONS = [
-  { value: 'CALM',      label: '😌 냉정' },
-  { value: 'CONFIDENT', label: '💪 확신' },
-  { value: 'FOMO',      label: '😰 FOMO' },
-  { value: 'GREEDY',    label: '🤑 욕심' },
-  { value: 'FEARFUL',   label: '😨 공포' },
-  { value: 'ANXIOUS',   label: '😟 불안' },
+  { value: 'CALM', label: 'Calm' }, { value: 'CONFIDENT', label: 'Confident' },
+  { value: 'GREEDY', label: 'Greedy' }, { value: 'FEARFUL', label: 'Fearful' },
+  { value: 'ANXIOUS', label: 'Anxious' },
 ];
 
+// Keep FOMO here only so older journals can still render their saved emotion.
 const EMOTION_LABEL = {
-  CALM: '😌 냉정', CONFIDENT: '💪 확신', FOMO: '😰 FOMO',
-  GREEDY: '🤑 욕심', FEARFUL: '😨 공포', ANXIOUS: '😟 불안',
+  CALM: 'Calm', CONFIDENT: 'Confident', FOMO: 'FOMO', GREEDY: 'Greedy', FEARFUL: 'Fearful', ANXIOUS: 'Anxious',
 };
 
 // [용도] Date → 'YYYY-MM-DD' 문자열 변환
@@ -174,8 +193,9 @@ const compressImage = (file, maxWidth = 800, quality = 0.6) => {
   });
 };
 
-// [컴포넌트] 매매 일기 메인 페이지 / [호출] App.jsx 라우터
+// [컴포넌트] Trading journal 메인 페이지 / [호출] App.jsx 라우터
 const JournalPage = () => {
+  const language = usePreferredLanguage();
   const [searchParams, setSearchParams] = useSearchParams();
   const subTab = searchParams.get('tab') || 'journal'; // 'journal' | 'plans'
   const [currentMonth, setCurrentMonth] = useState(
@@ -193,15 +213,26 @@ const JournalPage = () => {
 
   // 폼 상태
   const [form, setForm] = useState({
-    symbol: '', exchange: '', entryReason: '', exitReason: '', emotion: '', memo: '', tagIds: [], image: null,
+    symbol: '', exchange: '', entryReason: '', exitReason: '', emotion: '', memo: '', tagIds: [], image: null, visibility: 'PRIVATE',
+    checklist: {},
   });
+  const [, setChecklistItems] = useState([]);
+  const [checklistByCategory, setChecklistByCategory] = useState({});
   const [saving,         setSaving]         = useState(false);
   const [formError,      setFormError]      = useState('');
+  const [aiFeedback,     setAiFeedback]     = useState(null);
+  const [aiFeedbackLoading, setAiFeedbackLoading] = useState(false);
+  const [planFeedback, setPlanFeedback] = useState(null);
+  const [planFeedbackLoading, setPlanFeedbackLoading] = useState(false);
+  const [showWeeklyReviewModal, setShowWeeklyReviewModal] = useState(false);
+  const [weeklyReview, setWeeklyReview] = useState(null);
+  const [weeklyReviewLoading, setWeeklyReviewLoading] = useState(false);
+  const [periodReviewType, setPeriodReviewType] = useState('weekly'); // 'weekly' | 'monthly'
   const [newTagName,     setNewTagName]     = useState('');
   const [newTagColor,    setNewTagColor]    = useState('#00d4aa');
   const [addingTag,      setAddingTag]      = useState(false);
   const [showTagInput,   setShowTagInput]   = useState(false); // 태그 입력창 노출 여부
-  const [selectedTrades, setSelectedTrades] = useState([]);    // 선택된 거래 목록 (다중)
+  const [selectedTrades, setSelectedTrades] = useState([]);    // 선택된 Trade 목록 (다중)
   const [calOpen,        setCalOpen]        = useState(true);  // 캘린더 펼침/접힘
   const [zoomImage,      setZoomImage]      = useState(null);  // 이미지 확대 모달
   const [yearMonthPicker, setYearMonthPicker] = useState(false); // 년/월 빠른 선택 팝업
@@ -218,18 +249,19 @@ const JournalPage = () => {
   const [aiSummary,     setAiSummary]     = useState(null);
   const [aiRefreshing,  setAiRefreshing]  = useState(false);
 
+
   // [용도] AI 시장 요약 조회 / [호출] 마운트
   const fetchAiSummary = useCallback(async () => {
     try {
       const res = await getNewsSummary();
       if (res.data?.summary_ko) setAiSummary(res.data);
-    } catch {}
+    } catch { /* Optional summary is allowed to be unavailable. */ }
   }, []);
 
   useEffect(() => {
     fetchAll();
     fetchAiSummary();
-    // 자동 동기화 완료 시 데이터 재조회 (로딩 스피너 없이)
+    // 자동 Sync complete 시 data 재조회 (로딩 스피너 없이)
     const onAutoSync = () => fetchAll(true);
     window.addEventListener('autoSyncComplete', onAutoSync);
     return () => window.removeEventListener('autoSyncComplete', onAutoSync);
@@ -241,11 +273,36 @@ const JournalPage = () => {
     try {
       const res = await refreshNewsSummary();
       if (res.data?.summary_ko) setAiSummary(res.data);
-    } catch {}
+    } catch { /* Keep the previous summary on refresh failure. */ }
     setAiRefreshing(false);
   };
 
-  // [용도] 년/월 팝업 외부 클릭 시 닫기 / [호출] yearMonthPicker 상태 변경 시
+  // [용도] 주간/월간 AI 리뷰 생성 / [호출] AI 리뷰 버튼
+  const handleGetWeeklyReview = async () => {
+    setShowWeeklyReviewModal(true);
+    setWeeklyReview(null);
+    setWeeklyReviewLoading(true);
+    try {
+      // 현재 날짜 기준으로 일주일 전 (고정)
+      const today = new Date();
+      const oneWeekAgo = new Date(today);
+      oneWeekAgo.setDate(today.getDate() - 7);
+
+      const from = fmtDate(oneWeekAgo);
+      const to = fmtDate(today);
+
+
+      const res = await getPeriodReview(periodReviewType, from, to);
+      setWeeklyReview({ type: periodReviewType, review: res.data });
+    } catch (e) {
+      console.error(e);
+      alert('Could not generate the AI review.');
+    } finally {
+      setWeeklyReviewLoading(false);
+    }
+  };
+
+  // [용도] 년/월 팝업 외부 클릭 시 Close / [호출] yearMonthPicker 상태 변경 시
   useEffect(() => {
     if (!yearMonthPicker) return;
     const handleOutside = (e) => {
@@ -257,18 +314,27 @@ const JournalPage = () => {
     return () => document.removeEventListener('mousedown', handleOutside);
   }, [yearMonthPicker]);
 
-  // [용도] 일기/태그/거래 전체 조회 / [호출] useEffect, 저장/삭제 후
-  // silent=true 이면 로딩 스피너 없이 데이터만 갱신 (자동 동기화 후 호출 시)
+  // [용도] Journal/태그/Trade All 조회 / [호출] useEffect, Save/Delete 후
+  // silent=true 이면 로딩 스피너 없이 data만 갱신 (자동 Sync 후 호출 시)
   const fetchAll = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [jRes, tgRes, trRes, plRes] = await Promise.all([
-        getJournals(), getStrategyTags(), getTrades(), getPlans(),
+      const [jRes, tgRes, trRes, plRes, clRes] = await Promise.all([
+        getJournals(), getStrategyTags(), getTrades(), getPlans(), getChecklist(),
       ]);
       setJournals(jRes.data);
       setTags(tgRes.data);
       setTrades(trRes.data);
       setPlans(plRes.data);
+      setChecklistItems(clRes.data);
+
+      // 카테고리별로 정리
+      const byCategory = {};
+      clRes.data.forEach(item => {
+        if (!byCategory[item.category]) byCategory[item.category] = [];
+        byCategory[item.category].push(item);
+      });
+      setChecklistByCategory(byCategory);
     } catch (e) {
       console.error(e);
     } finally {
@@ -276,12 +342,76 @@ const JournalPage = () => {
     }
   };
 
-  // ── 파생 데이터 ────────────────────────────────
+  // ── 파생 data ────────────────────────────────
   const selectedDateStr   = fmtDate(selectedDate);
   const journalDateSet    = new Set(journals.map(j => j.trade_date?.slice(0, 10)));
   const journalsForDay    = isSearchActive ? searchResults : journals.filter(j => j.trade_date?.slice(0, 10) === selectedDateStr);
   const tradesForDay      = trades.filter(t => t.traded_at?.slice(0, 10) === selectedDateStr);
   const plansForDay       = plans.filter(p => p.plan_date === selectedDateStr);
+
+  const requestPlanFeedback = useCallback(async (draft = {}) => {
+    if (!selectedDateStr || plansForDay.length === 0) {
+      setPlanFeedback(null);
+      return null;
+    }
+
+    setPlanFeedbackLoading(true);
+    try {
+      const res = await getPlanFeedback({
+        trade_date: selectedDateStr,
+        symbol: draft.symbol ?? null,
+        entry_reason: draft.entry_reason ?? null,
+        exit_reason: draft.exit_reason ?? null,
+        emotion: draft.emotion ?? null,
+        memo: draft.memo ?? null,
+      });
+      const feedback = typeof res.data === 'string' ? res.data : (res.data?.feedback ?? '');
+      setPlanFeedback(feedback);
+      return feedback;
+    } catch {
+      setPlanFeedback('Could not generate the AI trade-plan review.');
+      return null;
+    } finally {
+      setPlanFeedbackLoading(false);
+    }
+  }, [selectedDateStr, plansForDay.length]);
+  const getLatestJournalForDay = useCallback(() => {
+    if (journalsForDay.length === 0) return null;
+    return [...journalsForDay].sort((a, b) => {
+      const aTime = new Date(a.updated_at || a.created_at || a.trade_date || 0).getTime();
+      const bTime = new Date(b.updated_at || b.created_at || b.trade_date || 0).getTime();
+      return bTime - aTime;
+    })[0];
+  }, [journalsForDay]);
+
+  const handleRunPlanReview = useCallback(async () => {
+    const journal = getLatestJournalForDay();
+    if (!journal) {
+      setPlanFeedback('Save a journal entry for this date before requesting a review.');
+      return;
+    }
+
+    await requestPlanFeedback({
+      symbol: journal.symbol || null,
+      entry_reason: journal.entry_reason || null,
+      exit_reason: journal.exit_reason || null,
+      emotion: journal.emotion || null,
+      memo: journal.memo || null,
+    });
+  }, [getLatestJournalForDay, requestPlanFeedback]);
+
+  // [용도] Trading journal 화면에서 당일 계획 complete 여부 토글 / [호출] 계획 체크박스
+  const handleTogglePlanDone = async (planId) => {
+    try {
+      const res = await togglePlanDone(planId);
+      setPlans(prev => prev.map(p => p.id === planId ? res.data : p));
+      setPlanFeedback(null);
+    } catch (e) {
+      console.error(e);
+      setFormError('Could not update the trade plan status.');
+    }
+  };
+
 
   // [용도] 검색 실행 (키워드 + 태그) / [호출] 검색바 Enter, 태그 토글
   const doSearch = useCallback(async (keyword, tagIds) => {
@@ -314,7 +444,7 @@ const JournalPage = () => {
     );
   };
 
-  // [용도] 검색 초기화 / [호출] 검색 초기화 버튼
+  // [용도] 검색 Reset / [호출] 검색 Reset 버튼
   const clearSearch = () => {
     setSearchKeyword('');
     setSearchTagIds([]);
@@ -334,6 +464,7 @@ const JournalPage = () => {
 
   // ── 핸들러 ─────────────────────────────────────
 
+
   // [용도] 캘린더 날짜 클릭 / [호출] cal-cell onClick
   const handleDayClick = (date) => {
     setSelectedDate(date);
@@ -341,20 +472,28 @@ const JournalPage = () => {
     setEditTarget(null);
   };
 
-  // [용도] 새 일기 작성 폼 열기 / [호출] 새 일기 버튼
+  // [용도] 새 Journal 작성 폼 열기 / [호출] 새 Journal 버튼
   const openCreate = () => {
     setEditTarget(null);
-    setForm({ symbol: '', entryReason: '', exitReason: '', emotion: '', memo: '', tagIds: [], image: null });
+    setForm({ symbol: '', entryReason: '', exitReason: '', emotion: '', memo: '', tagIds: [], image: null, visibility: 'PRIVATE', checklist: {} });
     setFormError('');
+    setPlanFeedback(null);
+    setPlanFeedbackLoading(false);
     setSelectedTrades([]);
     setShowTagInput(false);
     if (window.innerWidth < 768) setCalOpen(false);
     setMode('form');
   };
 
-  // [용도] 수정 폼 열기 (detail API로 이미지 로드) / [호출] 수정 버튼
+  // [용도] Edit 폼 열기 (detail API로 이미지 로드) / [호출] Edit 버튼
   const openEdit = async (journal) => {
     setEditTarget(journal);
+    const journalDate = journal.trade_date
+      ? new Date(`${journal.trade_date.slice(0, 10)}T00:00:00`)
+      : new Date();
+    journalDate.setHours(0, 0, 0, 0);
+    setSelectedDate(journalDate);
+    setCurrentMonth(new Date(journalDate.getFullYear(), journalDate.getMonth(), 1));
     setForm({
       symbol:      journal.symbol       ?? '',
       entryReason: journal.entry_reason ?? '',
@@ -363,9 +502,13 @@ const JournalPage = () => {
       memo:        journal.memo         ?? '',
       tagIds:      journal.tags?.map(t => t.id) ?? [],
       image:       null,
+      visibility:  journal.visibility ?? 'PRIVATE',
+      checklist:   {},
     });
     setFormError('');
-    // 수정 시 기존 선택 거래 복원
+    setPlanFeedback(null);
+    setPlanFeedbackLoading(false);
+    // Edit 시 기존 선택 Trade 복 KRW
     try {
       setSelectedTrades(journal.trade_refs_json ? JSON.parse(journal.trade_refs_json) : []);
     } catch {
@@ -375,36 +518,36 @@ const JournalPage = () => {
     if (window.innerWidth < 768) setCalOpen(false);
     setMode('form');
 
-    // 이미지가 있으면 detail API로 실제 이미지 데이터 로드
+    // 이미지가 있으면 detail API로 실제 이미지 data 로드
     if (journal.has_image) {
       try {
         const res = await getJournal(journal.id);
-        setForm(p => ({ ...p, image: res.data.image ?? null }));
+        setForm(p => ({ ...p, image: res.data.image ?? null, checklist: {} }));
       } catch { /* ignore */ }
     }
   };
 
-  // [용도] 거래 카드 클릭으로 다중선택 토글 / [호출] trade-ref-card onClick
-  // 재클릭 시 해제, 선택된 거래의 고유 종목들을 symbol 필드에 자동 적용
+  // [용도] Trade 카드 클릭으로 다중선택 토글 / [호출] trade-ref-card onClick
+  // 재클릭 시 해제, 선택된 Trade의 고유 Symbol들을 symbol 필드에 자동 Apply
   const toggleTrade = (trade) => {
     setSelectedTrades(prev => {
       const isSelected = prev.some(t => t.id === trade.id);
       const next = isSelected
         ? prev.filter(t => t.id !== trade.id)
         : [...prev, trade];
-      // 선택된 거래들의 고유 종목을 쉼표로 join해서 symbol 자동 입력
+      // 선택된 Trade들의 고유 Symbol을 쉼표로 join해서 symbol 자동 입력
       const symbols = [...new Set(next.map(t => t.symbol))].join(', ');
       setForm(p => ({ ...p, symbol: symbols }));
       return next;
     });
   };
 
-  // [용도] 일기 저장 (작성/수정) / [호출] 저장 버튼
+  // [용도] Journal Save (작성/Edit) / [호출] Save 버튼
   const handleSave = async () => {
     setSaving(true);
     setFormError('');
     try {
-      // 선택된 거래 스냅샷 저장 (id, symbol, side, price, qty, traded_at, exchange)
+      // 선택된 Trade 스냅샷 Save (id, symbol, side, price, qty, traded_at, exchange)
       const tradeRefs = selectedTrades.map(t => ({
         id: t.id, symbol: t.symbol, side: t.side,
         price: t.price, qty: t.qty, traded_at: t.traded_at, exchange: t.exchange,
@@ -412,13 +555,16 @@ const JournalPage = () => {
       const payload = {
         trade_date:      selectedDateStr,
         symbol:          form.symbol.trim() || null,
+        exchange:        form.exchange || selectedTrades[0]?.exchange || (form.symbol.includes('USDT') ? 'BINANCE' : form.symbol.startsWith('KRW-') ? 'UPBIT' : null),
         trade_refs_json: tradeRefs.length > 0 ? JSON.stringify(tradeRefs) : null,
         entry_reason:    form.entryReason.trim() || null,
         exit_reason:     form.exitReason.trim()  || null,
         emotion:         form.emotion            || null,
         memo:            form.memo.trim()        || null,
         image:           form.image              || null,
+        visibility:      form.visibility,
         tag_ids:         form.tagIds,
+        checklist:       form.checklist,
       };
       if (editTarget) {
         await updateJournal(editTarget.id, payload);
@@ -427,21 +573,28 @@ const JournalPage = () => {
       }
       await fetchAll();
       setMode('view');
+      await requestPlanFeedback({
+        symbol: payload.symbol,
+        entry_reason: payload.entry_reason,
+        exit_reason: payload.exit_reason,
+        emotion: payload.emotion,
+        memo: payload.memo,
+      });
     } catch {
-      setFormError('저장 실패. 다시 시도해주세요.');
+      setFormError('Save failed. 다시 시도해주세요.');
     } finally {
       setSaving(false);
     }
   };
 
-  // [용도] 일기 삭제 / [호출] 삭제 확인 버튼
+  // [용도] Journal Delete / [호출] Delete Confirm 버튼
   const handleDelete = async (id) => {
     try {
       await deleteJournal(id);
       setDeleteConfirm(null);
       await fetchAll();
     } catch {
-      alert('삭제 실패');
+      alert('Delete failed');
     }
   };
 
@@ -464,36 +617,80 @@ const JournalPage = () => {
       setNewTagName('');
       setShowTagInput(false);
     } catch {
-      setFormError('태그 생성 실패');
+      setFormError('태그 생성 failed');
     } finally {
       setAddingTag(false);
+    }
+  };
+
+  const handleDeleteTag = async (event, tagId) => {
+    event.stopPropagation();
+    try {
+      await deleteStrategyTag(tagId);
+      setTags((prev) => prev.filter((tag) => tag.id !== tagId));
+      setForm((prev) => ({
+        ...prev,
+        tagIds: prev.tagIds.filter((id) => id !== tagId),
+      }));
+    } catch {
+      setFormError('태그 Delete failed');
     }
   };
 
   const isToday    = (date) => fmtDate(date) === fmtDate(todayDate);
   const isSelected = (date) => fmtDate(date) === selectedDateStr;
 
+  // [용도] AI 피드백 생성 / [호출] Journal 카드의 AI 피드백 버튼
+  const handleGetJournalFeedback = async (journal) => {
+    setAiFeedbackLoading(true);
+    try {
+      const res = await getJournalFeedback(journal.id, false);
+      setAiFeedback({
+        journalId: journal.id,
+        feedback: res.data,
+      });
+    } catch (e) {
+      console.error(e);
+      alert('AI 피드백 생성에 failed했습니다.');
+    } finally {
+      setAiFeedbackLoading(false);
+    }
+  };
+
+  const handleRefreshJournalFeedback = async () => {
+    if (!aiFeedback?.journalId) return;
+    setAiFeedbackLoading(true);
+    try {
+      const res = await getJournalFeedback(aiFeedback.journalId, true);
+      setAiFeedback((prev) => prev ? { ...prev, feedback: res.data } : prev);
+    } catch (e) {
+      console.error(e);
+      alert('AI 피드백 생성에 failed했습니다.');
+    } finally {
+      setAiFeedbackLoading(false);
+    }
+  };
+
   // ── 렌더 ───────────────────────────────────────
   return (
     <div className="page">
       <div className="page-header anim-fade-up">
-        <h1 className="page-title">매매 일기</h1>
         {subTab === 'journal' && (
-          <button className="btn btn-primary btn-sm" onClick={openCreate}>
-            + 새 일기
+          <button className="compact-primary-action" onClick={openCreate}>
+            <span>+</span> New entry
           </button>
         )}
       </div>
 
       {/* 서브탭 */}
-      <div className="tabs anim-fade-up" style={{ marginBottom: '20px' }}>
+      <div className="section-nav anim-fade-up">
         {[
-          { key: 'journal', label: '매매 일기' },
-          { key: 'plans',   label: '매매 계획' },
+          { key: 'journal', label: 'Journal' },
+          { key: 'plans',   label: 'Trade Plans' },
         ].map(({ key, label }) => (
           <button
             key={key}
-            className={`tab${subTab === key ? ' active' : ''}`}
+            className={`section-nav-item${subTab === key ? ' active' : ''}`}
             onClick={() => setSearchParams(key === 'journal' ? {} : { tab: key })}
           >
             {label}
@@ -501,14 +698,22 @@ const JournalPage = () => {
         ))}
       </div>
 
-      {/* 서브탭: 매매 계획 */}
-      {subTab === 'plans' && <TradePlanPage embedded />}
+      {/* 서브탭: Trade plans */}
+      {subTab === 'plans' && (
+        <TradePlanPage
+          embedded
+          onSaved={async () => {
+            setSearchParams({});
+            window.location.reload();
+          }}
+        />
+      )}
 
-      {/* 서브탭: 매매 일기 (기본) */}
+      {/* 서브탭: Trading journal (기본) */}
       {subTab === 'journal' && (loading ? (
         <div className="empty-state">
           <div className="empty-state-icon" style={{ animation: 'spin 1s linear infinite' }}>◌</div>
-          <p className="empty-state-title">불러오는 중...</p>
+          <p className="empty-state-title">Loading...</p>
         </div>
       ) : (
         <>
@@ -525,7 +730,7 @@ const JournalPage = () => {
               <input
                 type="text"
                 className="input"
-                placeholder="일기 내용 검색 (진입이유, 청산이유, 메모)..."
+                placeholder="Search journal entries, decisions and notes..."
                 value={searchKeyword}
                 onChange={e => setSearchKeyword(e.target.value)}
                 style={{ paddingLeft: '32px' }}
@@ -533,7 +738,7 @@ const JournalPage = () => {
             </div>
             {isSearchActive && (
               <button className="btn btn-ghost btn-xs" onClick={clearSearch} style={{ flexShrink: 0 }}>
-                ✕ 초기화
+                ✕ Reset
               </button>
             )}
           </div>
@@ -560,7 +765,7 @@ const JournalPage = () => {
           )}
           {isSearchActive && (
             <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-              {searching ? '검색 중...' : `검색 결과: ${searchResults.length}건`}
+              {searching ? 'Searching...' : `${searchResults.length} results`}
             </div>
           )}
         </div>
@@ -575,8 +780,8 @@ const JournalPage = () => {
               onClick={() => setCalOpen(v => !v)}
               style={{ width: '100%', marginBottom: calOpen ? '8px' : 0, justifyContent: 'space-between' }}
             >
-              <span>캘린더</span>
-              <span>{calOpen ? '▲ 접기' : '▼ 펼치기'}</span>
+              <span>Calendar</span>
+              <span>{calOpen ? 'Collapse' : 'Expand'}</span>
             </button>
             {calOpen && <>
             {/* 월 네비 */}
@@ -585,9 +790,9 @@ const JournalPage = () => {
               <button
                 className="cal-month-title-btn"
                 onClick={() => { setPickerYear(year); setYearMonthPicker((v) => !v); }}
-                title="년/월 빠른 이동"
+                title="Choose month and year"
               >
-                {year}년 {MONTHS_KR[month]} ▾
+                {MONTHS_KR[month]} {year} ▾
               </button>
               <button className="cal-nav-btn" onClick={() => setCurrentMonth(new Date(year, month + 1, 1))}>›</button>
 
@@ -597,7 +802,7 @@ const JournalPage = () => {
                   {/* 년도 선택 */}
                   <div className="cal-ym-year-row">
                     <button className="cal-nav-btn" onClick={() => setPickerYear((y) => y - 1)}>‹</button>
-                    <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text)' }}>{pickerYear}년</span>
+                    <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text)' }}>{pickerYear}</span>
                     <button className="cal-nav-btn" onClick={() => setPickerYear((y) => y + 1)}>›</button>
                   </div>
                   {/* 월 그리드 */}
@@ -622,7 +827,7 @@ const JournalPage = () => {
             {/* 요일 헤더 */}
             <div className="cal-grid">
               {WEEKDAYS.map(d => (
-                <div key={d} className={`cal-weekday${d === '일' ? ' sun' : d === '토' ? ' sat' : ''}`}>{d}</div>
+                <div key={d} className={`cal-weekday${d === 'Sun' ? ' sun' : d === 'Sat' ? ' sat' : ''}`}>{d}</div>
               ))}
 
               {/* 날짜 셀 */}
@@ -660,8 +865,8 @@ const JournalPage = () => {
 
             {/* 범례 */}
             <div className="cal-footer">
-              <span className="cal-legend"><span className="cal-dot" /> 일기 있음</span>
-              <span className="cal-legend today-legend">● 오늘</span>
+              <span className="cal-legend"><span className="cal-dot" /> Entry recorded</span>
+              <span className="cal-legend today-legend">● Today</span>
             </div>
 
             {/* 이번 달 요약 */}
@@ -670,45 +875,50 @@ const JournalPage = () => {
                 <span className="cal-summary-num">
                   {journals.filter(j => j.trade_date?.slice(0, 7) === `${year}-${String(month + 1).padStart(2, '0')}`).length}
                 </span>
-                <span className="cal-summary-label">이번달 일기</span>
+                <span className="cal-summary-label">Entries this month</span>
               </div>
               <div className="cal-summary-item">
                 <span className="cal-summary-num">{journals.length}</span>
-                <span className="cal-summary-label">전체 일기</span>
+                <span className="cal-summary-label">All Journal</span>
               </div>
             </div>
             </>}
 
-          {/* ── AI 시장 요약 패널 ─────────────────── */}
-          <div className="ai-summary-panel">
-            <div className="ai-summary-header">
-              <span className="ai-summary-label">✦ 오늘의 시장 동향</span>
-              <button
-                className="btn btn-ghost btn-xs"
-                onClick={handleRefreshAiSummary}
-                disabled={aiRefreshing}
-                style={{ opacity: 0.6, fontSize: '11px', padding: '2px 6px' }}
-              >
-                {aiRefreshing ? '생성 중...' : '↺'}
-              </button>
+          {/* ── AI 요약 패널들 ────────────────────── */}
+          <div className="ai-summary-panels">
+            {/* AI 시장 요약 패널 */}
+            <div className="ai-summary-panel">
+              <div className="ai-summary-header">
+                <span className="ai-summary-label">{language === 'ko' ? '✦ 오늘의 시장 동향' : "✦ Today's market brief"}</span>
+                <button
+                  className="btn btn-ghost btn-xs"
+                  onClick={handleRefreshAiSummary}
+                  disabled={aiRefreshing}
+                  style={{ opacity: 0.6, fontSize: '11px', padding: '2px 6px' }}
+                >
+                  {aiRefreshing ? '생성 중...' : '↺'}
+                </button>
+              </div>
+              {aiSummary?.summary_ko ? (
+                <>
+                  <p className="ai-summary-text">{aiSummary.summary_ko}</p>
+                  {aiSummary.updated_at && (
+                    <span className="ai-summary-time">
+                      {new Date(aiSummary.updated_at).toLocaleString('ko-KR', {
+                        month: 'numeric', day: 'numeric',
+                        hour: '2-digit', minute: '2-digit',
+                      })} 기준
+                    </span>
+                  )}
+                </>
+              ) : (
+                <p className="ai-summary-empty">
+                  {aiRefreshing
+                    ? (language === 'ko' ? 'AI가 요약하고 있습니다...' : 'AI is preparing the summary...')
+                    : (language === 'ko' ? '오늘의 요약이 없습니다. ↺ 버튼으로 생성하세요.' : 'No summary is available for today. Select ↺ to generate one.')}
+                </p>
+              )}
             </div>
-            {aiSummary?.summary_ko ? (
-              <>
-                <p className="ai-summary-text">{aiSummary.summary_ko}</p>
-                {aiSummary.updated_at && (
-                  <span className="ai-summary-time">
-                    {new Date(aiSummary.updated_at).toLocaleString('ko-KR', {
-                      month: 'numeric', day: 'numeric',
-                      hour: '2-digit', minute: '2-digit',
-                    })} 기준
-                  </span>
-                )}
-              </>
-            ) : (
-              <p className="ai-summary-empty">
-                {aiRefreshing ? 'AI가 요약 중입니다...' : '오늘의 요약이 없습니다. ↺ 버튼으로 생성하세요.'}
-              </p>
-            )}
           </div>
           </div>
 
@@ -719,9 +929,9 @@ const JournalPage = () => {
               <div className="journal-day-header">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <span style={{ fontSize: '14px', fontWeight: 600 }}>
-                    🔍 검색 결과
+                    Search results
                     <span className="count-badge" style={{ marginLeft: '6px' }}>
-                      {searchResults.length}건
+                      {searchResults.length}
                     </span>
                   </span>
                 </div>
@@ -740,12 +950,10 @@ const JournalPage = () => {
                   }}
                 >‹</button>
                 <div className="journal-day-label">
-                  {selectedDate.getFullYear()}년&nbsp;
-                  {selectedDate.getMonth() + 1}월&nbsp;
-                  {selectedDate.getDate()}일
-                  {isToday(selectedDate) && <span className="today-badge">오늘</span>}
+                  {new Intl.DateTimeFormat('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric' }).format(selectedDate)}
+                  {isToday(selectedDate) && <span className="today-badge">Today</span>}
                   {journalsForDay.length > 0 && (
-                    <span className="count-badge">{journalsForDay.length}개</span>
+                    <span className="count-badge">{journalsForDay.length}</span>
                   )}
                 </div>
                 <button
@@ -760,12 +968,35 @@ const JournalPage = () => {
                 >›</button>
               </div>
               {mode === 'view' ? (
-                <button className="btn btn-primary btn-xs" onClick={openCreate}>
-                  + 이 날 일기 쓰기
-                </button>
+                <>
+                  <button className="btn btn-primary btn-xs" onClick={openCreate}>
+                    + New entry
+                  </button>
+                  <div style={{ marginLeft: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <select
+                      value={periodReviewType}
+                      onChange={e => setPeriodReviewType(e.target.value)}
+                      style={{
+                        fontSize: '11px', padding: '4px 8px',
+                        borderRadius: '4px', background: 'var(--bg-secondary)',
+                        border: '1px solid var(--border)', color: 'var(--text-primary)',
+                      }}
+                    >
+                      <option value="weekly">Weekly review</option>
+                      <option value="monthly">Monthly review</option>
+                    </select>
+                    <button
+                      className="btn btn-ghost btn-xs"
+                      onClick={handleGetWeeklyReview}
+                      disabled={weeklyReviewLoading}
+                    >
+                      {weeklyReviewLoading ? 'Generating...' : 'AI review'}
+                    </button>
+                  </div>
+                </>
               ) : (
                 <button className="btn btn-ghost btn-xs" onClick={() => setMode('view')}>
-                  ✕ 취소
+                  ✕ Cancel
                 </button>
               )}
             </div>
@@ -774,9 +1005,39 @@ const JournalPage = () => {
             {/* ── 뷰 모드 ── */}
             {mode === 'view' && !isSearchActive && (
               <div className="form-split">
-                {/* 왼쪽: 일기 목록 */}
+                {/* 왼쪽: Journal 목록 */}
                 <div className="form-split-left">
-                {/* 오늘의 매매 계획 (뷰 모드) */}
+                  {plansForDay.length > 0 && (
+                    <div style={{
+                      marginBottom: '12px',
+                      padding: '10px 12px',
+                      background: 'rgba(16,185,129,0.06)',
+                      borderRadius: '10px',
+                      border: '1px solid rgba(16,185,129,0.16)',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '6px' }}>
+                        <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--accent)' }}>
+                          🤖 이 날의 Trade plans AI 한줄평
+                        </div>
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-xs"
+                          onClick={handleRunPlanReview}
+                          disabled={planFeedbackLoading || journalsForDay.length === 0}
+                        >
+                          {planFeedbackLoading ? 'Confirm 중...' : 'Confirm'}
+                        </button>
+                      </div>
+                      <div style={{ fontSize: '12px', lineHeight: 1.6, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
+                        {planFeedbackLoading
+                          ? 'AI가 Save된 Journal와 계획을 보고 있습니다...'
+                          : (planFeedback || (journalsForDay.length > 0
+                            ? '기존 Journal가 있으면 Confirm 버튼으로 AI 점검을 다시 돌릴 수 있습니다.'
+                            : '이 날짜에 Save된 Journal가 없어서 바로 Confirm할 수 없습니다.'))}
+                      </div>
+                    </div>
+                  )}
+                {/* Today의 Trade plans (뷰 모드) */}
                 {plansForDay.length > 0 && (
                   <div style={{
                     marginBottom: '12px', padding: '10px 12px',
@@ -784,7 +1045,7 @@ const JournalPage = () => {
                     border: '1px solid rgba(99,102,241,0.15)',
                   }}>
                     <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--accent)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      📋 이 날의 매매 계획
+                      📋 이 날의 Trade plans
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                       {plansForDay.map(p => (
@@ -793,6 +1054,19 @@ const JournalPage = () => {
                           fontSize: '12px', lineHeight: 1.5,
                           opacity: p.done ? 0.5 : 1,
                         }}>
+                          <input
+                            type="checkbox"
+                            checked={!!p.done}
+                            onChange={() => handleTogglePlanDone(p.id)}
+                            title="계획 실행 여부"
+                            style={{
+                              width: '16px', height: '16px',
+                              margin: '2px 0 0',
+                              flexShrink: 0,
+                              cursor: 'pointer',
+                              accentColor: '#60a5fa',
+                            }}
+                          />
                           <span style={{
                             flexShrink: 0, fontSize: '10px', padding: '1px 5px',
                             borderRadius: '4px', fontWeight: 600, marginTop: '1px',
@@ -829,24 +1103,24 @@ const JournalPage = () => {
                   <div className="day-empty">
                     <span style={{ fontSize: '32px' }}>📓</span>
                     <p className="text-muted" style={{ fontSize: '14px', marginTop: '8px' }}>
-                      이 날 작성한 일기가 없습니다
+                      No journal entries for this day
                     </p>
                     <button className="btn btn-ghost btn-sm" style={{ marginTop: '10px' }} onClick={openCreate}>
-                      + 첫 일기 작성하기
+                      + Write the first entry
                     </button>
                   </div>
                 ) : (
                   journalsForDay.map(journal => (
                     <div key={journal.id} className="journal-card">
-                      {/* 상단 메타 (거래 참조, 감정, 시각) */}
+                      {/* 상단 메타 (Trade 참조, 감정, 시각) */}
                       <div className="journal-card-meta" style={{ flexWrap: 'wrap', gap: '4px', marginBottom: '8px' }}>
                         {(() => {
                           try {
                             const refs = journal.trade_refs_json ? JSON.parse(journal.trade_refs_json) : [];
                             if (refs.length > 0) {
-                              return refs.map((t, i) => <TradeRefBadge key={i} ref={t} />);
+                              return refs.map((t, i) => <TradeRefBadge key={i} tradeRef={t} />);
                             }
-                          } catch {}
+                          } catch { /* Fall back to the journal symbol below. */ }
                           return journal.symbol ? <span className="journal-symbol">{journal.symbol}</span> : null;
                         })()}
                         {journal.emotion && (
@@ -869,19 +1143,19 @@ const JournalPage = () => {
 
                       {journal.entry_reason && (
                         <div className="journal-section">
-                          <div className="journal-section-label">진입 이유</div>
+                          <div className="journal-section-label">Entry rationale</div>
                           <p className="journal-section-content">{journal.entry_reason}</p>
                         </div>
                       )}
                       {journal.exit_reason && (
                         <div className="journal-section">
-                          <div className="journal-section-label">청산 이유</div>
+                          <div className="journal-section-label">Exit rationale</div>
                           <p className="journal-section-content">{journal.exit_reason}</p>
                         </div>
                       )}
                       {journal.memo && (
                         <div className="journal-section">
-                          <div className="journal-section-label">메모</div>
+                          <div className="journal-section-label">Notes</div>
                           <p className="journal-section-content">{journal.memo}</p>
                         </div>
                       )}
@@ -889,10 +1163,10 @@ const JournalPage = () => {
                       {/* 첨부 이미지 (hasImage=true면 detail API로 로드) */}
                       <JournalImageViewer journal={journal} onZoom={setZoomImage} />
 
-                      {/* 수정/삭제 버튼 — 카드 맨 아래 오른쪽 */}
+                      {/* Edit/Delete 버튼 — 카드 맨 아래 오른쪽 */}
                       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', marginTop: '12px' }}>
-                        <button className="btn btn-ghost btn-xs" onClick={() => openEdit(journal)}>수정</button>
-                        <button className="btn btn-danger btn-xs" onClick={() => setDeleteConfirm(journal.id)}>삭제</button>
+                        <button className="btn btn-ghost btn-xs" onClick={() => openEdit(journal)}>Edit</button>
+                        <button className="btn btn-danger btn-xs" onClick={() => setDeleteConfirm(journal.id)}>Delete</button>
                       </div>
                     </div>
                   ))
@@ -900,26 +1174,26 @@ const JournalPage = () => {
                 </div>
                 </div>
 
-                {/* 오른쪽: 당일 거래 내역 (읽기 전용) */}
+                {/* 오른쪽: 당일 Trade history (read-only) */}
                 <div className="form-split-right">
                   <div className="trades-ref-header">
-                    <span className="trades-ref-title">당일 거래 내역</span>
-                    <span className="mono text-muted" style={{ fontSize: '11px' }}>
-                      {tradesForDay.length}건
+                    <span className="trades-ref-title">Executions for this day</span>
+                    <span className="mono text-muted" style={{ fontSize: '11px', fontFamily: 'var(--font-mono)' }}>
+                      {tradesForDay.length}
                     </span>
                   </div>
                   <div className="trades-ref-scroll">
                     {tradesForDay.length === 0 ? (
                       <div style={{ textAlign: 'center', padding: '24px 0' }}>
-                        <p className="text-muted" style={{ fontSize: '13px' }}>이 날 거래 내역이 없습니다</p>
+                        <p className="text-muted" style={{ fontSize: '13px' }}>No executions for this day</p>
                       </div>
                     ) : (
                       tradesForDay.map(trade => (
                         <div key={trade.id} className="trade-ref-card">
                           <div className="trade-ref-top">
-                            <span className={`badge badge-${trade.side.toLowerCase()}`}
+                            <span className={`badge ${trade.side === 'BUY' ? 'badge-buy' : 'badge-sell'}`}
                               style={{ fontSize: '10px', padding: '2px 6px' }}>
-                              {trade.side === 'BUY' ? '매수' : '매도'}
+                              {trade.side === 'BUY' ? 'Buy' : 'Sell'}
                             </span>
                             <span className="mono" style={{ fontSize: '13px', fontWeight: 600 }}>
                               {trade.symbol}
@@ -930,15 +1204,15 @@ const JournalPage = () => {
                           </div>
                           <div className="trade-ref-rows">
                             <div className="trade-ref-row">
-                              <span className="trade-ref-label">가격</span>
+                              <span className="trade-ref-label">Price</span>
                               <span className="mono trade-ref-val">{Number(trade.price).toLocaleString()}</span>
                             </div>
                             <div className="trade-ref-row">
-                              <span className="trade-ref-label">수량</span>
+                              <span className="trade-ref-label">Quantity</span>
                               <span className="mono trade-ref-val">{parseFloat(Number(trade.qty).toFixed(8)).toString()}</span>
                             </div>
                             <div className="trade-ref-row">
-                              <span className="trade-ref-label">시각</span>
+                              <span className="trade-ref-label">Time</span>
                               <span className="mono trade-ref-val" style={{ color: 'var(--text-secondary)' }}>
                                 {trade.traded_at?.slice(11, 16)}
                               </span>
@@ -958,13 +1232,13 @@ const JournalPage = () => {
                 {searching ? (
                   <div className="empty-state">
                     <div className="empty-state-icon" style={{ animation: 'spin 1s linear infinite' }}>◌</div>
-                    <p className="empty-state-title">검색 중...</p>
+                    <p className="empty-state-title">Searching...</p>
                   </div>
                 ) : searchResults.length === 0 ? (
                   <div className="empty-state">
                     <span style={{ fontSize: '32px' }}>🔍</span>
                     <p className="text-muted" style={{ fontSize: '14px', marginTop: '8px' }}>
-                      검색 결과가 없습니다
+                      No matching entries
                     </p>
                   </div>
                 ) : (
@@ -978,9 +1252,9 @@ const JournalPage = () => {
                           try {
                             const refs = journal.trade_refs_json ? JSON.parse(journal.trade_refs_json) : [];
                             if (refs.length > 0) {
-                              return refs.map((t, i) => <TradeRefBadge key={i} ref={t} />);
+                              return refs.map((t, i) => <TradeRefBadge key={i} tradeRef={t} />);
                             }
-                          } catch {}
+                          } catch { /* Fall back to the journal symbol below. */ }
                           return journal.symbol ? <span className="journal-symbol">{journal.symbol}</span> : null;
                         })()}
                         {journal.emotion && (
@@ -998,13 +1272,13 @@ const JournalPage = () => {
                       )}
                       {journal.entry_reason && (
                         <div className="journal-section">
-                          <div className="journal-section-label">진입 이유</div>
+                          <div className="journal-section-label">Entry 이유</div>
                           <p className="journal-section-content">{journal.entry_reason}</p>
                         </div>
                       )}
                       {journal.exit_reason && (
                         <div className="journal-section">
-                          <div className="journal-section-label">청산 이유</div>
+                          <div className="journal-section-label">Exit 이유</div>
                           <p className="journal-section-content">{journal.exit_reason}</p>
                         </div>
                       )}
@@ -1014,9 +1288,60 @@ const JournalPage = () => {
                           <p className="journal-section-content">{journal.memo}</p>
                         </div>
                       )}
+                      {journal.checklist && journal.checklist.length > 0 && (
+                        <div className="journal-section">
+                          <div className="journal-section-label">체크리스트</div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px' }}>
+                            {(() => {
+                              // 카테고리별로 정리
+                              const byCategory = {};
+                              journal.checklist.forEach(item => {
+                                if (!byCategory[item.category]) byCategory[item.category] = [];
+                                byCategory[item.category].push(item);
+                              });
+
+                              return Object.entries(byCategory).map(([category, items]) => (
+                                <div key={category} style={{ marginBottom: '8px' }}>
+                                  <div style={{
+                                    fontSize: '11px', fontWeight: 600,
+                                    color: 'var(--text-muted)', marginBottom: '4px',
+                                  }}>
+                                    {category === 'ENTRY' ? '🛒 매수 전' : category === 'EXIT' ? '📤 매도 전' : '📝 복기'}
+                                  </div>
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                                    {items.map(item => (
+                                      <span
+                                        key={item.id}
+                                        className={`tag-chip ${item.checked ? 'checked' : ''}`}
+                                        style={{
+                                          fontSize: '11px',
+                                          padding: '2px 8px',
+                                          borderRadius: '999px',
+                                          background: item.checked ? 'rgba(74,222,128,0.1)' : 'var(--bg-secondary)',
+                                          border: `1px solid ${item.checked ? 'rgba(74,222,128,0.3)' : 'var(--border)'}`,
+                                          color: item.checked ? '#4ade80' : 'var(--text-secondary)',
+                                        }}
+                                      >
+                                        {item.content}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              ));
+                            })()}
+                          </div>
+                        </div>
+                      )}
                       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', marginTop: '12px' }}>
-                        <button className="btn btn-ghost btn-xs" onClick={() => openEdit(journal)}>수정</button>
-                        <button className="btn btn-danger btn-xs" onClick={() => setDeleteConfirm(journal.id)}>삭제</button>
+                        <button className="btn btn-ghost btn-xs" onClick={() => openEdit(journal)}>Edit</button>
+                        <button
+                          className="btn btn-ghost btn-xs"
+                          onClick={() => handleGetJournalFeedback(journal)}
+                          disabled={aiFeedbackLoading && aiFeedback?.journalId === journal.id}
+                        >
+                          {aiFeedbackLoading && aiFeedback?.journalId === journal.id ? '생성 중...' : 'Journal 요약'}
+                        </button>
+                        <button className="btn btn-danger btn-xs" onClick={() => setDeleteConfirm(journal.id)}>Delete</button>
                       </div>
                     </div>
                   ))
@@ -1024,12 +1349,12 @@ const JournalPage = () => {
               </div>
             )}
 
-            {/* ── 폼 모드: 일기 작성 + 거래 내역 ── */}
+            {/* ── 폼 모드: Journal 작성 + Trade history ── */}
             {mode === 'form' && (
               <div className="form-split">
                 {/* 왼쪽: 작성 폼 */}
                 <div className="form-split-left">
-                  {/* 오늘의 매매 계획 (해당 날짜) */}
+                  {/* Today의 Trade plans (해당 날짜) */}
                   {plansForDay.length > 0 && (
                     <div style={{
                       marginBottom: '14px', padding: '10px 12px',
@@ -1037,7 +1362,7 @@ const JournalPage = () => {
                       border: '1px solid rgba(99,102,241,0.15)',
                     }}>
                       <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--accent)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        📋 이 날의 매매 계획
+                        📋 이 날의 Trade plans
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                         {plansForDay.map(p => (
@@ -1046,6 +1371,19 @@ const JournalPage = () => {
                             fontSize: '12px', lineHeight: 1.5,
                             opacity: p.done ? 0.5 : 1,
                           }}>
+                            <input
+                              type="checkbox"
+                              checked={!!p.done}
+                              onChange={() => handleTogglePlanDone(p.id)}
+                              title="계획 실행 여부"
+                              style={{
+                                width: '16px', height: '16px',
+                                margin: '2px 0 0',
+                                flexShrink: 0,
+                                cursor: 'pointer',
+                                accentColor: '#60a5fa',
+                              }}
+                            />
                             <span style={{
                               flexShrink: 0, fontSize: '10px', padding: '1px 5px',
                               borderRadius: '4px', fontWeight: 600, marginTop: '1px',
@@ -1058,7 +1396,7 @@ const JournalPage = () => {
                                                 p.direction === 'SHORT' ? 'rgba(96,165,250,0.25)' :
                                                 'var(--border)'}`,
                             }}>
-                              {p.direction === 'LONG' ? '▲ LONG' : p.direction === 'SHORT' ? '▼ SHORT' : '미정'}
+                              {p.direction === 'LONG' ? '▲ LONG' : p.direction === 'SHORT' ? '▼ SHORT' : (language === 'ko' ? '미정' : 'Unspecified')}
                             </span>
                             {p.symbol && (
                               <span className="mono" style={{ fontWeight: 600, color: 'var(--text-primary)', flexShrink: 0 }}>
@@ -1078,8 +1416,8 @@ const JournalPage = () => {
                     </div>
                   )}
                   <div className="form-group">
-                    <label className="input-label">종목</label>
-                    {/* 선택된 거래 칩 목록 */}
+                    <label className="input-label">Symbol</label>
+                    {/* 선택된 Trade 칩 목록 */}
                     {selectedTrades.length > 0 && (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '6px' }}>
                         {selectedTrades.map(t => (
@@ -1094,14 +1432,14 @@ const JournalPage = () => {
                     <input
                       type="text"
                       className="input"
-                      placeholder="예: KRW-BTC, BTCUSDT  (오른쪽 거래 클릭 시 자동 입력)"
+                      placeholder={language === 'ko' ? '예: KRW-BTC, BTCUSDT (오른쪽 거래 클릭 시 자동 입력)' : 'e.g. KRW-BTC, BTCUSDT (select a trade on the right to autofill)'}
                       value={form.symbol}
                       onChange={e => setForm(p => ({ ...p, symbol: e.target.value }))}
                     />
                   </div>
 
                   <div className="form-group">
-                    <label className="input-label">매매 감정</label>
+                    <label className="input-label">{language === 'ko' ? '매매 감정' : 'Trading emotion'}</label>
                     <div className="emotion-grid">
                       {EMOTIONS.map(em => (
                         <button
@@ -1119,22 +1457,22 @@ const JournalPage = () => {
                   </div>
 
                   <div className="form-group">
-                    <label className="input-label">진입 이유</label>
+                    <label className="input-label">{language === 'ko' ? '진입 이유' : 'Entry reason'}</label>
                     <textarea
                       className="textarea"
                       rows={3}
-                      placeholder="왜 매수/진입했나요?  (오른쪽에서 거래 선택)"
+                      placeholder={language === 'ko' ? '왜 진입했나요? (오른쪽에서 거래 선택)' : 'Why did you enter? (select a trade on the right)'}
                       value={form.entryReason}
                       onChange={e => setForm(p => ({ ...p, entryReason: e.target.value }))}
                     />
                   </div>
 
                   <div className="form-group">
-                    <label className="input-label">청산 이유</label>
+                    <label className="input-label">{language === 'ko' ? '청산 이유' : 'Exit reason'}</label>
                     <textarea
                       className="textarea"
                       rows={3}
-                      placeholder="왜 매도/청산했나요?  (오른쪽에서 거래 선택)"
+                      placeholder={language === 'ko' ? '왜 청산했나요? (오른쪽에서 거래 선택)' : 'Why did you exit? (select a trade on the right)'}
                       value={form.exitReason}
                       onChange={e => setForm(p => ({ ...p, exitReason: e.target.value }))}
                     />
@@ -1142,26 +1480,54 @@ const JournalPage = () => {
 
                   <div className="form-group">
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                      <label className="input-label" style={{ margin: 0 }}>전략 태그</label>
+                      <label className="input-label" style={{ margin: 0 }}>{language === 'ko' ? '전략 태그' : 'Strategy tags'}</label>
                       <button
                         type="button"
                         className="btn btn-ghost btn-xs"
                         onClick={() => { setShowTagInput(v => !v); setNewTagName(''); }}
                       >
-                        {showTagInput ? '✕ 닫기' : '+ 새 태그'}
+                        {showTagInput ? (language === 'ko' ? '✕ 닫기' : '✕ Close') : (language === 'ko' ? '+ 새 태그' : '+ New tag')}
                       </button>
                     </div>
                     <div className="tag-grid">
                       {tags.map(tag => (
-                        <button
+                        <div
                           key={tag.id}
-                          type="button"
                           className={`tag-btn${form.tagIds.includes(tag.id) ? ' selected' : ''}`}
-                          style={{ '--tag-color': tag.color }}
-                          onClick={() => toggleTag(tag.id)}
+                          style={{
+                            '--tag-color': tag.color,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '8px',
+                          }}
                         >
-                          {tag.name}
-                        </button>
+                          <button
+                            type="button"
+                            style={{ all: 'unset', cursor: 'pointer', flex: 1 }}
+                            onClick={() => toggleTag(tag.id)}
+                          >
+                            {journalText(tag.name, language)}
+                          </button>
+                          {!(tag.is_default ?? tag.isDefault) && (
+                            <button
+                              type="button"
+                              onClick={(event) => handleDeleteTag(event, tag.id)}
+                              style={{
+                                border: 'none',
+                                background: 'transparent',
+                                color: 'inherit',
+                                cursor: 'pointer',
+                                padding: 0,
+                                lineHeight: 1,
+                                opacity: 0.7,
+                              }}
+                              aria-label={`${journalText(tag.name, language)} ${language === 'ko' ? '삭제' : 'Delete'}`}
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
                       ))}
                     </div>
                     {/* 태그 추가 버튼 클릭 시에만 노출 */}
@@ -1172,12 +1538,12 @@ const JournalPage = () => {
                           className="color-picker"
                           value={newTagColor}
                           onChange={e => setNewTagColor(e.target.value)}
-                          title="태그 색상"
+                          title={language === 'ko' ? '태그 색상' : 'Tag color'}
                         />
                         <input
                           type="text"
                           className="input input-sm"
-                          placeholder="태그 이름 입력 후 Enter"
+                          placeholder={language === 'ko' ? '태그 이름 입력 후 Enter' : 'Enter a tag name and press Enter'}
                           value={newTagName}
                           onChange={e => setNewTagName(e.target.value)}
                           onKeyDown={e => e.key === 'Enter' && handleAddTag()}
@@ -1189,41 +1555,136 @@ const JournalPage = () => {
                           onClick={handleAddTag}
                           disabled={addingTag || !newTagName.trim()}
                         >
-                          추가
+                          {language === 'ko' ? '추가' : 'Add'}
                         </button>
                       </div>
                     )}
                   </div>
 
                   <div className="form-group">
-                    <label className="input-label">메모</label>
+                    <label className="input-label">{language === 'ko' ? '메모' : 'Notes'}</label>
                     <textarea
                       className="textarea"
                       rows={4}
-                      placeholder="반성, 개선할 점, 기타 메모..."
+                      placeholder={language === 'ko' ? '반성, 개선할 점, 기타 메모...' : 'Reflections, improvements, and other notes...'}
                       value={form.memo}
                       onChange={e => setForm(p => ({ ...p, memo: e.target.value }))}
                     />
                   </div>
 
+                  {/* 체크리스트 */}
+                  <div className="form-group">
+                    <label className="input-label">{language === 'ko' ? '복기 체크리스트' : 'Review checklist'}</label>
+                    {Object.entries(checklistByCategory).map(([category, items]) => (
+                      <div key={category} style={{ marginBottom: '16px' }}>
+                        <div style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          marginBottom: '8px', fontSize: '13px', fontWeight: 600,
+                          color: 'var(--text-primary)',
+                        }}>
+                          <span>{category === 'ENTRY' ? (language === 'ko' ? '🛒 매수 전' : '🛒 Before entry') : category === 'EXIT' ? (language === 'ko' ? '📤 매도 전' : '📤 Before exit') : (language === 'ko' ? '📝 복기' : '📝 Review')}</span>
+                          <span className="text-muted" style={{ fontSize: '11px' }}>
+                            {items.length} {language === 'ko' ? '항목' : items.length === 1 ? 'item' : 'items'}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          {items.map(item => (
+                            <label key={item.id} style={{
+                              display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '8px 10px',
+                              borderRadius: '6px', fontSize: '12px',
+                              background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+                              cursor: 'pointer',
+                              transition: 'all 0.15s',
+                            }}>
+                              <input
+                                type="checkbox"
+                                checked={!!form.checklist[item.id]}
+                                onChange={e => {
+                                  setForm(p => ({
+                                    ...p,
+                                    checklist: {
+                                      ...p.checklist,
+                                      [item.id]: e.target.checked
+                                    }
+                                  }));
+                                }}
+                                style={{
+                                  width: '16px', height: '16px', margin: '2px 0',
+                                  flexShrink: 0, cursor: 'pointer',
+                                }}
+                              />
+                              <span style={{
+                                flex: 1,
+                                lineHeight: 1.4,
+                                color: form.checklist[item.id] ? 'var(--text-primary)' : 'var(--text-secondary)',
+                              }}>{journalText(item.content, language)}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                    <p className="text-muted" style={{ fontSize: '11px', marginTop: '8px' }}>
+                      {language === 'ko' ? '체크리스트를 완료하여 체계적으로 복기하세요.' : 'Complete the checklist for a structured trade review.'}
+                    </p>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="input-label">{language === 'ko' ? '공개 범위' : 'Visibility'}</label>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                      {[
+                        { value: 'PRIVATE', title: language === 'ko' ? '비공개' : 'Private', description: language === 'ko' ? '나만 볼 수 있습니다' : 'Only you can see this' },
+                        { value: 'PUBLIC', title: language === 'ko' ? '공개' : 'Public', description: language === 'ko' ? '공개 프로필에 표시됩니다' : 'Shown on your public profile' },
+                      ].map(option => (
+                        <button key={option.value} type="button"
+                          onClick={() => setForm(p => ({ ...p, visibility: option.value }))}
+                          style={{ textAlign: 'left', padding: '12px', borderRadius: '10px', cursor: 'pointer',
+                            border: form.visibility === option.value ? '1px solid var(--accent)' : '1px solid var(--border)',
+                            background: form.visibility === option.value ? 'rgba(59, 130, 246, 0.12)' : 'var(--bg-secondary)',
+                            color: 'var(--text-primary)' }}>
+                          <strong style={{ display: 'block', fontSize: '13px' }}>{option.title}</strong>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{option.description}</span>
+                        </button>
+                      ))}
+                    </div>
+                    {form.visibility === 'PUBLIC' && <p className="text-muted" style={{ fontSize: '11px', marginTop: '7px' }}>
+                      {language === 'ko' ? '계정의 공개 일기 설정이 켜져 있을 때만 다른 사용자에게 보입니다.' : 'Other traders can see this only when public journals are enabled in your profile settings.'}
+                    </p>}
+                  </div>
+
                   {/* 이미지 첨부 */}
                   <div className="form-group">
-                    <label className="input-label">사진 첨부</label>
+                    <label className="input-label">{language === 'ko' ? '사진 첨부' : 'Photo attachment'}</label>
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
                       <label className="btn btn-ghost btn-sm" style={{ cursor: 'pointer', flexShrink: 0 }}>
-                        📷 사진 선택
+                        {language === 'ko' ? '📷 사진 선택' : '📷 Choose photo'}
                         <input
                           type="file"
-                          accept="image/*"
+                          accept="image/jpeg,image/png,image/webp"
                           style={{ display: 'none' }}
                           onChange={async (e) => {
                             const file = e.target.files?.[0];
                             if (!file) return;
+                            if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+                              setFormError(language === 'ko' ? 'JPG, PNG, WebP 이미지만 첨부할 수 있습니다.' : 'Only JPG, PNG, and WebP images are supported.');
+                              e.target.value = '';
+                              return;
+                            }
+                            if (file.size > 8 * 1024 * 1024) {
+                              setFormError(language === 'ko' ? '원본 사진은 8MB 이하만 첨부할 수 있습니다.' : 'The original image must be 8 MB or smaller.');
+                              e.target.value = '';
+                              return;
+                            }
                             try {
                               const compressed = await compressImage(file);
+                              const estimatedBytes = Math.ceil((compressed.split(',')[1]?.length || 0) * 0.75);
+                              if (estimatedBytes > 1.5 * 1024 * 1024) {
+                                setFormError(language === 'ko' ? '압축된 사진이 1.5MB를 넘습니다. 더 작은 사진을 선택해주세요.' : 'The compressed image exceeds 1.5 MB. Choose a smaller image.');
+                                return;
+                              }
+                              setFormError('');
                               setForm(p => ({ ...p, image: compressed }));
                             } catch {
-                              alert('이미지 처리에 실패했습니다.');
+                              setFormError(language === 'ko' ? '이미지 처리에 실패했습니다.' : 'Could not process the image.');
                             }
                             e.target.value = '';
                           }}
@@ -1233,7 +1694,7 @@ const JournalPage = () => {
                         <div style={{ position: 'relative' }}>
                           <img
                             src={form.image}
-                            alt="첨부"
+                            alt={language === 'ko' ? '첨부 이미지' : 'Attached image'}
                             style={{
                               maxHeight: '80px', maxWidth: '120px',
                               borderRadius: '6px', objectFit: 'cover',
@@ -1260,25 +1721,25 @@ const JournalPage = () => {
                   {formError && <p className="msg-error">{formError}</p>}
 
                   <div className="form-actions">
-                    <button className="btn btn-ghost" onClick={() => setMode('view')}>취소</button>
+                    <button className="btn btn-ghost" onClick={() => setMode('view')}>Cancel</button>
                     <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-                      {saving ? '저장 중...' : editTarget ? '수정 완료' : '일기 저장'}
+                      {saving ? 'Saving...' : editTarget ? 'Edit complete' : 'Journal Save'}
                     </button>
                   </div>
                 </div>
 
-                {/* 오른쪽: 당일 거래 내역 */}
+                {/* 오른쪽: 당일 Trade history */}
                 <div className="form-split-right">
                   <div className="trades-ref-header">
-                    <span className="trades-ref-title">당일 거래 내역</span>
-                    <span className="mono text-muted" style={{ fontSize: '11px' }}>
-                      {tradesForDay.length}건 · 클릭해서 선택 (다중선택 가능)
+                    <span className="trades-ref-title">당일 Trade history</span>
+                    <span className="mono text-muted" style={{ fontSize: '11px', fontFamily: 'var(--font-mono)' }}>
+                      {tradesForDay.length} · 클릭해서 선택 (다중선택 가능)
                     </span>
                   </div>
                   <div className="trades-ref-scroll">
                     {tradesForDay.length === 0 ? (
                       <div style={{ textAlign: 'center', padding: '24px 0' }}>
-                        <p className="text-muted" style={{ fontSize: '13px' }}>이 날 거래 내역이 없습니다</p>
+                        <p className="text-muted" style={{ fontSize: '13px' }}>이 날 Trade history이 없습니다</p>
                       </div>
                     ) : (
                       tradesForDay.map(trade => {
@@ -1308,7 +1769,7 @@ const JournalPage = () => {
                                 style={{ fontSize: '10px', padding: '2px 6px', opacity: 0.7 }}>
                                 {trade.exchange}
                               </span>
-                              <span className={`badge badge-${trade.side.toLowerCase()}`}
+                              <span className={`badge ${trade.side === 'BUY' ? 'badge-buy' : 'badge-sell'}`}
                                 style={{ fontSize: '10px', padding: '2px 6px', opacity: 0.7 }}>
                                 {trade.side === 'BUY' ? '매수' : '매도'}
                               </span>
@@ -1318,13 +1779,13 @@ const JournalPage = () => {
                             </div>
                             <div className="trade-ref-rows">
                               <div className="trade-ref-row">
-                                <span className="trade-ref-label">가격</span>
+                                <span className="trade-ref-label">Price</span>
                                 <span className="mono trade-ref-val">
                                   {Number(trade.price).toLocaleString()}
                                 </span>
                               </div>
                               <div className="trade-ref-row">
-                                <span className="trade-ref-label">수량</span>
+                                <span className="trade-ref-label">Quantity</span>
                                 <span className="mono trade-ref-val">
                                   {parseFloat(Number(trade.qty).toFixed(8)).toString()}
                                 </span>
@@ -1349,19 +1810,19 @@ const JournalPage = () => {
         </>
       ))}
 
-      {/* 삭제 확인 다이얼로그 */}
+      {/* Delete Confirm 다이얼로그 */}
       {deleteConfirm !== null && (
         <div className="modal-overlay" onClick={() => setDeleteConfirm(null)}>
           <div className="modal modal-sm" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h2 className="modal-title">일기 삭제</h2>
+              <h2 className="modal-title">Journal Delete</h2>
             </div>
             <div className="modal-body">
-              <p style={{ color: 'var(--text-primary)' }}>이 일기를 삭제하시겠습니까? 되돌릴 수 없습니다.</p>
+              <p style={{ color: 'var(--text-primary)' }}>이 Journal를 Delete하시겠습니까? 되돌릴 수 없습니다.</p>
             </div>
             <div className="modal-footer">
-              <button className="btn btn-ghost" onClick={() => setDeleteConfirm(null)}>취소</button>
-              <button className="btn btn-danger" onClick={() => handleDelete(deleteConfirm)}>삭제</button>
+              <button className="btn btn-ghost" onClick={() => setDeleteConfirm(null)}>Cancel</button>
+              <button className="btn btn-danger" onClick={() => handleDelete(deleteConfirm)}>Delete</button>
             </div>
           </div>
         </div>
@@ -1396,8 +1857,82 @@ const JournalPage = () => {
           >✕</button>
         </div>
       )}
+
+      {/* AI 피드백 모달 */}
+      {aiFeedback && (
+        <div className="modal-overlay" onClick={() => setAiFeedback(null)}>
+          <div className="modal" style={{ maxWidth: '600px' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 className="modal-title">🤖 AI 피드백</h2>
+              <button
+                className="modal-close"
+                onClick={() => setAiFeedback(null)}
+              >✕</button>
+            </div>
+            <div className="modal-body">
+              <div style={{
+                padding: '16px',
+                background: 'var(--bg-secondary)',
+                borderRadius: '8px',
+                border: '1px solid var(--border)',
+                whiteSpace: 'pre-wrap',
+                fontSize: '14px',
+                lineHeight: 1.6,
+              }}>
+                {aiFeedback.feedback}
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={handleRefreshJournalFeedback} disabled={aiFeedbackLoading}>
+                {aiFeedbackLoading ? '생성 중...' : '새로 생성'}
+              </button>
+              <button className="btn btn-primary" onClick={() => setAiFeedback(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+    {/* 주간 AI 리뷰 모달 */}
+    {showWeeklyReviewModal && (
+      <div className="modal-overlay" onClick={() => setShowWeeklyReviewModal(false)}>
+        <div className="modal" onClick={e => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2 className="modal-title">📊 {weeklyReview?.type === 'weekly' ? '주간' : '월간'} AI 리뷰</h2>
+            <button
+              className="modal-close"
+              onClick={() => setShowWeeklyReviewModal(false)}
+            >✕</button>
+          </div>
+          <div className="modal-body">
+            <div style={{
+              padding: '16px',
+              background: 'var(--bg-secondary)',
+              borderRadius: '8px',
+              border: '1px solid var(--border)',
+              fontSize: '14px',
+              lineHeight: 1.6,
+            }}>
+              {weeklyReview?.review ? (
+                <MarkdownContent>{weeklyReview.review}</MarkdownContent>
+              ) : (
+                weeklyReviewLoading ? '리뷰 생성 중...' : '리뷰를 불러오는 중입니다...'
+              )}
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button className="btn-primary" onClick={() => setShowWeeklyReviewModal(false)}>
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
     </div>
   );
-};
+
+
+}
 
 export default JournalPage;

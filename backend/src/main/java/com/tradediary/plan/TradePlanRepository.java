@@ -28,4 +28,7 @@ public interface TradePlanRepository extends JpaRepository<TradePlan, Long> {
     // [용도] 과거 기간 계획 전체 조회 (비교용) / [호출] DashboardService
     List<TradePlan> findAllByUserIdAndPlanDateBetweenOrderByPlanDateDesc(
             Long userId, LocalDate from, LocalDate to);
+
+    List<TradePlan> findAllByUserIdAndPlanDateOrderByCreatedAtAsc(
+            Long userId, LocalDate planDate);
 }

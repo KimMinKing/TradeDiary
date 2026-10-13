@@ -17,5 +17,7 @@ public interface ExchangeKeyRepository extends JpaRepository<ExchangeKey, Long> 
     List<ExchangeKey> findAllByUserId(Long userId);
 
     // [용도] 특정 사용자의 특정 거래소 Key 존재 여부 / [호출] ExchangeKeyService.saveKey()
+    List<ExchangeKey> findAllByIsActiveTrue();
+
     boolean existsByUserIdAndExchange(Long userId, ExchangeKey.Exchange exchange);
 }

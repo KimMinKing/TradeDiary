@@ -1,12 +1,13 @@
-# [파일 용도] Groq API 호출 및 트레이딩 AI 분석 리포트 생성
+# [파일 용도] DeepSeek API 호출 및 트레이딩 AI 분석 리포트 생성
 
 import os
 import httpx
 from models import ReportRequest
+from services.language import response_language_instruction
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL = "llama-3.3-70b-versatile"
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
+DEEPSEEK_MODEL = "deepseek-chat"
 
 
 # [용도] 거래 통계 데이터 기반 AI 분석 리포트 생성 / [호출] routers/report.py > analyze()
@@ -19,9 +20,9 @@ async def generate_report(req: ReportRequest) -> str:
     prompt = _build_prompt(req)
 
     payload = {
-        "model": GROQ_MODEL,
+        "model": DEEPSEEK_MODEL,
         "messages": [
-            {"role": "system", "content": system},
+            {"role": "system", "content": response_language_instruction(req.language) + "\n" + system},
             {"role": "user", "content": prompt},
         ],
         "temperature": 0.7,
@@ -29,12 +30,12 @@ async def generate_report(req: ReportRequest) -> str:
     }
 
     headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
         "Content-Type": "application/json",
     }
 
     async with httpx.AsyncClient(timeout=60.0) as client:
-        res = await client.post(GROQ_URL, json=payload, headers=headers)
+        res = await client.post(DEEPSEEK_URL, json=payload, headers=headers)
         res.raise_for_status()
         data = res.json()
 

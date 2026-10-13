@@ -1,4 +1,4 @@
-// [파일 용도] 매일 오전 6시 CryptoCompare 헤드라인 수집 → Gemini 요약 → DB 저장 스케줄러
+// [파일 용도] 매일 오전 6시 CryptoCompare 헤드라인 수집 → DeepSeek 요약 → DB 저장 스케줄러
 
 package com.tradediary.news;
 
@@ -18,7 +18,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
-// [클래스] 뉴스 일별 AI 요약 생성 스케줄러 (매일 오전 6시)
+// [클래스] 뉴스 일별 DeepSeek 요약 생성 스케줄러 (매일 오전 6시)
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -31,12 +31,12 @@ public class NewsScheduler {
     @Value("${cryptocompare.api-key}")
     private String cryptoCompareKey;
 
-    @Value("${groq.api-key:}")
-    private String groqApiKey;
+    @Value("${deepseek.api-key:}")
+    private String deepseekApiKey;
 
     private static final String CRYPTOCOMPARE_BASE = "https://min-api.cryptocompare.com/data/v2/news/";
-    private static final String GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
-    private static final String GROQ_MODEL = "llama-3.3-70b-versatile";
+    private static final String DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions";
+    private static final String DEEPSEEK_MODEL = "deepseek-chat";
 
     // [용도] 매일 오전 6시 일별 요약 생성 (없으면 생성, 있으면 스킵) / [호출] Spring Scheduler
     @Scheduled(cron = "0 0 6 * * *", zone = "Asia/Seoul")
@@ -70,8 +70,9 @@ public class NewsScheduler {
                 return;
             }
 
-            // Groq 요약 생성
-            String summaryKo = callGroq(headlines);
+            // DeepSeek 요약 생성
+            String summaryKo = callDeepSeek(headlines, "ko");
+            String summaryEn = callDeepSeek(headlines, "en");
             if (summaryKo == null || summaryKo.isBlank()) {
                 log.warn("[NewsScheduler] Gemini 응답 없음");
                 return;
@@ -82,6 +83,7 @@ public class NewsScheduler {
                     .orElseGet(NewsDailySummary::new);
             summary.setSummaryDate(date);
             summary.setSummaryKo(summaryKo);
+            summary.setSummaryEn(summaryEn);
             summary.setUpdatedAt(LocalDateTime.now());
             summaryRepository.save(summary);
 
@@ -126,35 +128,44 @@ public class NewsScheduler {
         }
     }
 
-    // [용도] Groq API 호출하여 헤드라인 기반 한국어 시장 요약 생성 / [호출] generateSummaryForDate
-    private String callGroq(List<String> headlines) {
+    // [용도] DeepSeek API 호출하여 헤드라인 기반 한국어 시장 요약 생성 / [호출] generateSummaryForDate
+    private String callDeepSeek(List<String> headlines, String language) {
+        if (deepseekApiKey == null || deepseekApiKey.isBlank()) {
+            log.warn("[NewsScheduler] DeepSeek API 키가 설정되지 않음");
+            return null;
+        }
+
         try {
             String headlineText = String.join("\n", headlines.stream()
                     .map(h -> "- " + h)
                     .toList());
 
-            String prompt = "아래는 오늘의 암호화폐 뉴스 헤드라인입니다.\n"
+            String languageRule = "ko".equals(language)
+                    ? "모든 문장을 자연스러운 한국어로만 작성하세요."
+                    : "Write every sentence in natural English only. Do not include Korean text.";
+            String prompt = languageRule + "\n아래는 오늘의 암호화폐 뉴스 헤드라인입니다.\n"
                     + "이 헤드라인들을 분석하여 오늘의 주요 시장 동향을 한국어로 3~4문장 이내로 간결하게 요약해주세요.\n"
+                    + "반드시 한국어로만 응답하고, 어떠한 한자도 사용하지 마세요.\n"
                     + "가격 움직임, 주요 이벤트, 시장 분위기를 중심으로 작성하고, 다른 텍스트 없이 요약문만 반환하세요.\n\n"
                     + "헤드라인:\n" + headlineText;
 
-            // Groq 요청 JSON 구성 (OpenAI 호환 형식)
+            // DeepSeek 요청 JSON 구성 (OpenAI 호환 형식)
             com.fasterxml.jackson.databind.node.ObjectNode messageNode = objectMapper.createObjectNode();
             messageNode.put("role", "user");
             messageNode.put("content", prompt);
 
             com.fasterxml.jackson.databind.node.ObjectNode body = objectMapper.createObjectNode();
-            body.put("model", GROQ_MODEL);
+            body.put("model", DEEPSEEK_MODEL);
             body.set("messages", objectMapper.createArrayNode().add(messageNode));
             body.put("temperature", 0.4);
             body.put("max_tokens", 300);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.setBearerAuth(groqApiKey);
+            headers.setBearerAuth(deepseekApiKey);
 
             ResponseEntity<String> res = restTemplate.exchange(
-                    GROQ_URL, HttpMethod.POST,
+                    DEEPSEEK_URL, HttpMethod.POST,
                     new HttpEntity<>(objectMapper.writeValueAsString(body), headers),
                     String.class
             );
@@ -164,7 +175,7 @@ public class NewsScheduler {
                     .path("message").path("content").asText("").strip();
 
         } catch (Exception e) {
-            log.error("[NewsScheduler] Groq 호출 오류: {}", e.getMessage());
+            log.error("[NewsScheduler] DeepSeek 호출 오류: {}", e.getMessage());
             return null;
         }
     }

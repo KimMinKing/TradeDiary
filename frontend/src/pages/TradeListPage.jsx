@@ -1,11 +1,12 @@
-// [파일 용도] 거래 내역 목록 페이지 (거래소 필터 탭 + 날짜 필터 + KRW/USD 통화 토글)
+// [파일 용도] Trade history 목록 페이지 (Exchange 필터 탭 + 날짜 필터 + KRW/USD 통화 토글)
 
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getTrades, syncUpbitTrades, syncBybitTrades, syncBitgetTrades, syncOkxTrades, syncBinanceTrades, syncBingxTrades, getMyExchangeKeys } from '../api/exchangeApi';
+import CurrentPriceModal, { SymbolPriceButton } from '../components/CurrentPriceModal';
+import { getTrades, syncTrades, getMyExchangeKeys } from '../api/exchangeApi';
 import api from '../api/authApi';
 
-// [컴포넌트] 거래 내역 목록 및 거래소별 동기화 화면 / [호출] App.jsx 라우터, PositionListPage (embedded)
+// [컴포넌트] Trade history 목록 및 Exchange별 Sync 화면 / [호출] App.jsx 라우터, PositionListPage (embedded)
 const TradeListPage = ({ embedded = false }) => {
   const navigate = useNavigate();
   const [allTrades,      setAllTrades]      = useState([]);
@@ -17,8 +18,9 @@ const TradeListPage = ({ embedded = false }) => {
     () => localStorage.getItem('displayCurrency') || 'KRW'
   );
   const [rates, setRates] = useState({ KRW: 1400, USD: 1, CNY: 7.2, JPY: 150 });
-  // 거래소 신규 연동 직후 1분간 동기화 대기 중 여부
+  // Exchange 신규 connection 직후 1분간 Sync 대기 중 여부
   const [pendingSync, setPendingSync] = useState(false);
+  const [priceQuote, setPriceQuote] = useState(null);
 
   // 날짜 필터
   const [datePreset, setDatePreset] = useState(null);
@@ -43,11 +45,13 @@ const TradeListPage = ({ embedded = false }) => {
       window.removeEventListener('autoSyncComplete', onAutoSync);
       window.removeEventListener('currencyChange', onCurrencyChange);
     };
+  // 최초 마운트에서만 서버 data와 로컬 Sync 대기 상태를 복 KRW한다.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // [용도] 거래소 신규 연동 후 1분 대기 여부 확인 / [호출] useEffect
+  // [용도] Exchange 신규 connection 후 1분 대기 여부 Confirm / [호출] useEffect
   const checkPendingSync = () => {
-    const exchanges = ['UPBIT', 'BYBIT', 'BITGET', 'OKX'];
+    const exchanges = ['UPBIT', 'BYBIT', 'BITGET', 'OKX', 'BINANCE', 'BINGX', 'KRAKEN'];
     const WAIT_MS = 60000; // 1분
     let minRemaining = null;
 
@@ -74,7 +78,7 @@ const TradeListPage = ({ embedded = false }) => {
     }
   };
 
-  // [용도] 달력 외부 클릭 시 닫기 / [호출] useEffect
+  // [용도] 달력 외부 클릭 시 Close / [호출] useEffect
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (calendarRef.current && !calendarRef.current.contains(e.target)) {
@@ -85,8 +89,8 @@ const TradeListPage = ({ embedded = false }) => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // [용도] 거래 목록 조회 / [호출] useEffect, handleSync
-  // silent=true 이면 로딩 스피너 없이 데이터만 갱신 (자동 동기화 후 호출 시)
+  // [용도] Trade 목록 조회 / [호출] useEffect, handleSync
+  // silent=true 이면 로딩 스피너 없이 data만 갱신 (자동 Sync 후 호출 시)
   const fetchTrades = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
@@ -111,27 +115,22 @@ const TradeListPage = ({ embedded = false }) => {
         JPY: Number(res.data.jpyPerUsdt),
       });
     } catch (e) {
-      console.error('환율 조회 실패', e);
+      console.error('환율 Could not load', e);
     }
   };
 
-  // [용도] 등록된 거래소 전체 동기화 / [호출] 전체 동기화 버튼 클릭
+  // [용도] Add된 Exchange All Sync / [호출] All Sync 버튼 클릭
   const handleSyncAll = async () => {
     if (syncing) return;
     setSyncing('ALL');
     setSyncMessage('');
-
-    const SYNC_FN = {
-      UPBIT: syncUpbitTrades, BYBIT: syncBybitTrades, BITGET: syncBitgetTrades,
-      OKX: syncOkxTrades, BINANCE: syncBinanceTrades, BINGX: syncBingxTrades,
-    };
 
     let exchanges = [];
     try {
       const res = await getMyExchangeKeys();
       exchanges = res.data.map(item => typeof item === 'string' ? item : item.exchange);
     } catch {
-      setSyncMessage('거래소 목록 조회 실패');
+      setSyncMessage('Exchange 목록 Could not load');
       setSyncing(null);
       return;
     }
@@ -139,21 +138,19 @@ const TradeListPage = ({ embedded = false }) => {
     let totalSaved = 0;
     const errors = [];
     for (const exchange of exchanges) {
-      const fn = SYNC_FN[exchange];
-      if (!fn) continue;
       try {
-        const res = await fn();
+        const res = await syncTrades(exchange);
         if (res.data.error) errors.push(`${exchange}: ${res.data.error}`);
         else totalSaved += res.data.savedCount ?? 0;
       } catch (e) {
-        errors.push(`${exchange}: ${e.response?.data?.error || '실패'}`);
+        errors.push(`${exchange}: ${e.response?.data?.error || 'failed'}`);
       }
     }
 
     if (errors.length > 0) {
       setSyncMessage(errors.join(' / '));
     } else {
-      setSyncMessage(`전체 동기화 완료 — ${totalSaved}건 저장됨`);
+      setSyncMessage(`All Sync complete — ${totalSaved} Save됨`);
       setPendingSync(false);
       fetchTrades();
     }
@@ -173,13 +170,13 @@ const TradeListPage = ({ embedded = false }) => {
     }
   };
 
-  // [용도] 커스텀 날짜 범위 적용 / [호출] 적용 버튼
+  // [용도] 커스텀 날짜 범위 Apply / [호출] Apply 버튼
   const handleApplyCustom = () => {
     if (customFrom || customTo) setDatePreset('custom');
     setShowCalendar(false);
   };
 
-  // [용도] 날짜 필터 초기화 / [호출] 초기화 버튼
+  // [용도] 날짜 필터 Reset / [호출] Reset 버튼
   const handleClearDate = () => {
     setDatePreset(null);
     setCustomFrom('');
@@ -187,7 +184,7 @@ const TradeListPage = ({ embedded = false }) => {
     setShowCalendar(false);
   };
 
-  // [용도] 수량 포맷 (소수점 작은 값도 정확히 표시) / [호출] 테이블/카드 렌더
+  // [용도] Quantity 포맷 (소수점 작은 값도 정확히 표시) / [호출] 테이블/카드 렌더
   const formatQty = (qty) => {
     const num = Number(qty);
     if (num === 0) return '0';
@@ -197,23 +194,23 @@ const TradeListPage = ({ embedded = false }) => {
   };
 
   const CURRENCY_SYMBOL = { KRW: '₩', USD: '$', CNY: '¥', JPY: '¥' };
-  const CURRENCY_SUFFIX = { KRW: '원', USD: '$', CNY: '¥', JPY: '¥' };
+  const CURRENCY_SUFFIX = { KRW: ' KRW', USD: '$', CNY: '¥', JPY: '¥' };
 
-  // [용도] 가격을 선택된 통화로 변환 / [호출] formatPrice
+  // [용도] Price을 선택된 통화로 변환 / [호출] formatPrice
   const convertPrice = (price, exchange) => {
     const num = Number(price);
     const isKrw = exchange === 'UPBIT';
     const targetRate = rates[displayCurrency] ?? 1;
-    // UPBIT은 KRW 기준, 나머지는 USDT 기준
+    // UPBIT은 KRW 기준, You머지는 USDT 기준
     return isKrw ? (num / rates.KRW * targetRate) : (num * targetRate);
   };
 
-  // [용도] 가격 포맷 (통화 기호 포함) / [호출] 테이블/카드 렌더
+  // [용도] Price 포맷 (통화 기호 포함) / [호출] 테이블/카드 렌더
   const formatPrice = (price, exchange) => {
     const converted = convertPrice(price, exchange);
     const sym = CURRENCY_SYMBOL[displayCurrency] ?? '';
     if (displayCurrency === 'KRW') {
-      return Math.round(converted).toLocaleString() + '원';
+      return Math.round(converted).toLocaleString() + ' KRW';
     }
     return sym + Number(converted).toLocaleString(undefined, { maximumFractionDigits: 2 });
   };
@@ -233,7 +230,7 @@ const TradeListPage = ({ embedded = false }) => {
     return { from, to: new Date() };
   };
 
-  // [용도] 거래소 + 날짜 복합 필터 / [호출] 렌더
+  // [용도] Exchange + 날짜 복합 필터 / [호출] 렌더
   const { from: dateFrom, to: dateTo } = getDateBound();
   const applyDateFilter = (list) => list.filter((t) => {
     if (!dateFrom && !dateTo) return true;
@@ -253,48 +250,49 @@ const TradeListPage = ({ embedded = false }) => {
     ).length;
 
   const tabs = [
-    { key: 'ALL',     label: '전체' },
+    { key: 'ALL',     label: 'All' },
     { key: 'UPBIT',   label: 'Upbit' },
     { key: 'BYBIT',   label: 'Bybit' },
     { key: 'BITGET',  label: 'Bitget' },
     { key: 'OKX',     label: 'OKX' },
     { key: 'BINANCE', label: 'Binance' },
     { key: 'BINGX',   label: 'BingX' },
+    { key: 'KRAKEN',  label: 'Kraken' },
   ];
 
   const datePresets = [
-    { key: '1d',  label: '1일' },
-    { key: '7d',  label: '7일' },
-    { key: '30d', label: '30일' },
-    { key: '1y',  label: '1년' },
+    { key: '1d',  label: '1 day' },
+    { key: '7d',  label: '7 days' },
+    { key: '30d', label: '30 days' },
+    { key: '1y',  label: '1 year' },
   ];
 
   const customLabel = datePreset === 'custom' && (customFrom || customTo)
     ? `${customFrom || '~'} ~ ${customTo || '~'}`
-    : '날짜 지정';
+    : 'Custom dates';
 
   return (
     <div className={embedded ? '' : 'page'}>
       {/* 페이지 헤더 */}
       <div className="page-header anim-fade-up">
-        <h1 className="page-title">거래 내역</h1>
+        <h1 className="page-title">Trade history</h1>
         <div className="header-actions">
-          {/* 동기화 버튼 */}
+          {/* Sync 버튼 */}
           <button
-            className="btn btn-primary btn-sm"
+            className="compact-primary-action"
             onClick={handleSyncAll}
             disabled={syncing !== null}
           >
-            {syncing === 'ALL' ? '동기화 중...' : '전체 동기화'}
+            {syncing === 'ALL' ? 'Syncing' : 'Sync all'}
           </button>
         </div>
       </div>
 
-      {/* 동기화 메시지 */}
+      {/* Sync 메시지 */}
       {syncMessage && (
         <p
           className={
-            syncMessage.includes('실패') || syncMessage.includes('오류') || syncMessage.includes('IP') || syncMessage.includes('인증')
+            syncMessage.includes('failed') || syncMessage.includes('error') || syncMessage.includes('IP') || syncMessage.includes('인증')
               ? 'msg-error'
               : 'msg-success'
           }
@@ -306,7 +304,7 @@ const TradeListPage = ({ embedded = false }) => {
 
       {/* 필터 바 */}
       <div className="filter-bar anim-fade-up2" style={{ position: 'relative', zIndex: 10 }}>
-        {/* 거래소 탭 */}
+        {/* Exchange 탭 */}
         <div className="tabs">
           {tabs.map((tab) => (
             <button
@@ -345,7 +343,7 @@ const TradeListPage = ({ embedded = false }) => {
                 <div className="cal-dropdown">
                   <div className="cal-row">
                     <div className="cal-field">
-                      <label className="input-label">시작일</label>
+                      <label className="input-label">Start date</label>
                       <input
                         type="date"
                         className="date-input"
@@ -356,7 +354,7 @@ const TradeListPage = ({ embedded = false }) => {
                     </div>
                     <span className="cal-sep">~</span>
                     <div className="cal-field">
-                      <label className="input-label">종료일</label>
+                      <label className="input-label">End date</label>
                       <input
                         type="date"
                         className="date-input"
@@ -368,10 +366,10 @@ const TradeListPage = ({ embedded = false }) => {
                   </div>
                   <div className="cal-actions">
                     <button className="btn btn-primary btn-sm" style={{ flex: 1 }} onClick={handleApplyCustom}>
-                      적용
+                      Apply
                     </button>
                     <button className="btn btn-ghost btn-sm" onClick={handleClearDate}>
-                      초기화
+                      Reset
                     </button>
                   </div>
                 </div>
@@ -381,48 +379,48 @@ const TradeListPage = ({ embedded = false }) => {
 
           {datePreset && (
             <button className="btn btn-ghost btn-sm" onClick={handleClearDate}>
-              ✕ 초기화
+              ✕ Reset
             </button>
           )}
         </div>
       </div>
 
-      {/* 거래 목록 */}
+      {/* Trade 목록 */}
       {pendingSync && allTrades.length === 0 ? (
         <div className="card empty-state">
-          <p className="empty-state-title">동기화 중입니다</p>
-          <p className="empty-state-desc">거래소 연동 후 데이터를 불러오고 있습니다. 잠시만 기다려주세요.</p>
+          <p className="empty-state-title">Sync in progress</p>
+          <p className="empty-state-desc">Exchange connection 후 data를 불러오고 있습니다. 잠시만 기다려주세요.</p>
         </div>
       ) : loading ? (
         <div className="empty-state">
           <div className="empty-state-icon" style={{ animation: 'spin 1s linear infinite' }}>◌</div>
-          <p className="empty-state-title">불러오는 중...</p>
+          <p className="empty-state-title">Loading...</p>
         </div>
       ) : trades.length === 0 ? (
         <div className="card anim-fade-up" style={{ padding: '28px 24px' }}>
           {datePreset ? (
             <>
-              <p className="empty-state-title">선택한 기간에 거래 내역이 없습니다</p>
-              <p className="empty-state-desc">날짜 범위를 변경하거나 전체 기간을 선택해보세요</p>
+              <p className="empty-state-title">선택한 기간에 Trade history이 없습니다</p>
+              <p className="empty-state-desc">Change the date range or select All time.</p>
             </>
           ) : (
             <>
               <p style={{ fontSize: '15px', fontWeight: 700, marginBottom: '20px', color: 'var(--text)' }}>
-                거래 내역을 가져오려면
+                Trade history을 가져오려면
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                   <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: '#60a5fa20', border: '1px solid #60a5fa60', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 700, color: '#60a5fa', flexShrink: 0 }}>1</div>
                   <div>
-                    <div style={{ fontWeight: 600, fontSize: '14px' }}>거래소 API Key 등록</div>
-                    <button onClick={() => navigate('/exchange-keys')} style={{ marginTop: '4px', padding: '4px 12px', borderRadius: '6px', fontSize: '12px', border: '1px solid #60a5fa60', background: '#60a5fa10', color: '#60a5fa', cursor: 'pointer' }}>거래소 연동하기</button>
+                    <div style={{ fontWeight: 600, fontSize: '14px' }}>Exchange API Key Add</div>
+                    <button onClick={() => navigate('/exchange-keys')} style={{ marginTop: '4px', padding: '4px 12px', borderRadius: '6px', fontSize: '12px', border: '1px solid #60a5fa60', background: '#60a5fa10', color: '#60a5fa', cursor: 'pointer' }}>Exchange connection하기</button>
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                   <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: '#a78bfa20', border: '1px solid #a78bfa60', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 700, color: '#a78bfa', flexShrink: 0 }}>2</div>
                   <div>
-                    <div style={{ fontWeight: 600, fontSize: '14px' }}>동기화 버튼 클릭</div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>위 동기화 버튼을 누르거나 5분마다 자동으로 동기화됩니다</div>
+                    <div style={{ fontWeight: 600, fontSize: '14px' }}>Sync 버튼 클릭</div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>위 Sync 버튼을 or it will sync automatically every five minutes.</div>
                   </div>
                 </div>
               </div>
@@ -434,7 +432,7 @@ const TradeListPage = ({ embedded = false }) => {
           {/* 테이블 헤더 */}
           <div className="table-header">
             <span style={{ fontSize: '14px', fontFamily: 'var(--font-ui)', color: 'var(--text-secondary)' }}>
-              총 <strong style={{ color: 'var(--text)', fontWeight: 600 }}>{trades.length}</strong>건
+              총 <strong style={{ color: 'var(--text)', fontWeight: 600 }}>{trades.length}</strong>
             </span>
           </div>
 
@@ -443,25 +441,34 @@ const TradeListPage = ({ embedded = false }) => {
             <table className="trade-table">
               <thead>
                 <tr>
-                  <th>종목</th>
-                  <th>구분</th>
-                  <th>수량</th>
-                  <th>가격 ({displayCurrency})</th>
-                  <th>수수료</th>
-                  <th>체결일시</th>
+                  <th>Symbol</th>
+                  <th>Type</th>
+                  <th>Quantity</th>
+                  <th>Price ({displayCurrency})</th>
+                  <th>Fee</th>
+                  <th>Executed at</th>
                 </tr>
               </thead>
               <tbody>
-                {trades.map((trade) => (
+                {trades.map((trade) => {
+                  const sideColor = trade.side === 'BUY' ? 'text-buy' : 'text-sell';
+                  return (
                   <tr key={trade.id}>
-                    <td className="mono" style={{ fontWeight: 500 }}>{trade.symbol}</td>
+                    <td>
+                      <SymbolPriceButton
+                        symbol={trade.symbol}
+                        exchange={trade.exchange}
+                        className={`mono ${sideColor}`}
+                        onClick={() => setPriceQuote({ symbol: trade.symbol, exchange: trade.exchange })}
+                      />
+                    </td>
                     <td>
                       <span className={`badge badge-${trade.side.toLowerCase()}`}>
                         {trade.side === 'BUY' ? '매수' : '매도'}
                       </span>
                     </td>
-                    <td className="mono">{formatQty(trade.qty)}</td>
-                    <td className="mono">{formatPrice(trade.price, trade.exchange)}</td>
+                    <td className={`mono ${sideColor}`}>{formatQty(trade.qty)}</td>
+                    <td className={`mono ${sideColor}`}>{formatPrice(trade.price, trade.exchange)}</td>
                     <td className="mono text-muted">{formatPrice(trade.fee, trade.exchange)}</td>
                     <td className="mono text-secondary" style={{ fontSize: '12px', lineHeight: 1.3 }}>
                       <div>{trade.traded_at?.replace('T', ' ').slice(0, 16)}</div>
@@ -478,7 +485,8 @@ const TradeListPage = ({ embedded = false }) => {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
 
@@ -490,7 +498,11 @@ const TradeListPage = ({ embedded = false }) => {
                     {trade.side === 'BUY' ? '매수' : '매도'}
                   </span>
                   <span className="trade-card-symbol" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    {trade.symbol}
+                    <SymbolPriceButton
+                      symbol={trade.symbol}
+                      exchange={trade.exchange}
+                      onClick={() => setPriceQuote({ symbol: trade.symbol, exchange: trade.exchange })}
+                    />
                     <img
                       src={`/exchanges/${trade.exchange.toLowerCase()}_logo.png`}
                       alt={trade.exchange}
@@ -507,17 +519,17 @@ const TradeListPage = ({ embedded = false }) => {
                 </div>
                 <div className="trade-card-row">
                   <div>
-                    <div className="trade-card-label">가격</div>
+                    <div className="trade-card-label">Price</div>
                     <div className={`trade-card-value ${trade.side === 'BUY' ? 'text-buy' : 'text-sell'}`}>
                       {formatPrice(trade.price, trade.exchange)}
                     </div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <div className="trade-card-label">수량</div>
-                    <div className="trade-card-value">{formatQty(trade.qty)}</div>
+                    <div className="trade-card-label">Quantity</div>
+                    <div className={`trade-card-value ${trade.side === 'BUY' ? 'text-buy' : 'text-sell'}`}>{formatQty(trade.qty)}</div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <div className="trade-card-label">수수료</div>
+                    <div className="trade-card-label">Fee</div>
                     <div className="trade-card-value text-muted">
                       {formatPrice(trade.fee, trade.exchange)}
                     </div>
@@ -528,6 +540,7 @@ const TradeListPage = ({ embedded = false }) => {
           </div>
         </div>
       )}
+      <CurrentPriceModal quote={priceQuote} onClose={() => setPriceQuote(null)} />
     </div>
   );
 };

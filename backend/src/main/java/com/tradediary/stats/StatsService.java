@@ -2,6 +2,7 @@
 
 package com.tradediary.stats;
 
+import com.tradediary.common.service.PnlCalculationService;
 import com.tradediary.exchange.ExchangeKey;
 import com.tradediary.journal.TradeJournal;
 import com.tradediary.journal.TradeJournalRepository;
@@ -15,6 +16,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.DayOfWeek;
+import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -26,6 +29,7 @@ public class StatsService {
 
     private final PositionRepository     positionRepository;
     private final TradeJournalRepository journalRepository;
+    private final PnlCalculationService  pnlCalculationService;
 
     private static final Map<String, String> EMOTION_LABEL = Map.of(
             "CALM",      "😌 냉정",
@@ -58,14 +62,17 @@ public class StatsService {
             List<StatsResponse.SymbolStats> symbolStats
     ) {}
 
-    // [용도] 통계 전체 조회 / [호출] StatsController.getStats()
+    // [용도] 통계 전체 조회 (이번 달만) / [호출] StatsController.getStats()
     @Transactional(readOnly = true)
     public StatsResponse getStats(Long userId, String exchange) {
+        // 이번 달 기간만 조회 (대시보드/랭킹/목표와 통일)
         List<Position> positions;
         if (exchange != null && !exchange.isBlank() && !exchange.equalsIgnoreCase("ALL")) {
+            // 거래소 필터 + 기간 필터
             positions = positionRepository.findByUserIdAndExchangeOrderByClosedAtDesc(
                     userId, ExchangeKey.Exchange.valueOf(exchange.toUpperCase()));
         } else {
+            // 기간 필터만
             positions = positionRepository.findByUserIdOrderByClosedAtDesc(userId);
         }
 
@@ -100,8 +107,8 @@ public class StatsService {
 
         double winRate = total > 0 ? round2((double) wins.size() / total * 100) : 0;
 
-        BigDecimal totalWin  = wins.stream().map(Position::getPnl).reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal totalLoss = losses.stream().map(Position::getPnl).reduce(BigDecimal.ZERO, BigDecimal::add).abs();
+        BigDecimal totalWin  = pnlCalculationService.sumKrw(wins);
+        BigDecimal totalLoss = pnlCalculationService.sumKrw(losses).abs();
 
         double profitFactor = totalLoss.compareTo(BigDecimal.ZERO) > 0
                 ? round2(totalWin.divide(totalLoss, 4, RoundingMode.HALF_UP).doubleValue()) : 0;
@@ -109,13 +116,13 @@ public class StatsService {
         double avgWin = wins.isEmpty() ? 0
                 : round2(totalWin.divide(BigDecimal.valueOf(wins.size()), 4, RoundingMode.HALF_UP).doubleValue());
         double avgLoss = losses.isEmpty() ? 0
-                : round2(losses.stream().map(Position::getPnl).reduce(BigDecimal.ZERO, BigDecimal::add)
+                : round2(pnlCalculationService.sumKrw(losses)
                 .divide(BigDecimal.valueOf(losses.size()), 4, RoundingMode.HALF_UP).doubleValue());
 
         double rrRatio = avgLoss != 0 ? round2(Math.abs(avgWin / avgLoss)) : 0;
 
-        BigDecimal totalPnl      = positions.stream().map(Position::getPnl).reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal maxSingleLoss = positions.stream().map(Position::getPnl).min(Comparator.naturalOrder()).orElse(BigDecimal.ZERO);
+        BigDecimal totalPnl      = pnlCalculationService.sumKrw(positions);
+        BigDecimal maxSingleLoss = positions.stream().map(pnlCalculationService::toKrw).min(Comparator.naturalOrder()).orElse(BigDecimal.ZERO);
 
         // 최대 연속 수익/손실 (closedAt 오름차순)
         List<Position> sorted = positions.stream().sorted(Comparator.comparing(Position::getClosedAt)).toList();
@@ -134,7 +141,7 @@ public class StatsService {
         double mdd = 0;
         double peak = 0, cumPnl = 0;
         for (Position p : sorted) {
-            cumPnl += p.getPnl().doubleValue();
+            cumPnl += pnlCalculationService.toKrw(p).doubleValue();
             if (cumPnl > peak) peak = cumPnl;
             double drawdown = peak - cumPnl;
             if (drawdown > mdd) mdd = drawdown;
@@ -145,8 +152,8 @@ public class StatsService {
                 total, wins.size(), losses.size(), winRate, profitFactor,
                 avgWin, avgLoss, rrRatio,
                 maxWinStreak, maxLossStreak,
-                maxSingleLoss.setScale(2, RoundingMode.HALF_UP).toPlainString(),
-                totalPnl.setScale(2, RoundingMode.HALF_UP).toPlainString(),
+                pnlCalculationService.formatKrw(maxSingleLoss),
+                pnlCalculationService.formatKrw(totalPnl),
                 mdd
         );
     }
@@ -162,10 +169,10 @@ public class StatsService {
                 .sorted(Map.Entry.comparingByKey())
                 .map(e -> {
                     List<Position> g = e.getValue();
-                    BigDecimal pnl = g.stream().map(Position::getPnl).reduce(BigDecimal.ZERO, BigDecimal::add);
+                    BigDecimal pnl = pnlCalculationService.sumKrw(g);
                     int w = (int) g.stream().filter(p -> p.getPnl().compareTo(BigDecimal.ZERO) > 0).count();
                     return new StatsResponse.MonthlyPnl(e.getKey(),
-                            pnl.setScale(2, RoundingMode.HALF_UP).toPlainString(), w, g.size() - w);
+                            pnlCalculationService.formatKrw(pnl), w, g.size() - w);
                 })
                 .toList();
     }
@@ -179,10 +186,10 @@ public class StatsService {
                 .sorted(Map.Entry.comparingByKey())
                 .map(e -> {
                     List<Position> g = e.getValue();
-                    BigDecimal pnl = g.stream().map(Position::getPnl).reduce(BigDecimal.ZERO, BigDecimal::add);
+                    BigDecimal pnl = pnlCalculationService.sumKrw(g);
                     int w = (int) g.stream().filter(p -> p.getPnl().compareTo(BigDecimal.ZERO) > 0).count();
                     return new StatsResponse.DailyPnl(e.getKey(),
-                            pnl.setScale(2, RoundingMode.HALF_UP).toPlainString(), w, g.size() - w);
+                            pnlCalculationService.formatKrw(pnl), w, g.size() - w);
                 })
                 .toList();
     }
@@ -194,20 +201,20 @@ public class StatsService {
                 .collect(Collectors.groupingBy(Position::getSymbol))
                 .entrySet().stream()
                 .sorted((a, b) -> {
-                    BigDecimal pa = a.getValue().stream().map(Position::getPnl).reduce(BigDecimal.ZERO, BigDecimal::add);
-                    BigDecimal pb = b.getValue().stream().map(Position::getPnl).reduce(BigDecimal.ZERO, BigDecimal::add);
+                    BigDecimal pa = pnlCalculationService.sumKrw(a.getValue());
+                    BigDecimal pb = pnlCalculationService.sumKrw(b.getValue());
                     return pb.compareTo(pa);
                 })
                 .map(e -> {
                     List<Position> g = e.getValue();
                     int total = g.size();
                     int wins  = (int) g.stream().filter(p -> p.getPnl().compareTo(BigDecimal.ZERO) > 0).count();
-                    BigDecimal totalPnl = g.stream().map(Position::getPnl).reduce(BigDecimal.ZERO, BigDecimal::add);
+                    BigDecimal totalPnl = pnlCalculationService.sumKrw(g);
                     BigDecimal avgPnl   = totalPnl.divide(BigDecimal.valueOf(total), 2, RoundingMode.HALF_UP);
                     return new StatsResponse.SymbolStats(
                             e.getKey(), total, wins,
                             round2((double) wins / total * 100),
-                            totalPnl.setScale(2, RoundingMode.HALF_UP).toPlainString(),
+                            pnlCalculationService.formatKrw(totalPnl),
                             avgPnl.toPlainString());
                 })
                 .toList();
@@ -219,11 +226,11 @@ public class StatsService {
         if (g.isEmpty()) return new StatsResponse.SideStats(side.name(), 0, 0, 0, "0", "0");
         int total = g.size();
         int wins  = (int) g.stream().filter(p -> p.getPnl().compareTo(BigDecimal.ZERO) > 0).count();
-        BigDecimal totalPnl = g.stream().map(Position::getPnl).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalPnl = pnlCalculationService.sumKrw(g);
         BigDecimal avgPnl   = totalPnl.divide(BigDecimal.valueOf(total), 2, RoundingMode.HALF_UP);
         return new StatsResponse.SideStats(side.name(), total, wins,
                 round2((double) wins / total * 100),
-                totalPnl.setScale(2, RoundingMode.HALF_UP).toPlainString(),
+                pnlCalculationService.formatKrw(totalPnl),
                 avgPnl.toPlainString());
     }
 
@@ -259,13 +266,13 @@ public class StatsService {
                     List<Position> g = e.getValue();
                     int total = g.size();
                     int wins  = (int) g.stream().filter(p -> p.getPnl().compareTo(BigDecimal.ZERO) > 0).count();
-                    BigDecimal totalPnl = g.stream().map(Position::getPnl).reduce(BigDecimal.ZERO, BigDecimal::add);
+                    BigDecimal totalPnl = pnlCalculationService.sumKrw(g);
                     return new StatsResponse.EmotionStats(
                             e.getKey(),
                             EMOTION_LABEL.getOrDefault(e.getKey(), e.getKey()),
                             total, wins,
                             round2((double) wins / total * 100),
-                            totalPnl.setScale(2, RoundingMode.HALF_UP).toPlainString()
+                            pnlCalculationService.formatKrw(totalPnl)
                     );
                 })
                 .sorted(Comparator.comparingDouble(StatsResponse.EmotionStats::winRate).reversed())
@@ -307,13 +314,13 @@ public class StatsService {
                     List<Position> g = e.getValue();
                     int total = g.size();
                     int wins  = (int) g.stream().filter(p -> p.getPnl().compareTo(BigDecimal.ZERO) > 0).count();
-                    BigDecimal totalPnl = g.stream().map(Position::getPnl).reduce(BigDecimal.ZERO, BigDecimal::add);
+                    BigDecimal totalPnl = pnlCalculationService.sumKrw(g);
                     return new StatsResponse.TagStats(
                             tagName.get(e.getKey()),
                             tagColor.getOrDefault(e.getKey(), "#00d4aa"),
                             total, wins,
                             round2((double) wins / total * 100),
-                            totalPnl.setScale(2, RoundingMode.HALF_UP).toPlainString()
+                            pnlCalculationService.formatKrw(totalPnl)
                     );
                 })
                 .sorted(Comparator.comparingDouble(StatsResponse.TagStats::winRate).reversed())
@@ -333,10 +340,10 @@ public class StatsService {
             List<Position> g = byHour.getOrDefault(h, List.of());
             if (g.isEmpty()) return new StatsResponse.HourlyStats(h, 0, 0, 0, "0");
             int wins = (int) g.stream().filter(p -> p.getPnl().compareTo(BigDecimal.ZERO) > 0).count();
-            BigDecimal totalPnl = g.stream().map(Position::getPnl).reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal totalPnl = pnlCalculationService.sumKrw(g);
             return new StatsResponse.HourlyStats(h, g.size(), wins,
                     round2((double) wins / g.size() * 100),
-                    totalPnl.setScale(2, RoundingMode.HALF_UP).toPlainString());
+                    pnlCalculationService.formatKrw(totalPnl));
         }).toList();
     }
 
@@ -350,10 +357,10 @@ public class StatsService {
             String name = DAY_NAMES[dow.getValue() - 1]; // MONDAY=1
             if (g.isEmpty()) return new StatsResponse.DayOfWeekStats(name, 0, 0, 0, "0");
             int wins = (int) g.stream().filter(p -> p.getPnl().compareTo(BigDecimal.ZERO) > 0).count();
-            BigDecimal totalPnl = g.stream().map(Position::getPnl).reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal totalPnl = pnlCalculationService.sumKrw(g);
             return new StatsResponse.DayOfWeekStats(name, g.size(), wins,
                     round2((double) wins / g.size() * 100),
-                    totalPnl.setScale(2, RoundingMode.HALF_UP).toPlainString());
+                    pnlCalculationService.formatKrw(totalPnl));
         }).toList();
     }
 

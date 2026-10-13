@@ -66,6 +66,14 @@ public class UserController {
         return ResponseEntity.ok().build();
     }
 
+    @PutMapping("/privacy")
+    public ResponseEntity<Void> updatePrivacy(
+            @AuthenticationPrincipal Long userId,
+            @RequestBody UserService.PrivacyRequest request) {
+        userService.updatePrivacy(userId, request);
+        return ResponseEntity.noContent().build();
+    }
+
     // [용도] 다른 사용자의 공개 프로필 조회 / [호출] TraderProfilePage
     @GetMapping("/public/{userId}/profile")
     public ResponseEntity<UserService.PublicProfileResponse> getPublicProfile(
@@ -80,7 +88,7 @@ public class UserController {
             @PathVariable Long userId
     ) {
         // diaryPublic 체크는 UserService에서 수행
-        userService.validatePublicProfile(userId);
+        userService.validatePublicSection(userId, UserService.PublicSection.STATS);
         return ResponseEntity.ok(statsService.getPublicStats(userId));
     }
 
@@ -97,4 +105,13 @@ public class UserController {
     public record AvatarRequest(String avatar) {}
 
     public record DiaryPublicRequest(boolean diaryPublic) {}
+
+    @PatchMapping("/language")
+    public ResponseEntity<Void> updateLanguage(@AuthenticationPrincipal Long userId,
+                                               @RequestBody LanguageRequest request) {
+        userService.updatePreferredLanguage(userId, request.language());
+        return ResponseEntity.noContent().build();
+    }
+
+    public record LanguageRequest(String language) {}
 }

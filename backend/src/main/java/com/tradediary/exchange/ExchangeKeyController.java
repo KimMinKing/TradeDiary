@@ -39,8 +39,9 @@ public class ExchangeKeyController {
     @DeleteMapping("/{exchange}")
     public ResponseEntity<Void> deleteKey(
             @AuthenticationPrincipal Long userId,
-            @PathVariable String exchange) {
-        exchangeKeyService.deleteKey(userId, exchange);
+            @PathVariable String exchange,
+            @RequestParam(defaultValue = "false") boolean cleanup) {
+        exchangeKeyService.deleteKey(userId, exchange, cleanup);
         return ResponseEntity.ok().build();
     }
 

@@ -9,6 +9,7 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import com.tradediary.trade.TradeSide;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.Mac;
@@ -20,7 +21,9 @@ import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -30,12 +33,14 @@ import java.util.stream.Collectors;
 @Component
 public class BybitClient {
 
-    private static final String BASE_URL = "https://api.bybit.com";
     private static final String RECV_WINDOW    = "10000";
     // 로컬 시계가 Bybit 서버보다 약간 앞서는 경우 10002 오류 방지 (500ms 보정)
     private static final long   TIMESTAMP_OFFSET = 500L;
     // 각 카테고리별로 거래 내역 조회 (spot=현물, linear=USDT선물, inverse=코인선물)
-    private static final String[] CATEGORIES = {"spot", "linear", "inverse"};
+    private static final String[] CATEGORIES = {"linear", "inverse"};
+
+    @Value("${bybit.base-url:https://api.bybit.com}")
+    private String baseUrl;
 
     private final OkHttpClient httpClient = new OkHttpClient();
     private final Gson gson = new Gson();
@@ -43,26 +48,18 @@ public class BybitClient {
     // [용도] 체결 내역 전체 조회 (3개 카테고리 병렬 × 7일 슬라이딩 윈도우) / [호출] TradeService.syncBybitTrades()
     // startTime: 초기 동기화 = 1년 전, 증분 동기화 = DB 마지막 거래 시각
     public List<BybitExecution> getExecutions(String apiKey, String secretKey, LocalDateTime startTime) {
-        log.info("[Bybit] API Key 앞 6자리: {}...", apiKey.length() > 6 ? apiKey.substring(0, 6) : apiKey);
-
         // 시스템 기본 시간대(Docker = UTC)에 의존하지 않고 KST 기준으로 명시
         LocalDateTime now = LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul"));
 
         // spot / linear / inverse 3개 카테고리 병렬 조회 (순차 대비 ~3배 빠름)
         List<CompletableFuture<List<BybitExecution>>> futures = Arrays.stream(CATEGORIES)
-                .map(category -> CompletableFuture.supplyAsync(() -> {
-                    List<BybitExecution> result = fetchCategory(apiKey, secretKey, category, startTime, now);
-                    log.info("[Bybit] category={} 완료: {}건", category, result.size());
-                    return result;
-                }))
+                .map(category -> CompletableFuture.supplyAsync(() ->
+                        fetchCategory(apiKey, secretKey, category, startTime, now)))
                 .collect(Collectors.toList());
 
-        List<BybitExecution> allExecutions = futures.stream()
+        return futures.stream()
                 .flatMap(f -> f.join().stream())
                 .collect(Collectors.toList());
-
-        log.info("[Bybit] 전체 조회 완료: {}건", allExecutions.size());
-        return allExecutions;
     }
 
     // [용도] 특정 카테고리의 7일 슬라이딩 윈도우 조회 / [호출] getExecutions()
@@ -80,18 +77,8 @@ public class BybitClient {
 
             // 같은 윈도우 내 커서 페이지네이션
             String cursor = null;
-            boolean stopped = false;
             do {
-                BybitExecutionPage page;
-                try {
-                    page = fetchPage(apiKey, secretKey, category, startMs, endMs, cursor);
-                } catch (RuntimeException e) {
-                    // API 오류(IP 차단, 인증 실패 등) 발생 시 해당 카테고리 동기화 즉시 중단
-                    log.error("[Bybit] 동기화 중단 category={}: {}", category, e.getMessage());
-                    stopped = true;
-                    break;
-                }
-                if (page == null) break;
+                BybitExecutionPage page = fetchPage(apiKey, secretKey, category, startMs, endMs, cursor);
                 result.addAll(page.executions);
                 cursor = page.nextCursor;
 
@@ -99,8 +86,6 @@ public class BybitClient {
                     try { TimeUnit.MILLISECONDS.sleep(50); } catch (InterruptedException ignored) {}
                 }
             } while (cursor != null && !cursor.isEmpty());
-            if (stopped) break;
-
             windowStart = windowEnd;
             try { TimeUnit.MILLISECONDS.sleep(50); } catch (InterruptedException ignored) {}
         }
@@ -120,24 +105,44 @@ public class BybitClient {
             qs.append("&cursor=").append(cursor);
         }
 
+        String queryString = qs.toString();
         String timestamp = String.valueOf(System.currentTimeMillis() - TIMESTAMP_OFFSET);
-        String signature = sign(apiKey, secretKey, timestamp, qs.toString());
+        String signature = sign(apiKey, secretKey, timestamp, queryString);
 
         Request request = new Request.Builder()
-                .url(BASE_URL + "/v5/execution/list?" + qs)
+                .url(baseUrl + "/v5/execution/list?" + queryString)
                 .get()
                 .addHeader("X-BAPI-API-KEY", apiKey)
                 .addHeader("X-BAPI-SIGN", signature)
+                .addHeader("X-BAPI-SIGN-TYPE", "2")
                 .addHeader("X-BAPI-TIMESTAMP", timestamp)
                 .addHeader("X-BAPI-RECV-WINDOW", RECV_WINDOW)
+                .addHeader("Accept", "application/json")
                 .build();
 
         try (Response response = httpClient.newCall(request).execute()) {
-            String body = response.body().string();
+            String body = response.body() != null ? response.body().string() : "";
             log.debug("[Bybit] status={}, body 앞 200자: {}",
                     response.code(), body.length() > 200 ? body.substring(0, 200) + "..." : body);
 
+            if (!response.isSuccessful()) {
+                String traceId = response.header("Traceid");
+                if (response.code() == 401) {
+                    throw new RuntimeException("HTTP 401: Bybit authentication failed"
+                            + " (possible causes: wrong key/secret, expired or revoked key, IP whitelist mismatch, demo key used against mainnet)"
+                            + (traceId != null ? ", traceId=" + traceId : ""));
+                }
+                throw new RuntimeException("HTTP " + response.code() + ": " + body
+                        + (traceId != null ? " (traceId=" + traceId + ")" : ""));
+            }
+            if (body.isBlank()) {
+                throw new RuntimeException("empty response body");
+            }
+
             JsonObject json = gson.fromJson(body, JsonObject.class);
+            if (json == null || !json.has("retCode")) {
+                throw new RuntimeException("invalid json response: " + body);
+            }
             int retCode = json.get("retCode").getAsInt();
 
             if (retCode != 0) {
@@ -170,9 +175,12 @@ public class BybitClient {
             }
             return new BybitExecutionPage(executions, nextCursor.isEmpty() ? null : nextCursor);
 
+        } catch (RuntimeException e) {
+            log.error("[Bybit] 호출 실패 category={}: {}", category, e.getMessage());
+            throw e;
         } catch (Exception e) {
             log.error("[Bybit] 호출 실패 category={}: {}", category, e.getMessage());
-            return null;
+            throw new RuntimeException("Bybit execution request failed for " + category, e);
         }
     }
 
@@ -208,12 +216,14 @@ public class BybitClient {
         String signature = sign(apiKey, secretKey, timestamp, queryString);
 
         Request request = new Request.Builder()
-                .url(BASE_URL + "/v5/account/wallet-balance?" + queryString)
+                .url(baseUrl + "/v5/account/wallet-balance?" + queryString)
                 .get()
                 .addHeader("X-BAPI-API-KEY", apiKey)
                 .addHeader("X-BAPI-SIGN", signature)
+                .addHeader("X-BAPI-SIGN-TYPE", "2")
                 .addHeader("X-BAPI-TIMESTAMP", timestamp)
                 .addHeader("X-BAPI-RECV-WINDOW", RECV_WINDOW)
+                .addHeader("Accept", "application/json")
                 .build();
 
         try (Response response = httpClient.newCall(request).execute()) {
@@ -231,6 +241,9 @@ public class BybitClient {
             JsonObject result = json.getAsJsonObject("result");
             if (result.has("list") && result.getAsJsonArray("list").size() > 0) {
                 JsonObject account = result.getAsJsonArray("list").get(0).getAsJsonObject();
+                String totalAvailableBalance = getStr(account, "totalAvailableBalance");
+                String totalWalletBalance = getStr(account, "totalWalletBalance");
+                String totalMarginBalance = getStr(account, "totalMarginBalance");
                 if (account.has("coin") && !account.get("coin").isJsonNull()) {
                     for (var elem : account.getAsJsonArray("coin")) {
                         JsonObject coin = elem.getAsJsonObject();
@@ -242,8 +255,16 @@ public class BybitClient {
                         BybitBalance b = new BybitBalance();
                         b.coin = getStr(coin, "coin");
                         b.walletBalance = walletBalance;
+                        b.equity = getStr(coin, "equity");
                         b.availableToWithdraw = getStr(coin, "availableToWithdraw");
+                        b.totalOrderIM = getStr(coin, "totalOrderIM");
+                        b.totalPositionIM = getStr(coin, "totalPositionIM");
+                        b.locked = getStr(coin, "locked");
+                        b.bonus = getStr(coin, "bonus");
                         b.usdValue = getStr(coin, "usdValue");
+                        b.totalAvailableBalance = totalAvailableBalance;
+                        b.totalWalletBalance = totalWalletBalance;
+                        b.totalMarginBalance = totalMarginBalance;
                         balances.add(b);
                     }
                 }
@@ -256,12 +277,93 @@ public class BybitClient {
         }
     }
 
+    // [용도] 티커 정보 조회 / [호출] MarketController.getCurrentPrice()
+    public Map<String, Object> getTicker(String category, String symbol) {
+        try {
+            String timestamp = String.valueOf(System.currentTimeMillis() - TIMESTAMP_OFFSET);
+            String queryString = "category=" + category;
+            if (symbol != null && !symbol.isEmpty()) {
+                queryString += "&symbol=" + symbol;
+            }
+            String signature = sign("", "", timestamp, queryString);
+
+            Request request = new Request.Builder()
+                    .url(baseUrl + "/v5/market/tickers?" + queryString)
+                    .get()
+                    .addHeader("X-BAPI-API-KEY", "") // 티커 조회는 인증 필요 없음
+                    .addHeader("X-BAPI-SIGN", signature)
+                    .addHeader("X-BAPI-TIMESTAMP", timestamp)
+                    .addHeader("X-BAPI-RECV-WINDOW", RECV_WINDOW)
+                    .build();
+
+            try (Response response = httpClient.newCall(request).execute()) {
+                String body = response.body().string();
+
+                if (response.code() != 200) {
+                    log.error("[Bybit] 티컈 조회 실패: category={}, symbol={}, status={}, body={}",
+                            category, symbol, response.code(), body);
+                    return null;
+                }
+
+                JsonObject json = gson.fromJson(body, JsonObject.class);
+                int retCode = json.get("retCode").getAsInt();
+
+                if (retCode != 0) {
+                    log.error("[Bybit] 티커 API 오류: category={}, symbol={}, retCode={}, msg={}",
+                            category, symbol, retCode, json.get("retMsg").getAsString());
+                    return null;
+                }
+
+                JsonObject result = json.getAsJsonObject("result");
+                if (!result.has("list") || result.get("list").getAsJsonArray().size() == 0) {
+                    return null;
+                }
+
+                JsonObject ticker = result.get("list").getAsJsonArray().get(0).getAsJsonObject();
+                Map<String, Object> data = new HashMap<>();
+
+                data.put("symbol", symbol != null ? symbol : ticker.get("symbol").getAsString());
+                data.put("lastPrice", ticker.get("lastPrice").getAsString());
+                data.put("prevPrice24h", ticker.get("prevPrice24h").getAsString());
+                data.put("price24hPcnt", ticker.get("price24hPcnt").getAsString());
+                data.put("highPrice24h", ticker.get("highPrice24h").getAsString());
+                data.put("lowPrice24h", ticker.get("lowPrice24h").getAsString());
+                data.put("volume24h", ticker.get("volume24h").getAsString());
+                data.put("turnover24h", ticker.get("turnover24h").getAsString());
+
+                // 타임스탬프 (millisecond -> second)
+                if (ticker.has("time")) {
+                    data.put("timestamp", String.valueOf(Long.parseLong(ticker.get("time").getAsString()) / 1000));
+                }
+
+                return data;
+
+            } catch (Exception e) {
+                log.error("[Bybit] 티커 호출 실패: category={}, symbol={}, error={}",
+                        category, symbol, e.getMessage());
+                return null;
+            }
+        } catch (Exception e) {
+            log.error("[Bybit] 티커 조회 실패: category={}, symbol={}, error={}",
+                    category, symbol, e.getMessage());
+            return null;
+        }
+    }
+
     // Bybit 잔고 응답 DTO
     public static class BybitBalance {
         public String coin;
         public String walletBalance;
+        public String equity;
         public String availableToWithdraw;
+        public String totalOrderIM;
+        public String totalPositionIM;
+        public String locked;
+        public String bonus;
         public String usdValue;
+        public String totalAvailableBalance;
+        public String totalWalletBalance;
+        public String totalMarginBalance;
     }
 
     // Bybit 체결 응답 DTO

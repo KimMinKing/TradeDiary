@@ -3,6 +3,7 @@
 package com.tradediary.position;
 
 import com.tradediary.exchange.ExchangeKey;
+import com.tradediary.trade.Trade;
 import com.tradediary.user.User;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -60,8 +61,17 @@ public class Position {
     @Column(nullable = false)
     private LocalDateTime closedAt;      // 마지막 거래 시각
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "trade_id")
+    private Trade trade;               // 연결된 거래 (선택적)
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
+
+    // [용도] 현재 손익 금액 조회 / [호출] TradeJournalService
+    public BigDecimal getCurrentPnl() {
+        return pnl;
+    }
 
     @Builder
     public Position(User user, ExchangeKey.Exchange exchange, String symbol, PositionSide side,

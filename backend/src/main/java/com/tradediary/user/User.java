@@ -40,11 +40,20 @@ public class User {
     @Column(columnDefinition = "TEXT")
     private String avatar;
 
+    @Column(nullable = false, length = 2)
+    private String preferredLanguage = "en";
+
     @Column(precision = 30, scale = 2)
     private BigDecimal totalAssets;
 
     @Column(nullable = false)
     private Boolean diaryPublic = false;
+
+    @Column(nullable = false) private Boolean profilePublic = false;
+    @Column(nullable = false) private Boolean statsPublic = false;
+    @Column(nullable = false) private Boolean positionsPublic = false;
+    @Column(nullable = false) private Boolean tradesPublic = false;
+    @Column(nullable = false) private Boolean assetsPublic = false;
 
     private LocalDateTime assetsUpdatedAt;
 
@@ -95,6 +104,11 @@ public class User {
         this.updatedAt = LocalDateTime.now();
     }
 
+    public void updatePreferredLanguage(String language) {
+        this.preferredLanguage = "ko".equalsIgnoreCase(language) ? "ko" : "en";
+        this.updatedAt = LocalDateTime.now();
+    }
+
     // [용도] 총 자산 스냅샷 업데이트 / [호출] BalanceController.getBalances()
     public void updateTotalAssets(BigDecimal totalAssets) {
         this.totalAssets = totalAssets;
@@ -105,6 +119,17 @@ public class User {
     // [용도] 일기 공개 여부 설정 / [호출] UserController.updateDiaryPublic()
     public void updateDiaryPublic(boolean diaryPublic) {
         this.diaryPublic = diaryPublic;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void updatePrivacy(boolean profilePublic, boolean diaryPublic, boolean statsPublic,
+                              boolean positionsPublic, boolean tradesPublic, boolean assetsPublic) {
+        this.profilePublic = profilePublic;
+        this.diaryPublic = diaryPublic;
+        this.statsPublic = statsPublic;
+        this.positionsPublic = positionsPublic;
+        this.tradesPublic = tradesPublic;
+        this.assetsPublic = assetsPublic;
         this.updatedAt = LocalDateTime.now();
     }
 }

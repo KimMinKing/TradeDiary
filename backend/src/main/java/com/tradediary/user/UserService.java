@@ -4,12 +4,15 @@ package com.tradediary.user;
 
 import com.tradediary.common.exception.BusinessException;
 import com.tradediary.common.exception.ErrorCode;
+import com.tradediary.common.service.PnlCalculationService;
 import com.tradediary.common.security.JwtUtil;
 import com.tradediary.common.security.RefreshToken;
 import com.tradediary.common.security.RefreshTokenRepository;
 import com.tradediary.position.Position;
 import com.tradediary.position.PositionRepository;
+import com.tradediary.journal.JournalImageValidator;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -23,6 +26,7 @@ import java.util.List;
 import java.util.UUID;
 
 // [클래스] 인증 관련 핵심 비즈니스 로직 처리
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class UserService {
@@ -34,6 +38,8 @@ public class UserService {
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
     private final EmailService emailService;
+    private final PnlCalculationService pnlCalculationService;
+    private final JournalImageValidator imageValidator;
 
     @Value("${jwt.refresh-token-expiration}")
     private long refreshTokenExpiration;
@@ -75,12 +81,19 @@ public class UserService {
                 .expiresAt(LocalDateTime.now().plusSeconds(refreshTokenExpiration / 1000))
                 .build());
 
-        return new TokenResponse(accessToken, refreshToken);
+        return new TokenResponse(accessToken, refreshToken, user.getId());
     }
 
     // [용도] RefreshToken으로 AccessToken 재발급 / [호출] AuthController.refresh()
     @Transactional
     public TokenResponse refresh(String refreshToken) {
+        // refreshToken null/empty 검증
+        if (refreshToken == null || refreshToken.trim().isEmpty()) {
+            log.warn("[refresh] refreshToken이 null 또는 빈 문자열");
+            throw new BusinessException(ErrorCode.REFRESH_TOKEN_NOT_FOUND);
+        }
+
+        // 로그아웃·강제 폐기된 토큰이 다시 사용되지 않도록 DB에 저장된 토큰만 허용한다.
         RefreshToken stored = refreshTokenRepository.findByToken(refreshToken)
                 .orElseThrow(() -> new BusinessException(ErrorCode.REFRESH_TOKEN_NOT_FOUND));
 
@@ -90,18 +103,21 @@ public class UserService {
         }
 
         Long userId = stored.getUser().getId();
+        User user = stored.getUser();
+
+        // 새 토큰 생성
         String newAccessToken = jwtUtil.generateAccessToken(userId);
         String newRefreshToken = jwtUtil.generateRefreshToken(userId);
 
-        // RefreshToken 교체
+        // RefreshToken rotation: 사용한 토큰을 폐기하고 새 토큰으로 교체한다.
         refreshTokenRepository.delete(stored);
         refreshTokenRepository.save(RefreshToken.builder()
-                .user(stored.getUser())
+                .user(user)
                 .token(newRefreshToken)
                 .expiresAt(LocalDateTime.now().plusSeconds(refreshTokenExpiration / 1000))
                 .build());
 
-        return new TokenResponse(newAccessToken, newRefreshToken);
+        return new TokenResponse(newAccessToken, newRefreshToken, user.getId());
     }
 
     // [용도] 로그아웃 (RefreshToken 삭제) / [호출] AuthController.logout()
@@ -116,7 +132,9 @@ public class UserService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
         return new UserInfo(user.getEmail(), user.getNickname(), user.getAvatar(),
-                user.getDiaryPublic(), user.getTotalAssets());
+                user.getDiaryPublic(), user.getProfilePublic(), user.getStatsPublic(),
+                user.getPositionsPublic(), user.getTradesPublic(), user.getAssetsPublic(), user.getTotalAssets(),
+                user.getPreferredLanguage());
     }
 
     // [용도] 닉네임 변경 / [호출] UserController.updateNickname()
@@ -173,22 +191,32 @@ public class UserService {
 
         resetToken.getUser().updatePassword(passwordEncoder.encode(newPassword));
         resetToken.markUsed();
+        refreshTokenRepository.deleteByUserId(resetToken.getUser().getId());
     }
 
     // [용도] 토큰 응답 DTO (내부 클래스)
-    public record TokenResponse(String accessToken, String refreshToken) {}
+    public record TokenResponse(String accessToken, String refreshToken, Long userId) {}
 
     // [용도] 프로필 아바타 변경 (base64 이미지) / [호출] UserController.updateAvatar()
     @Transactional
     public void updateAvatar(Long userId, String avatar) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
-        user.updateAvatar(avatar);
+        user.updateAvatar(imageValidator.validate(avatar));
     }
 
     // [용도] 사용자 정보 응답 DTO
     public record UserInfo(String email, String nickname, String avatar,
-                           Boolean diaryPublic, BigDecimal totalAssets) {}
+                           Boolean diaryPublic, Boolean profilePublic, Boolean statsPublic,
+                           Boolean positionsPublic, Boolean tradesPublic, Boolean assetsPublic,
+                           BigDecimal totalAssets, String preferredLanguage) {}
+
+    @Transactional
+    public void updatePreferredLanguage(Long userId, String language) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+        user.updatePreferredLanguage(language);
+    }
 
     // [용도] 총 자산 스냅샷 저장 / [호출] BalanceController.getBalances()
     @Transactional
@@ -206,27 +234,58 @@ public class UserService {
         user.updateDiaryPublic(diaryPublic);
     }
 
+    @Transactional
+    public void updatePrivacy(Long userId, PrivacyRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+        user.updatePrivacy(request.profilePublic(), request.diaryPublic(), request.statsPublic(),
+                request.positionsPublic(), request.tradesPublic(), request.assetsPublic());
+    }
+
+    public record PrivacyRequest(boolean profilePublic, boolean diaryPublic, boolean statsPublic,
+                                 boolean positionsPublic, boolean tradesPublic, boolean assetsPublic) {}
+
+    public enum PublicSection { PROFILE, STATS, POSITIONS, TRADES }
+
     // [용도] 공개 프로필 조회 시 diaryPublic 검증 / [호출] UserController.getPublicStats()
     @Transactional(readOnly = true)
     public void validatePublicProfile(Long userId) {
+        validatePublicSection(userId, PublicSection.PROFILE);
+    }
+
+    @Transactional(readOnly = true)
+    public void validatePublicSection(Long userId, PublicSection section) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
-        if (!Boolean.TRUE.equals(user.getDiaryPublic())) {
-            throw new BusinessException(ErrorCode.FORBIDDEN);
+                .orElseThrow(() -> new BusinessException(ErrorCode.PRIVATE_RESOURCE_NOT_FOUND));
+        boolean allowed = isPublicSectionAllowed(user, section);
+        if (!allowed) {
+            // Do not reveal whether the user or the requested private section exists.
+            throw new BusinessException(ErrorCode.PRIVATE_RESOURCE_NOT_FOUND);
         }
+    }
+
+    static boolean isPublicSectionAllowed(User user, PublicSection section) {
+        return Boolean.TRUE.equals(user.getProfilePublic()) && switch (section) {
+            case PROFILE -> true;
+            case STATS -> Boolean.TRUE.equals(user.getStatsPublic());
+            case POSITIONS -> Boolean.TRUE.equals(user.getPositionsPublic());
+            case TRADES -> Boolean.TRUE.equals(user.getTradesPublic());
+        };
     }
 
     // [용도] 다른 사용자의 공개 프로필 조회 / [호출] UserController.getPublicProfile()
     @Transactional(readOnly = true)
     public PublicProfileResponse getPublicProfile(Long userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+                .orElseThrow(() -> new BusinessException(ErrorCode.PRIVATE_RESOURCE_NOT_FOUND));
 
-        if (!Boolean.TRUE.equals(user.getDiaryPublic())) {
-            throw new BusinessException(ErrorCode.FORBIDDEN);
+        if (!Boolean.TRUE.equals(user.getProfilePublic())) {
+            throw new BusinessException(ErrorCode.PRIVATE_RESOURCE_NOT_FOUND);
         }
 
-        List<Position> positions = positionRepository.findByUserIdOrderByClosedAtDesc(userId);
+        boolean statsVisible = Boolean.TRUE.equals(user.getStatsPublic());
+        List<Position> positions = statsVisible
+                ? positionRepository.findByUserIdOrderByClosedAtDesc(userId) : List.of();
 
         int totalTrades = positions.size();
         int winCount = (int) positions.stream()
@@ -234,9 +293,7 @@ public class UserService {
         int lossCount = totalTrades - winCount;
         double winRate = totalTrades > 0 ? Math.round((double) winCount / totalTrades * 10000.0) / 100.0 : 0;
 
-        BigDecimal totalPnl = positions.stream()
-                .map(Position::getPnl)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalPnl = pnlCalculationService.sumKrw(positions);
 
         // 최대 연승/연패 계산
         List<Position> sorted = positions.stream()
@@ -253,22 +310,25 @@ public class UserService {
             }
         }
 
-        String assets = user.getTotalAssets() != null
+        String assets = Boolean.TRUE.equals(user.getAssetsPublic()) && user.getTotalAssets() != null
                 ? user.getTotalAssets().setScale(2, RoundingMode.HALF_UP).toPlainString()
                 : null;
 
         return new PublicProfileResponse(
-                user.getNickname(), user.getAvatar(), assets, true,
-                winRate, totalTrades,
-                totalPnl.setScale(2, RoundingMode.HALF_UP).toPlainString(),
-                winCount, lossCount, maxWinStreak, maxLossStreak
+                user.getNickname(), user.getAvatar(), assets, user.getDiaryPublic(),
+                user.getStatsPublic(), user.getPositionsPublic(), user.getTradesPublic(), user.getAssetsPublic(),
+                statsVisible ? winRate : null, statsVisible ? totalTrades : null,
+                statsVisible ? pnlCalculationService.formatKrw(totalPnl) : null,
+                statsVisible ? winCount : null, statsVisible ? lossCount : null,
+                statsVisible ? maxWinStreak : null, statsVisible ? maxLossStreak : null
         );
     }
 
     // 공개 프로필 응답 DTO
     public record PublicProfileResponse(
             String nickname, String avatar, String totalAssets, boolean diaryPublic,
-            double winRate, int totalTrades, String totalPnl,
-            int winCount, int lossCount, int maxWinStreak, int maxLossStreak
+            boolean statsPublic, boolean positionsPublic, boolean tradesPublic, boolean assetsPublic,
+            Double winRate, Integer totalTrades, String totalPnl,
+            Integer winCount, Integer lossCount, Integer maxWinStreak, Integer maxLossStreak
     ) {}
 }
