@@ -47,6 +47,8 @@ public class ExchangeKeyService {
             ExchangeKey key = existing.get();
             key.replaceCredentials(encryptedApiKey, encryptedSecretKey, encryptedPassphrase);
             exchangeKeyRepository.save(key);
+            jdbc.update("DELETE FROM exchange_sync_coverage WHERE exchange_sync_state_id IN " +
+                    "(SELECT id FROM exchange_sync_state WHERE exchange_key_id=?)", key.getId());
             jdbc.update("""
                     UPDATE exchange_sync_state SET status='QUEUED',priority=100,locked_until=NULL,
                         failure_count=0,last_error=NULL,next_sync_at=CURRENT_TIMESTAMP,

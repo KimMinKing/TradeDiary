@@ -100,6 +100,28 @@
   line-height: 1.5;
 }
 
+.sync-coverage {
+  margin: 8px 0;
+  color: #374151;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.history-check-button {
+  margin: 4px 0 12px;
+  padding: 7px 12px;
+  border: 1px solid #9d6ff7;
+  border-radius: 6px;
+  background: transparent;
+  color: #6d28d9;
+  cursor: pointer;
+}
+
+.history-check-button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
 /* 빈 상태 */
 .empty-state {
   text-align: center;

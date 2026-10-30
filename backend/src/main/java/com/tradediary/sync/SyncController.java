@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Map;
 
@@ -28,5 +29,13 @@ public class SyncController {
     public Map<String,String> request(@AuthenticationPrincipal Long userId, @RequestParam(required=false) String exchange) {
         coordinator.request(userId, exchange);
         return Map.of("status","QUEUED");
+    }
+
+    @PostMapping("/history-check") @ResponseStatus(HttpStatus.ACCEPTED)
+    public Map<String,String> checkHistory(@AuthenticationPrincipal Long userId, @RequestParam String exchange) {
+        if (!coordinator.requestHistoryCheck(userId, exchange)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Exchange is unavailable or already syncing");
+        }
+        return Map.of("status", "QUEUED");
     }
 }

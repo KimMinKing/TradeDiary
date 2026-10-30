@@ -10,11 +10,12 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.OptionalInt;
 import java.util.concurrent.Semaphore;
 
 @Slf4j
@@ -57,14 +58,33 @@ public class AdaptiveSyncCoordinator {
         }
     }
 
+    public boolean requestHistoryCheck(Long userId, String exchange) {
+        seedUser(userId);
+        return jdbc.update("""
+            UPDATE exchange_sync_state s SET history_complete=FALSE,sync_phase='BACKFILL',
+                status='QUEUED',priority=100,locked_until=NULL,next_sync_at=CURRENT_TIMESTAMP,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE s.user_id=? AND s.exchange=? AND s.status <> 'RUNNING'
+              AND EXISTS (SELECT 1 FROM exchange_keys k WHERE k.id=s.exchange_key_id AND k.is_active=TRUE)
+            """, userId, exchange.toUpperCase(Locale.ROOT)) > 0;
+    }
+
     public SyncStatus status(Long userId) {
         seedUser(userId);
         Long version = jdbc.queryForObject("SELECT version FROM portfolio_versions WHERE user_id=?", Long.class, userId);
         List<Map<String,Object>> connections = jdbc.queryForList("""
-            SELECT exchange,status,sync_phase,latest_ready,history_complete,
-                   last_success_at,next_sync_at,failure_count,last_error
+            SELECT id,exchange,status,sync_phase,latest_ready,history_complete,
+                   last_started_at,last_success_at,next_sync_at,failure_count,last_error
             FROM exchange_sync_state WHERE user_id=? ORDER BY exchange
             """, userId);
+        for (Map<String,Object> connection : connections) {
+            long stateId = ((Number) connection.remove("id")).longValue();
+            connection.put("coverage", jdbc.queryForList("""
+                SELECT product_type,requested_from,available_from,verified_through,
+                       last_checked_at,coverage_status
+                FROM exchange_sync_coverage WHERE exchange_sync_state_id=? ORDER BY product_type
+                """, stateId));
+        }
         boolean syncing = connections.stream().anyMatch(row -> "RUNNING".equals(row.get("status")) || "QUEUED".equals(row.get("status")));
         return new SyncStatus(version == null ? 0 : version, syncing, connections);
     }
@@ -104,6 +124,9 @@ public class AdaptiveSyncCoordinator {
             ExchangeKey.Exchange exchange = ExchangeKey.Exchange.valueOf(job.exchange());
             boolean quickSync = !job.latestReady();
             boolean backfill = job.latestReady() && !job.historyComplete();
+            LocalDateTime checkedThrough = LocalDateTime.now(ZoneId.of("Asia/Seoul"));
+            LocalDateTime requestedFrom = quickSync ? checkedThrough.minusDays(7)
+                    : backfill ? SyncCoveragePolicy.requestedFrom(exchange, checkedThrough) : null;
             if (backfill) {
                 backfillPermit = BACKFILL_SLOTS.tryAcquire();
                 if (!backfillPermit) {
@@ -111,11 +134,30 @@ public class AdaptiveSyncCoordinator {
                     return;
                 }
             }
-            int saved = quickSync
-                    ? tradeService.syncRecentTrades(job.userId(), exchange)
-                    : backfill
-                        ? tradeService.backfillTrades(job.userId(), exchange)
-                        : tradeService.syncTrades(job.userId(), exchange);
+            OptionalInt result = tradeService.syncForCoordinator(job.userId(), exchange, requestedFrom);
+            if (result.isEmpty()) {
+                jdbc.update("UPDATE exchange_sync_state SET status='QUEUED',locked_until=NULL,next_sync_at=CURRENT_TIMESTAMP + INTERVAL '5 seconds',updated_at=CURRENT_TIMESTAMP WHERE id=?", job.id());
+                return;
+            }
+            int saved = result.getAsInt();
+            if (backfill) {
+                LocalDateTime finishedAt = LocalDateTime.now(ZoneId.of("Asia/Seoul"));
+                SyncCoveragePolicy.Coverage coverage = SyncCoveragePolicy.range(exchange, requestedFrom, finishedAt, checkedThrough);
+                for (String product : SyncCoveragePolicy.products(exchange)) {
+                    jdbc.update("""
+                        INSERT INTO exchange_sync_coverage(exchange_sync_state_id,product_type,requested_from,
+                            available_from,verified_through,last_checked_at,coverage_status)
+                        VALUES (?,?,?,?,?,?,?)
+                        ON CONFLICT (exchange_sync_state_id,product_type) DO UPDATE SET
+                            requested_from=EXCLUDED.requested_from,
+                            available_from=EXCLUDED.available_from,
+                            verified_through=EXCLUDED.verified_through,
+                            last_checked_at=EXCLUDED.last_checked_at,
+                            coverage_status=EXCLUDED.coverage_status
+                        """, job.id(), product, coverage.requestedFrom(), coverage.availableFrom(),
+                            coverage.verifiedThrough(), finishedAt, coverage.status());
+                }
+            }
             jdbc.update("""
                 UPDATE exchange_sync_state SET status='IDLE',priority=0,failure_count=0,last_error=NULL,
                   last_success_at=CURRENT_TIMESTAMP,last_cursor_at=CURRENT_TIMESTAMP,locked_until=NULL,
@@ -134,6 +176,12 @@ public class AdaptiveSyncCoordinator {
                   sync_phase=CASE WHEN ? THEN 'BACKFILL' WHEN ? THEN 'READY' ELSE sync_phase END,
                   updated_at=CURRENT_TIMESTAMP WHERE id=?
                 """, quickSync, quickSync, backfill, quickSync, backfill, job.id());
+            if (!quickSync && !backfill) {
+                jdbc.update("""
+                    UPDATE exchange_sync_coverage SET verified_through=GREATEST(verified_through,?),
+                        last_checked_at=CURRENT_TIMESTAMP WHERE exchange_sync_state_id=?
+                    """, checkedThrough, job.id());
+            }
             if (saved > 0 || quickSync) {
                 jdbc.update("INSERT INTO portfolio_versions(user_id,version,updated_at) VALUES (?,1,CURRENT_TIMESTAMP) ON CONFLICT(user_id) DO UPDATE SET version=portfolio_versions.version+1,updated_at=CURRENT_TIMESTAMP", job.userId());
             }

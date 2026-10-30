@@ -258,7 +258,9 @@ const ExchangeKeyPage = () => {
                   : syncState?.status === 'BACKOFF'
                     ? 'Import paused — retrying'
                     : !syncState || syncState.sync_phase === 'READY'
-                      ? 'Up to date'
+                      ? (syncState?.coverage?.some(item => item.coverage_status === 'LIMITED_BY_EXCHANGE')
+                        ? 'Limited history'
+                        : syncState?.coverage?.length ? 'Requested range checked' : 'History range unknown')
                       : syncState.latest_ready
                         ? 'Importing history'
                         : 'Loading latest data';

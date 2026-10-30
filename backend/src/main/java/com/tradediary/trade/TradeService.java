@@ -30,6 +30,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -58,14 +59,29 @@ public class TradeService {
 
     @Transactional
     public int syncTrades(Long userId, ExchangeKey.Exchange exchange) {
+        return syncInternal(userId, exchange).orElse(0);
+    }
+
+    @Transactional
+    public OptionalInt syncForCoordinator(Long userId, ExchangeKey.Exchange exchange, LocalDateTime startTime) {
+        if (startTime == null) return syncInternal(userId, exchange);
+        START_TIME_OVERRIDE.set(startTime);
+        try {
+            return syncInternal(userId, exchange);
+        } finally {
+            START_TIME_OVERRIDE.remove();
+        }
+    }
+
+    private OptionalInt syncInternal(Long userId, ExchangeKey.Exchange exchange) {
         String syncKey = buildSyncKey(userId, exchange);
         if (!ACTIVE_SYNC_KEYS.add(syncKey)) {
             log.info("[TradeSync] duplicate sync skipped - userId={}, exchange={}", userId, exchange);
-            return 0;
+            return OptionalInt.empty();
         }
 
         try {
-            return switch (exchange) {
+            return OptionalInt.of(switch (exchange) {
                 case UPBIT -> syncUpbitTrades(userId);
                 case BYBIT -> syncBybitTrades(userId);
                 case BITGET -> syncBitgetTrades(userId);
@@ -73,34 +89,9 @@ public class TradeService {
                 case BINANCE -> syncBinanceTrades(userId);
                 case BINGX -> syncBingxTrades(userId);
                 case KRAKEN -> syncKrakenTrades(userId);
-            };
+            });
         } finally {
             ACTIVE_SYNC_KEYS.remove(syncKey);
-        }
-    }
-
-    @Transactional
-    public int syncRecentTrades(Long userId, ExchangeKey.Exchange exchange) {
-        return syncWithStartTime(userId, exchange,
-                LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul")).minusDays(7));
-    }
-
-    @Transactional
-    public int backfillTrades(Long userId, ExchangeKey.Exchange exchange) {
-        int days = switch (exchange) {
-            case BITGET, OKX, BINGX -> 90;
-            default -> 365;
-        };
-        return syncWithStartTime(userId, exchange,
-                LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul")).minusDays(days));
-    }
-
-    private int syncWithStartTime(Long userId, ExchangeKey.Exchange exchange, LocalDateTime startTime) {
-        START_TIME_OVERRIDE.set(startTime);
-        try {
-            return syncTrades(userId, exchange);
-        } finally {
-            START_TIME_OVERRIDE.remove();
         }
     }
 

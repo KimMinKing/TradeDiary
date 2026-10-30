@@ -6,6 +6,8 @@
 
 ### 1. 거래소별 수집 범위를 정확히 기록하고 표시
 
+구현 상태: V118 상품별 수집 범위, 백필 결과 기록, 기존 연결의 범위 불명 표시와 수동 재검사 요청을 추가했다. 코드·마이그레이션 검증은 통과했으며, 실제 운영 계정의 수집 범위 대조는 2·3번에서 계속한다.
+
 `AdaptiveSyncCoordinator`는 백필 호출이 한 번 성공하면 `history_complete=true`로 바꾸고, Trade Sync 화면은 이를 “History import complete”로 표시한다. 그러나 `TradeService`의 요청 시작일과 각 거래소 API의 실제 조회 가능 기간은 다를 수 있다. 예를 들어 Binance 클라이언트는 요청일이 더 오래되어도 최근 3개월로 시작일을 조정한다. 따라서 현재 플래그는 “요청 가능한 범위의 백필 호출 성공” 이상을 보증하지 않는다.
 
 - 거래소·상품 유형별 `requested_from`, `available_from`, `verified_through`, `last_attempt_at`을 저장한다. 조회 API가 과거 데이터를 제공하지 않으면 그 범위를 명시한다.

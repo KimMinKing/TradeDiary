@@ -31,7 +31,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Tag("migration")
 class FlywayMigrationTest {
 
-    // [용도] 빈 DB 생성 후 V117을 기존 거래 데이터에 적용하고 핵심 구조 검증 / [호출] Gradle migrationTest
+    // [용도] 빈 DB 생성 후 V117~V118을 기존 거래 데이터에 적용하고 핵심 구조 검증 / [호출] Gradle migrationTest
     @Test
     void migratesExistingBinanceTradesOnUpgrade() throws Exception {
         String containerName = "tradediary-migration-test-" + UUID.randomUUID().toString().substring(0, 8);
@@ -70,7 +70,7 @@ class FlywayMigrationTest {
                     .baselineVersion("100")
                     .validateOnMigrate(true)
                     .load();
-            assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);
+            assertThat(flyway.migrate().migrationsExecuted).isEqualTo(2);
             flyway.validate();
             assertThat(jdbc.queryForList(
                     "SELECT exchange_trade_id FROM trades WHERE user_id=? AND exchange='BINANCE' ORDER BY symbol",
@@ -83,7 +83,7 @@ class FlywayMigrationTest {
             try (Connection connection = DriverManager.getConnection(jdbcUrl, "tradediary", "tradediary");
                  Statement statement = connection.createStatement()) {
                 assertThat(singleLong(statement,
-                        "SELECT COUNT(*) FROM flyway_schema_history WHERE success = TRUE")).isEqualTo(17);
+                        "SELECT COUNT(*) FROM flyway_schema_history WHERE success = TRUE")).isEqualTo(18);
                 assertThat(singleLong(statement,
                         "SELECT character_maximum_length FROM information_schema.columns " +
                                 "WHERE table_name='exchange_keys' AND column_name='api_key'"))
@@ -118,6 +118,10 @@ class FlywayMigrationTest {
                         "SELECT to_regclass('public.exchange_sync_state')::text")).isEqualTo("exchange_sync_state");
                 assertThat(singleText(statement,
                         "SELECT to_regclass('public.portfolio_versions')::text")).isEqualTo("portfolio_versions");
+                assertThat(singleText(statement,
+                        "SELECT to_regclass('public.exchange_sync_coverage')::text")).isEqualTo("exchange_sync_coverage");
+                assertThat(singleLong(statement,
+                        "SELECT COUNT(*) FROM exchange_sync_coverage")).isZero();
             }
 
             String testSecret = "0123456789abcdef0123456789abcdef";
@@ -137,6 +141,20 @@ class FlywayMigrationTest {
             migrator.run(null);
             assertThat(jdbc.queryForObject("SELECT api_key FROM exchange_keys WHERE user_id=?", String.class, userId))
                     .isEqualTo(converted.get("api_key"));
+
+            Long keyId = jdbc.queryForObject("SELECT id FROM exchange_keys WHERE user_id=?", Long.class, userId);
+            jdbc.update("INSERT INTO exchange_sync_state(exchange_key_id,user_id,exchange,history_complete) VALUES (?,?,?,TRUE)",
+                    keyId, userId, "BITGET");
+            Long stateId = jdbc.queryForObject("SELECT id FROM exchange_sync_state WHERE exchange_key_id=?", Long.class, keyId);
+            jdbc.update("""
+                    INSERT INTO exchange_sync_coverage(exchange_sync_state_id,product_type,requested_from,
+                        available_from,verified_through,last_checked_at,coverage_status)
+                    VALUES (?,'USDT_FUTURES',CURRENT_TIMESTAMP - INTERVAL '1 year',
+                        CURRENT_TIMESTAMP - INTERVAL '90 days',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,'LIMITED_BY_EXCHANGE')
+                    """, stateId);
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM exchange_sync_coverage", Long.class)).isEqualTo(1);
+            jdbc.update("DELETE FROM exchange_keys WHERE id=?", keyId);
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM exchange_sync_coverage", Long.class)).isZero();
         } finally {
             dockerIgnoringFailure("rm", "-f", containerName);
         }

@@ -1,9 +1,16 @@
 // [파일 용도] Trade Sync 관리 페이지
 
 import { useState, useEffect } from 'react';
-import { getMyExchangeKeys, getSyncStatus } from '../api/exchangeApi';
+import { getMyExchangeKeys, getSyncStatus, requestHistoryCheck } from '../api/exchangeApi';
 import TradeSync from '../components/TradeSync/TradeSync';
+import { checkedRangeLabel, historyLabel } from './syncCoverage';
 import './TradeSyncPage.css';
+
+const formatSyncTime = value => {
+  if (!value) return 'unknown';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'unknown' : date.toLocaleString();
+};
 
 const TradeSyncPage = () => {
   const [exchangeKeys, setExchangeKeys] = useState([]);
@@ -11,6 +18,21 @@ const TradeSyncPage = () => {
   const [loadError, setLoadError] = useState(false);
   const [syncStates, setSyncStates] = useState({});
   const [statusError, setStatusError] = useState(false);
+  const [checkingHistory, setCheckingHistory] = useState(null);
+  const [historyCheckError, setHistoryCheckError] = useState(null);
+
+  const checkHistory = async exchange => {
+    setCheckingHistory(exchange);
+    setHistoryCheckError(null);
+    try {
+      await requestHistoryCheck(exchange);
+      await refreshStatus();
+    } catch {
+      setHistoryCheckError(exchange);
+    } finally {
+      setCheckingHistory(null);
+    }
+  };
 
   const refreshStatus = async () => {
     try {
@@ -114,7 +136,7 @@ const TradeSyncPage = () => {
                 <div className="exchange-details">
                   <p className="last-sync">
                     {key.reconnectRequired ? 'Sync unavailable until reconnection' : statusError ? 'Sync status unavailable' : syncStates[key.exchange]?.last_success_at
-                      ? `Last successful sync: ${new Date(syncStates[key.exchange].last_success_at).toLocaleString()}`
+                      ? `Last successful sync: ${formatSyncTime(syncStates[key.exchange].last_success_at)}`
                       : 'No successful sync yet'}
                   </p>
                   <p className="sync-tip">{key.reconnectRequired ? 'Replace the exchange API key in Connections to resume syncing.'
@@ -126,9 +148,28 @@ const TradeSyncPage = () => {
                     : syncStates[key.exchange]?.status === 'RUNNING'
                       ? syncStates[key.exchange]?.latest_ready ? 'Importing history...' : 'Importing recent executions...'
                       : syncStates[key.exchange]?.status === 'QUEUED' ? 'Waiting to sync...'
-                        : syncStates[key.exchange]?.history_complete ? 'History import complete.' : 'History import is pending.'}</p>
+                        : historyLabel(syncStates[key.exchange])}</p>
+                  {syncStates[key.exchange]?.status === 'BACKOFF' && syncStates[key.exchange]?.next_sync_at && (
+                    <p className="sync-tip">Next automatic retry: {formatSyncTime(syncStates[key.exchange].next_sync_at)}</p>
+                  )}
+                  {(syncStates[key.exchange]?.coverage || []).map(item => (
+                    <p className="sync-coverage" key={item.product_type}>
+                      {checkedRangeLabel(item, formatSyncTime)}
+                    </p>
+                  ))}
+                  {!key.reconnectRequired && syncStates[key.exchange]?.history_complete &&
+                    !syncStates[key.exchange]?.coverage?.length &&
+                    !['QUEUED', 'RUNNING'].includes(syncStates[key.exchange]?.status) && (
+                      <button className="history-check-button" type="button"
+                        disabled={checkingHistory === key.exchange}
+                        onClick={() => checkHistory(key.exchange)}>
+                        {checkingHistory === key.exchange ? 'Queuing history check...' : 'Check history range'}
+                      </button>
+                    )}
+                  {historyCheckError === key.exchange &&
+                    <p className="sync-error" role="alert">Could not queue the history check. Please try again.</p>}
                   <p className="sync-tip">
-                    Sync detects new executions and updates positions automatically.
+                    A checked API range does not prove that older exchange history is available or that every execution has been reconciled.
                   </p>
                 </div>
               </div>

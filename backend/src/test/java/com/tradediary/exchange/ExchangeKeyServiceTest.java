@@ -20,6 +20,7 @@ import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.argThat;
 
 class ExchangeKeyServiceTest {
     @Test
@@ -68,6 +69,7 @@ class ExchangeKeyServiceTest {
         assertThat(crypto.decrypt(key.getApiKey())).isEqualTo("new-api-key");
         assertThat(crypto.decrypt(key.getSecretKey())).isEqualTo("new-secret-key");
         verify(repository, never()).delete(any());
-        verify(jdbc).update(anyString(), eq(9L));
+        verify(jdbc).update(argThat(sql -> sql.startsWith("DELETE FROM exchange_sync_coverage")), eq(9L));
+        verify(jdbc).update(argThat(sql -> sql.contains("UPDATE exchange_sync_state SET")), eq(9L));
     }
 }

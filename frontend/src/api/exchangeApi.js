@@ -56,6 +56,8 @@ export const getSyncStatus = () => api.get('/api/sync/status');
 export const reportSyncActivity = () => api.post('/api/sync/activity');
 export const requestTradeSync = (exchange = null) =>
   api.post('/api/sync/request', null, { params: exchange ? { exchange } : {} });
+export const requestHistoryCheck = exchange =>
+  api.post('/api/sync/history-check', null, { params: { exchange } });
 
 // [용도] Trade 목록 조회 (exchange: 'UPBIT'|'BYBIT'|null=All) / [호출] TradeListPage.jsx
 export const getTrades = (exchange = null) =>
