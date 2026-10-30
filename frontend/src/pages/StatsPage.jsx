@@ -1,20 +1,25 @@
-// [파일 용도] 성과 통계 페이지 (핵심 지표 + 월별 PnL + 종목별 + 롱/숏 비교)
+// [파일 용도] Performance statistics 페이지 (핵심 지표 + 월별 PnL + Symbol별 + 롱/숏 비교)
 
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Cell, ReferenceLine,
-  AreaChart, Area,
+  AreaChart, Area, Line,
 } from 'recharts';
-import { getStats, generateAiReport } from '../api/exchangeApi';
+import { getStats } from '../api/exchangeApi';
 import TraderTypePage from './TraderTypePage';
+import ChartState from '../components/ChartState';
 
-// ── 통화 설정 ────────────────────────────────────────────────────
+// ── 통화 Settings ────────────────────────────────────────────────────
 const CURRENCY = {
-  ALL:   { symbol: '',   suffix: '',     locale: 'ko-KR', mixed: true  },
+  ALL:   { symbol: '',   suffix: ' KRW', locale: 'ko-KR', mixed: false },
   UPBIT: { symbol: '₩',  suffix: ' KRW', locale: 'ko-KR', mixed: false },
-  BYBIT: { symbol: '$',  suffix: ' USDT',locale: 'en-US', mixed: false },
+  BYBIT: { symbol: '',   suffix: ' KRW', locale: 'ko-KR', mixed: false },
+  BITGET: { symbol: '',  suffix: ' KRW', locale: 'ko-KR', mixed: false },
+  OKX: { symbol: '',     suffix: ' KRW', locale: 'ko-KR', mixed: false },
+  BINANCE: { symbol: '', suffix: ' KRW', locale: 'ko-KR', mixed: false },
+  BINGX: { symbol: '',   suffix: ' KRW', locale: 'ko-KR', mixed: false },
 };
 
 // ── 포맷 헬퍼 ────────────────────────────────────────────────────
@@ -22,7 +27,6 @@ const fmt = (val, curr) => {
   const n = Number(val);
   if (isNaN(n)) return '—';
   const abs = Math.abs(n).toLocaleString(curr.locale, { maximumFractionDigits: 2 });
-  const prefix = curr.symbol ? (n >= 0 ? curr.symbol : `-${curr.symbol}`) : (n >= 0 ? '+' : '');
   return curr.symbol
     ? (n < 0 ? `-${curr.symbol}${Math.abs(n).toLocaleString(curr.locale, { maximumFractionDigits: 2 })}` : `${curr.symbol}${abs}`)
     : `${n >= 0 ? '+' : ''}${n.toLocaleString(curr.locale, { maximumFractionDigits: 2 })}`;
@@ -39,14 +43,12 @@ const rrDisplay = (ratio) => {
   return `1 : ${ratio}`;
 };
 
-// ── 누적 수익 곡선 차트 ───────────────────────────────────────────
+// ── Cumulative profit 곡선 차트 ───────────────────────────────────────────
 const PERIOD_OPTIONS = [
-  { key: 'all', label: '전체' },
-  { key: '1y',  label: '1년' },
-  { key: '180', label: '180일' },
-  { key: '90',  label: '90일' },
-  { key: '30',  label: '30일' },
-  { key: '7',   label: '7일' },
+  { key: '1', label: '1D' },
+  { key: '7', label: '7D' },
+  { key: '30', label: '30D' },
+  { key: 'all', label: 'All' },
 ];
 
 // [용도] 두 날짜 사이 모든 날짜(YYYY-MM-DD) 배열 생성 / [호출] CumulativePnlChart
@@ -61,9 +63,9 @@ const fillDateRange = (startStr, endStr) => {
   return result;
 };
 
-const CumulativePnlChart = ({ dailyPnl, curr, exchange }) => {
+const CumulativePnlChart = ({ dailyPnl, curr, exchange, compact = false }) => {
   const capitalKey = `initCapital_${exchange}`;
-  const [period,      setPeriod]      = useState('all');
+  const [period,      setPeriod]      = useState('30');
   const [viewMode,    setViewMode]    = useState('pnl'); // 'pnl' | 'asset' | 'rate'
   const [initCapital, setInitCapital] = useState(() => Number(localStorage.getItem(capitalKey) || 0));
   const [capitalInput, setCapitalInput] = useState(() => localStorage.getItem(capitalKey) || '');
@@ -87,40 +89,49 @@ const CumulativePnlChart = ({ dailyPnl, curr, exchange }) => {
 
     let startDate = allDates[0];
     if (period !== 'all') {
-      const days = period === '1y' ? 365 : Number(period);
+      const days = Number(period);
       const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - days);
+      cutoff.setDate(cutoff.getDate() - (days - 1));
       startDate = cutoff.toISOString().slice(0, 10);
     }
     const today = new Date().toISOString().slice(0, 10);
     const dates = fillDateRange(startDate, today);
 
-    // 선택 기간 시작 시점의 전체 누적 PnL (자산 기준점으로만 사용)
+    // 선택 기간 시작 시점의 All 누적 PnL (Assets 기준점으로만 사용)
     const cumBeforeStart = allDates
       .filter(d => d < startDate)
       .reduce((acc, d) => acc + (pnlMap[d] ?? 0), 0);
 
     // 기간 내 누적 (항상 0부터 시작)
-    let cumInPeriod = 0;
-
-    return dates.map(date => {
+    const points = dates.reduce((result, date) => {
       const pnl = pnlMap[date] ?? 0;
-      cumInPeriod = Math.round((cumInPeriod + pnl) * 100) / 100;
+      const previous = result.at(-1)?.cumPnl ?? 0;
+      const cumInPeriod = Math.round((previous + pnl) * 100) / 100;
 
-      // 자산 = 초기자본금 + 전체기간 누적손익 (기간 필터와 무관하게 실제 자산)
+      // Assets = Starting capital + All기간 누적PnL (기간 필터와 무관하게 실제 Assets)
       const totalCum = Math.round((cumBeforeStart + cumInPeriod) * 100) / 100;
       const asset    = Math.round((initCapital + totalCum) * 100) / 100;
 
-      // 수익률 = 기간 내 누적손익 / 초기자본금 * 100 (League of Traders 방식)
+      // Return = 기간 내 누적PnL / Starting capital * 100 (League of Traders 방식)
       const rate = initCapital > 0
         ? Math.round((cumInPeriod / initCapital) * 10000) / 100
         : null;
 
-      return { date, label: date.slice(5), cumPnl: cumInPeriod, asset, rate, hasTrade: !!pnlMap[date] };
-    });
+      result.push({ date, label: date.slice(5), cumPnl: cumInPeriod, asset, rate, hasTrade: Object.hasOwn(pnlMap, date) });
+      return result;
+    }, []);
+    if (points.length === 1 && points[0].hasTrade) {
+      return [
+        { ...points[0], label: 'Open', cumPnl: 0, asset: initCapital + cumBeforeStart, rate: initCapital > 0 ? 0 : null, hasTrade: false },
+        { ...points[0], label: 'Close' },
+      ];
+    }
+    return points;
   })();
 
   const last = chartData.at(-1);
+  const tradeDaysInPeriod = chartData.filter(point => point.hasTrade).length;
+  const lastTradeDate = [...dailyPnl].sort((a, b) => b.date.localeCompare(a.date))[0]?.date;
   const needCapital = (viewMode === 'asset' || viewMode === 'rate') && initCapital === 0;
 
   const finalPnl   = last?.cumPnl  ?? 0;
@@ -135,7 +146,7 @@ const CumulativePnlChart = ({ dailyPnl, curr, exchange }) => {
   const gradId  = 'cumGrad';
   const dataKey = viewMode === 'pnl' ? 'cumPnl' : viewMode === 'asset' ? 'asset' : 'rate';
 
-  if (chartData.length === 0) return null;
+  if (chartData.length === 0) return <ChartState title="No performance data yet" description="Sync closed positions to build your performance chart." height={compact ? 156 : 200} />;
 
   const fmtVal = (v) => {
     if (v === null) return '—';
@@ -148,9 +159,9 @@ const CumulativePnlChart = ({ dailyPnl, curr, exchange }) => {
   };
 
   return (
-    <div className="stats-chart-card">
+    <div className={`stats-chart-card${compact ? ' stats-chart-card-compact' : ''}`}>
       {/* 상단 컨트롤 */}
-      <div style={{ display: 'flex', gap: '6px', marginBottom: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: '6px', marginBottom: compact ? '8px' : '10px', flexWrap: 'wrap', alignItems: 'center' }}>
         {PERIOD_OPTIONS.map(opt => (
           <button key={opt.key} onClick={() => setPeriod(opt.key)} style={{
             padding: '3px 10px', borderRadius: '6px', fontSize: '12px',
@@ -163,7 +174,7 @@ const CumulativePnlChart = ({ dailyPnl, curr, exchange }) => {
 
         {/* 뷰 모드 토글 */}
         <div style={{ display: 'flex', borderRadius: '6px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)', marginLeft: '2px' }}>
-          {[{ k: 'pnl', l: '수익금' }, { k: 'asset', l: '자산' }, { k: 'rate', l: '수익률' }].map(v => (
+          {[{ k: 'pnl', l: 'Profit' }, { k: 'asset', l: 'Assets' }, { k: 'rate', l: 'Return' }].map(v => (
             <button key={v.k} onClick={() => setViewMode(v.k)} style={{
               padding: '3px 10px', fontSize: '12px', border: 'none',
               background: viewMode === v.k ? 'rgba(255,255,255,0.1)' : 'transparent',
@@ -175,13 +186,13 @@ const CumulativePnlChart = ({ dailyPnl, curr, exchange }) => {
 
         {/* 우상단 최종 수치 */}
         <span className="mono" style={{ marginLeft: 'auto', fontSize: '14px', fontWeight: 700, color: needCapital ? 'var(--text-muted)' : lineColor }}>
-          {needCapital ? '초기자본금 필요' : fmtVal(displayVal)}
+          {needCapital ? 'Starting capital 필요' : fmtVal(displayVal)}
         </span>
       </div>
 
-      {/* 초기자본금 설정 바 */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
-        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>초기자본금</span>
+      {/* Starting capital Settings 바 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: compact ? '10px' : '12px', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Starting capital</span>
         {editingCapital ? (
           <>
             <input
@@ -193,8 +204,8 @@ const CumulativePnlChart = ({ dailyPnl, curr, exchange }) => {
               onKeyDown={e => { if (e.key === 'Enter') saveCapital(); if (e.key === 'Escape') setEditingCapital(false); }}
               placeholder={`예: 10000 (${curr.suffix?.trim() || 'USDT'})`}
             />
-            <button className="btn btn-primary btn-xs" onClick={saveCapital}>저장</button>
-            <button className="btn btn-ghost btn-xs" onClick={() => setEditingCapital(false)}>취소</button>
+            <button className="btn btn-primary btn-xs" onClick={saveCapital}>Save</button>
+            <button className="btn btn-ghost btn-xs" onClick={() => setEditingCapital(false)}>Cancel</button>
           </>
         ) : (
           <button
@@ -204,22 +215,24 @@ const CumulativePnlChart = ({ dailyPnl, curr, exchange }) => {
           >
             {initCapital > 0
               ? `${initCapital.toLocaleString()} ${curr.suffix?.trim() || ''} ✎`
-              : '+ 설정'}
+              : '+ Settings'}
           </button>
         )}
         {(viewMode === 'asset' || viewMode === 'rate') && initCapital === 0 && (
           <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-            자산·수익률 표시를 위해 초기자본금을 입력하세요
+            Assets·Return 표시를 위해 Starting capital을 입력하세요
           </span>
         )}
       </div>
 
-      {needCapital ? (
-        <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>초기자본금을 설정하면 {viewMode === 'asset' ? '자산' : '수익률'} 차트가 표시됩니다</span>
+      {tradeDaysInPeriod === 0 ? (
+        <ChartState title="No trading activity in this period" description={lastTradeDate ? `Last activity was ${lastTradeDate}. Try a wider range.` : 'Sync closed positions to build this chart.'} actionLabel={period !== 'all' ? 'View all history' : undefined} onAction={() => setPeriod('all')} height={compact ? 156 : 200} />
+      ) : needCapital ? (
+        <div style={{ height: compact ? 156 : 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Starting capital을 Settings하면 {viewMode === 'asset' ? 'Assets' : 'Return'} 차트가 표시됩니다</span>
         </div>
       ) : (
-        <ResponsiveContainer width="100%" height={200}>
+        <ResponsiveContainer width="100%" height={compact ? 156 : 200}>
           <AreaChart data={chartData} margin={{ top: 8, right: 8, left: 4, bottom: 0 }}>
             <defs>
               <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
@@ -259,10 +272,10 @@ const CumulativePnlChart = ({ dailyPnl, curr, exchange }) => {
                     </div>
                     {viewMode === 'asset' && (
                       <div style={{ fontSize: '11px', color: pnlColor(d.cumPnl), fontFamily: 'monospace', marginTop: 2 }}>
-                        손익 {d.cumPnl >= 0 ? '+' : ''}{d.cumPnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                        PnL {d.cumPnl >= 0 ? '+' : ''}{d.cumPnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                       </div>
                     )}
-                    {!d.hasTrade && <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: 2 }}>거래 없음</div>}
+                    {!d.hasTrade && <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: 2 }}>Trade 없음</div>}
                   </div>
                 );
               }}
@@ -285,9 +298,9 @@ const CumulativePnlChart = ({ dailyPnl, curr, exchange }) => {
 };
 
 // ── 공통 PnL 바 차트 ──────────────────────────────────────────────
-const PnlBarChart = ({ data, curr, labelSuffix = '' }) => (
-  <div className="stats-chart-card">
-    <ResponsiveContainer width="100%" height={220}>
+const PnlBarChart = ({ data, curr, labelSuffix = '', compact = false }) => (
+  <div className={`stats-chart-card${compact ? ' stats-chart-card-compact' : ''}`}>
+    <ResponsiveContainer width="100%" height={compact ? 160 : 220}>
       <BarChart data={data} margin={{ top: 8, right: 8, left: 4, bottom: 0 }} barCategoryGap="20%">
         <CartesianGrid strokeDasharray="2 4" stroke="rgba(255,255,255,0.06)" vertical={false} />
         <ReferenceLine y={0} stroke="rgba(255,255,255,0.15)" strokeWidth={1} />
@@ -322,8 +335,8 @@ const PnlBarChart = ({ data, curr, labelSuffix = '' }) => (
   </div>
 );
 
-// ── 손익 캘린더 히트맵 ───────────────────────────────────────────
-// [용도] GitHub 잔디 스타일 일별 손익 히트맵 / [호출] StatsPage
+// ── PnL 캘린더 히트맵 ───────────────────────────────────────────
+// [용도] GitHub 잔디 스타일 일별 PnL 히트맵 / [호출] StatsPage
 const CalendarHeatmap = ({ dailyPnl, curr }) => {
   const pnlMap = {};
   dailyPnl.forEach(d => { pnlMap[d.date] = Number(d.pnl); });
@@ -331,7 +344,7 @@ const CalendarHeatmap = ({ dailyPnl, curr }) => {
   const values = Object.values(pnlMap).filter(v => v !== 0);
   const maxAbs = values.length ? Math.max(...values.map(Math.abs)) : 1;
 
-  // 오늘 기준 52주(364일) 전부터 오늘까지
+  // Today 기준 52주(364일) 전부터 Today까지
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -358,7 +371,7 @@ const CalendarHeatmap = ({ dailyPnl, curr }) => {
   weeks.forEach((week, wi) => {
     const m = week[0].date.slice(5, 7);
     const prev = wi > 0 ? weeks[wi - 1][0].date.slice(5, 7) : null;
-    if (m !== prev) monthLabels[wi] = parseInt(m) + '월';
+    if (m !== prev) monthLabels[wi] = new Date(2000, Number(m) - 1).toLocaleString('en', { month: 'short' });
   });
 
   const getCellBg = (pnl, future) => {
@@ -400,7 +413,7 @@ const CalendarHeatmap = ({ dailyPnl, curr }) => {
                   key={di}
                   title={!cell.future && cell.pnl !== null
                     ? `${cell.date}: ${cell.pnl > 0 ? '+' : ''}${cell.pnl.toLocaleString()} ${curr.suffix?.trim() || ''}`
-                    : cell.future ? '' : `${cell.date}: 거래 없음`}
+                    : cell.future ? '' : `${cell.date}: No trades`}
                   style={{
                     width: '11px', height: '11px',
                     borderRadius: '2px',
@@ -419,7 +432,7 @@ const CalendarHeatmap = ({ dailyPnl, curr }) => {
 
         {/* 범례 */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '10px', justifyContent: 'flex-end' }}>
-          <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginRight: '2px' }}>손실</span>
+          <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginRight: '2px' }}>Loss</span>
           {[0.25, 0.45, 0.65, 0.85].map(a => (
             <div key={a} style={{ width: '11px', height: '11px', borderRadius: '2px', background: `rgba(96,165,250,${a})` }} />
           ))}
@@ -427,7 +440,7 @@ const CalendarHeatmap = ({ dailyPnl, curr }) => {
           {[0.25, 0.45, 0.65, 0.85].map(a => (
             <div key={a} style={{ width: '11px', height: '11px', borderRadius: '2px', background: `rgba(248,113,113,${a})` }} />
           ))}
-          <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginLeft: '2px' }}>수익</span>
+          <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginLeft: '2px' }}>Profit</span>
         </div>
       </div>
     </div>
@@ -442,9 +455,13 @@ const ExchangeSelect = ({ value, onChange }) => (
       value={value}
       onChange={e => onChange(e.target.value)}
     >
-      <option value="ALL">전체 거래소</option>
+      <option value="ALL">All Exchange</option>
       <option value="UPBIT">UPBIT  (₩ KRW)</option>
-      <option value="BYBIT">BYBIT  ($ USDT)</option>
+      <option value="BYBIT">BYBIT  (KRW)</option>
+      <option value="BITGET">BITGET  (KRW)</option>
+      <option value="OKX">OKX  (KRW)</option>
+      <option value="BINANCE">BINANCE  (KRW)</option>
+      <option value="BINGX">BINGX  (KRW)</option>
     </select>
     <span className="stats-select-arrow">▾</span>
   </div>
@@ -471,55 +488,173 @@ const ChartTooltip = ({ active, payload, curr, labelSuffix = '' }) => {
       </div>
       {(d.winCount !== undefined) && (
         <div className="chart-tooltip-meta">
-          <span style={{ color: '#f87171' }}>▲ {d.winCount}승</span>
-          <span style={{ color: '#60a5fa' }}>▼ {d.lossCount}패</span>
+          <span style={{ color: '#f87171' }}>▲ {d.winCount} wins</span>
+          <span style={{ color: '#60a5fa' }}>▼ {d.lossCount} losses</span>
         </div>
       )}
     </div>
   );
 };
 
+// ── 감정 트렌드 차트 ───────────────────────────────────────────────
+// [컴포넌트] 감정 변화 추이 시각화 / [호출] StatsPage.jsx > 감정 통계 섹션
+const EmotionTimelineChart = ({ timeline }) => {
+  // 감정별 색상 정의
+  const emotionColors = {
+    CALM:       '#10b981', // 초록
+    CONFIDENT:  '#3b82f6', // 파랑
+    FOMO:       '#ef4444', // 빨강
+    GREEDY:     '#f59e0b', // 주황
+    FEARFUL:    '#8b5cf6', // 보라
+    ANXIOUS:    '#ec4899', // 핑크
+  };
+
+  // 감정별 누적 계산 (stacked area)
+  const prepareStackedData = () => {
+    const dates = timeline.map(d => d.date);
+    const emotions = Object.keys(emotionColors);
+
+    const stackedData = dates.map((date, dateIndex) => {
+      const dataPoint = { date: date.slice(5) }; // MM-DD 표시
+
+      let cumulative = 0;
+      emotions.forEach(emotion => {
+        const emotionCounts = timeline[dateIndex]?.emotionCounts || {};
+        const count = emotionCounts[emotion] || 0;
+        dataPoint[emotion] = cumulative + count;
+        cumulative += count;
+      });
+
+      return dataPoint;
+    });
+
+    return { stackedData, emotions };
+  };
+
+  if (!timeline || timeline.length === 0) {
+    return (
+      <div style={{
+        textAlign: 'center',
+        padding: '40px 20px',
+        color: 'var(--text-muted)',
+        fontSize: '13px'
+      }}>
+        No emotion data available
+      </div>
+    );
+  }
+
+  const { stackedData, emotions } = prepareStackedData();
+
+  // PnL 오버레이 라인 data
+  const pnlData = timeline.map(d => ({
+    date: d.date.slice(5),
+    pnl: d.pnl
+  }));
+
+  return (
+    <div style={{ marginTop: '20px' }}>
+      {/* 차트 영역 */}
+      <ResponsiveContainer width="100%" height={250}>
+        <AreaChart data={stackedData} margin={{ top: 10, right: 15, left: 0, bottom: 20 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+          <XAxis
+            dataKey="date"
+            tick={{ fill: 'var(--text-muted)', fontSize: 10 }}
+            axisLine={false}
+            tickLine={false}
+          />
+          <YAxis
+            hide
+            tickLine={false}
+            axisLine={false}
+          />
+
+          {/* 스택드 에리어 차트 - 감정 분포 */}
+          {emotions.map((emotion) => (
+            <Area
+              key={emotion}
+              type="monotone"
+              dataKey={emotion}
+              stackId="1"
+              stroke={emotionColors[emotion]}
+              fill={emotionColors[emotion]}
+              fillOpacity={0.3}
+              strokeOpacity={0.8}
+            />
+          ))}
+
+          {/* PnL 라인 차트 */}
+          <Line
+            data={pnlData}
+            dataKey="pnl"
+            type="monotone"
+            stroke="#ffffff"
+            strokeWidth={2}
+            dot={false}
+            isAnimationActive={false}
+            yAxisId="pnl"
+          />
+
+          <Tooltip
+            contentStyle={{
+              background: 'rgba(0, 0, 0, 0.9)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: '8px',
+              color: '#fff'
+            }}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+
+      {/* 범례 */}
+      <div style={{ display: 'flex', gap: '12px', marginTop: '16px', flexWrap: 'wrap' }}>
+        {emotions.map(emotion => (
+          <div key={emotion} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <div
+              style={{
+                width: '10px',
+                height: '10px',
+                borderRadius: '2px',
+                background: emotionColors[emotion]
+              }}
+            />
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+              {emotion === 'CALM' ? 'Calm' :
+               emotion === 'CONFIDENT' ? 'Confident' :
+               emotion === 'FOMO' ? 'FOMO' :
+               emotion === 'GREEDY' ? 'Greedy' :
+               emotion === 'FEARFUL' ? 'Fearful' : 'Anxious'}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────
-// [컴포넌트] 성과 통계 메인 페이지 / [호출] App.jsx 라우터
-const StatsPage = () => {
+// [컴포넌트] Performance statistics 메인 페이지 / [호출] App.jsx 라우터
+const StatsPage = ({ embedded = false }) => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const subTab = searchParams.get('tab') || 'stats'; // 'stats' | 'trader-type'
-  const [exchange,    setExchange]    = useState('ALL');
-  const [stats,       setStats]       = useState(null);
-  const [loading,     setLoading]     = useState(true);
-  const [aiReport,    setAiReport]    = useState('');
-  const [aiLoading,   setAiLoading]   = useState(false);
+  const [embeddedTab, setEmbeddedTab] = useState('stats');
+  const subTab = embedded ? embeddedTab : (searchParams.get('tab') || 'stats');
+  const [exchange,        setExchange]    = useState('ALL');
+  const [stats,           setStats]       = useState(null);
+  const [loading,         setLoading]     = useState(true);
 
   const curr = CURRENCY[exchange];
 
-  useEffect(() => { fetchStats(); }, [exchange]);
+  useEffect(() => {
+    let active = true;
+    getStats(exchange)
+      .then(res => { if (active) setStats(res.data); })
+      .catch(error => console.error(error))
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [exchange]);
 
-  const fetchStats = async () => {
-    setLoading(true);
-    try {
-      const res = await getStats(exchange);
-      setStats(res.data);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // [용도] AI 리포트 생성 요청 / [호출] AI 리포트 버튼 클릭
-  const handleAiReport = async () => {
-    setAiLoading(true);
-    setAiReport('');
-    try {
-      const res = await generateAiReport(exchange);
-      setAiReport(res.data.report);
-    } catch (e) {
-      setAiReport('AI 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
-    } finally {
-      setAiLoading(false);
-    }
-  };
 
   const s = stats?.summary;
 
@@ -537,15 +672,6 @@ const StatsPage = () => {
     lossCount: d.loss_count,
   }));
 
-  const hourlyPnlData = (stats?.hourly_stats ?? [])
-    .filter(h => h.total_count > 0)
-    .map(h => ({
-      label:    String(h.hour).padStart(2, '0'),
-      pnl:      Number(h.pnl),
-      winCount: h.win_count,
-      lossCount: h.total_count - h.win_count,
-    }));
-
   const isEmpty = !s || s.total_positions === 0;
 
   return (
@@ -554,31 +680,16 @@ const StatsPage = () => {
       {/* ── 헤더 ── */}
       <div className="stats-header anim-fade-up">
         <div className="stats-title-row">
-          <h1 className="page-title">통계</h1>
+          <h1 className="page-title">Analytics</h1>
           {subTab === 'stats' && (
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
               <ExchangeSelect value={exchange} onChange={setExchange} />
-              {!isEmpty && (
-                <button
-                  className="btn btn-sm"
-                  onClick={handleAiReport}
-                  disabled={aiLoading}
-                  style={{
-                    background: 'linear-gradient(135deg, #a78bfa, #7c3aed)',
-                    border: 'none', color: '#fff', fontWeight: 600,
-                    padding: '8px 16px', borderRadius: '8px', cursor: 'pointer',
-                    opacity: aiLoading ? 0.6 : 1, whiteSpace: 'nowrap',
-                  }}
-                >
-                  {aiLoading ? '분석 중...' : '✦ AI 리포트'}
-                </button>
-              )}
             </div>
           )}
         </div>
         {subTab === 'stats' && curr.mixed && !isEmpty && (
           <div className="stats-mixed-notice">
-            ⚠ 전체 보기는 KRW(UPBIT)와 USDT(BYBIT)가 혼합된 수치입니다. 정확한 손익은 거래소별로 확인해주세요.
+            All exchanges are normalized to KRW for comparison.
           </div>
         )}
       </div>
@@ -586,82 +697,51 @@ const StatsPage = () => {
       {/* 서브탭 */}
       <div className="tabs anim-fade-up" style={{ marginBottom: '20px' }}>
         {[
-          { key: 'stats',       label: '성과 통계' },
-          { key: 'trader-type', label: '나의 유형' },
+          { key: 'stats',       label: 'Performance' },
+          { key: 'trader-type', label: 'Trader Profile' },
         ].map(({ key, label }) => (
           <button
             key={key}
             className={`tab${subTab === key ? ' active' : ''}`}
-            onClick={() => setSearchParams(key === 'stats' ? {} : { tab: key })}
+            onClick={() => embedded ? setEmbeddedTab(key) : setSearchParams(key === 'stats' ? {} : { tab: key })}
           >
             {label}
           </button>
         ))}
       </div>
 
-      {/* 서브탭: 나의 유형 */}
+      {/* 서브탭: You의 유형 */}
       {subTab === 'trader-type' && <TraderTypePage embedded />}
 
-      {/* 서브탭: 성과 통계 */}
+      {/* 서브탭: Performance statistics */}
       {subTab === 'stats' && (loading ? (
         <div className="empty-state">
           <div className="empty-state-icon" style={{ animation: 'spin 1s linear infinite' }}>◌</div>
-          <p className="empty-state-title">통계 계산 중...</p>
+          <p className="empty-state-title">Calculating performance...</p>
         </div>
       ) : isEmpty ? (
-        <div className="card anim-fade-up" style={{ padding: '32px 24px', maxWidth: '480px' }}>
-          <p style={{ fontSize: '15px', fontWeight: 700, marginBottom: '8px' }}>통계를 보려면 거래 데이터가 필요합니다</p>
-          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '24px', lineHeight: 1.6 }}>
-            포지션이 계산되면 승률, 손익비, 캘린더 히트맵 등 다양한 분석을 볼 수 있습니다
-          </p>
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            <button onClick={() => navigate('/exchange-keys')} style={{ padding: '8px 16px', borderRadius: '8px', fontSize: '13px', border: '1px solid #60a5fa60', background: '#60a5fa10', color: '#60a5fa', cursor: 'pointer', fontWeight: 600 }}>1. 거래소 연동</button>
-            <button onClick={() => navigate('/trades')} style={{ padding: '8px 16px', borderRadius: '8px', fontSize: '13px', border: '1px solid #a78bfa60', background: '#a78bfa10', color: '#a78bfa', cursor: 'pointer', fontWeight: 600 }}>2. 거래 동기화</button>
-            <button onClick={() => navigate('/positions')} style={{ padding: '8px 16px', borderRadius: '8px', fontSize: '13px', border: '1px solid #f8717160', background: '#f8717110', color: '#f87171', cursor: 'pointer', fontWeight: 600 }}>3. 포지션 확인</button>
-          </div>
-        </div>
-      ) : (
+        <div className="card anim-fade-up stats-empty-guide"><span className="stats-empty-code">DATA REQUIRED</span><h3>Connect and sync trading data to unlock analytics.</h3><p>Once closed positions are available, this page calculates win rate, risk-to-reward, PnL trends and calendar insights.</p><div><button onClick={() => navigate('/settings?tab=connections')}>1. Connect exchange</button><button onClick={() => navigate('/positions?tab=trades')}>2. Sync executions</button><button onClick={() => navigate('/positions')}>3. Review positions</button></div></div>) : (
         <>
-        {/* ── AI 리포트 결과 ── */}
-        {(aiReport || aiLoading) && (
-          <div className="stats-section anim-fade-up" style={{ marginBottom: '8px' }}>
-            <div className="stats-section-label" style={{ color: '#a78bfa' }}>✦ AI 트레이딩 리포트</div>
-            <div style={{
-              background: 'rgba(167,139,250,0.06)',
-              border: '1px solid rgba(167,139,250,0.25)',
-              borderRadius: '12px',
-              padding: '20px',
-              lineHeight: 1.75,
-              whiteSpace: 'pre-wrap',
-              color: 'var(--text-secondary)',
-              fontSize: '14px',
-            }}>
-              {aiLoading ? (
-                <span style={{ color: 'var(--text-muted)' }}>AI가 분석 중입니다...</span>
-              ) : aiReport}
-            </div>
-          </div>
-        )}
 
-        <div className="stats-body anim-fade-up2">
+        <div className="stats-body stats-body-grid anim-fade-up2">
 
           {/* ── KPI 카드 그리드 ── */}
-          <section className="stats-section">
-            <div className="stats-section-label">핵심 성과 지표</div>
+          <section className="stats-section stats-section--full">
+            <div className="stats-section-label">Key performance metrics</div>
             <div className="kpi-grid">
               <KpiCard
-                label="총 포지션"
+                label="Total positions"
                 value={s.total_positions}
-                sub={`수익 ${s.win_count}  /  손실 ${s.loss_count}`}
+                sub={`Wins ${s.win_count} / Losses ${s.loss_count}`}
               />
               <KpiCard
-                label="승  률"
+                label="Win rate"
                 value={`${s.win_rate}%`}
                 color={s.win_rate >= 50 ? '#f87171' : '#60a5fa'}
                 glow={s.win_rate >= 50 ? 'rgba(248,113,113,0.15)' : 'rgba(96,165,250,0.12)'}
               />
               <KpiCard
-                label={`총 손익${curr.mixed ? '' : `  (${curr.suffix.trim()})`}`}
+                label={`Total PnL${curr.mixed ? '' : ` (${curr.suffix.trim()})`}`}
                 value={fmtSigned(s.total_pnl, curr)}
                 color={pnlColor(s.total_pnl)}
                 glow={Number(s.total_pnl) >= 0 ? 'rgba(248,113,113,0.12)' : 'rgba(96,165,250,0.1)'}
@@ -669,60 +749,60 @@ const StatsPage = () => {
               <KpiCard
                 label="Profit Factor"
                 value={s.profit_factor === 0 ? '—' : s.profit_factor}
-                sub="총수익 ÷ 총손실"
+                sub="Gross profit ÷ gross loss"
                 color={s.profit_factor >= 1.5 ? '#f87171' : s.profit_factor >= 1 ? '#facc15' : '#60a5fa'}
               />
               <KpiCard
-                label="평균 수익"
+                label="Average win"
                 value={fmtSigned(s.avg_win, curr)}
                 color="#f87171"
               />
               <KpiCard
-                label="평균 손실"
+                label="Average loss"
                 value={fmtSigned(s.avg_loss, curr)}
                 color="#60a5fa"
               />
               <KpiCard
-                label="손익비 (R:R)"
+                label="Reward-to-risk (R:R)"
                 value={rrDisplay(s.rr_ratio)}
-                sub="평균수익 ÷ |평균손실|"
+                sub="Average win ÷ |average loss|"
               />
               <KpiCard
-                label="최대 낙폭 (MDD)"
+                label="Maximum drawdown (MDD)"
                 value={s.mdd === 0 ? '—' : fmtSigned(-s.mdd, curr)}
-                sub="누적 고점 대비 최대 하락"
+                sub="Largest decline from a cumulative peak"
                 color="#60a5fa"
               />
               <KpiCard
-                label="최대 단일 손실"
+                label="Largest single loss"
                 value={fmtSigned(s.max_single_loss, curr)}
                 color="#60a5fa"
               />
               <KpiCard
-                label="최대 연속 수익"
-                value={`${s.max_win_streak}연속`}
+                label="Longest win streak"
+                value={`${s.max_win_streak} in a row`}
                 color="#f87171"
               />
               <KpiCard
-                label="최대 연속 손실"
-                value={`${s.max_loss_streak}연속`}
+                label="Longest loss streak"
+                value={`${s.max_loss_streak} in a row`}
                 color="#60a5fa"
               />
             </div>
           </section>
 
-          {/* ── 누적 수익 곡선 ── */}
-          {(stats?.daily_pnl?.length ?? 0) > 1 && (
+          {/* ── Cumulative profit 곡선 ── */}
+          {(stats?.daily_pnl?.length ?? 0) > 0 && (
             <section className="stats-section">
-              <div className="stats-section-label">누적 손익 추이</div>
-              <CumulativePnlChart dailyPnl={stats.daily_pnl} curr={curr} exchange={exchange} />
+              <div className="stats-section-label">Cumulative PnL</div>
+              <CumulativePnlChart dailyPnl={stats.daily_pnl} curr={curr} exchange={exchange} compact />
             </section>
           )}
 
-          {/* ── 손익 캘린더 히트맵 ── */}
+          {/* ── PnL 캘린더 히트맵 ── */}
           {(stats?.daily_pnl?.length ?? 0) > 0 && (
             <section className="stats-section">
-              <div className="stats-section-label">손익 캘린더</div>
+              <div className="stats-section-label">PnL calendar</div>
               <CalendarHeatmap dailyPnl={stats.daily_pnl} curr={curr} />
             </section>
           )}
@@ -730,30 +810,22 @@ const StatsPage = () => {
           {/* ── 월별 PnL 차트 ── */}
           {monthlyChartData.length > 0 && (
             <section className="stats-section">
-              <div className="stats-section-label">월별 손익 추이</div>
-              <PnlBarChart data={monthlyChartData} curr={curr} labelSuffix="월" />
+              <div className="stats-section-label">Monthly PnL</div>
+              <PnlBarChart data={monthlyChartData} curr={curr} labelSuffix="" compact />
             </section>
           )}
 
           {/* ── 일별 PnL 차트 ── */}
           {dailyChartData.length > 0 && (
             <section className="stats-section">
-              <div className="stats-section-label">일별 손익 추이</div>
-              <PnlBarChart data={dailyChartData} curr={curr} />
-            </section>
-          )}
-
-          {/* ── 시간별 PnL 차트 ── */}
-          {hourlyPnlData.length > 0 && (
-            <section className="stats-section">
-              <div className="stats-section-label">시간별 손익 추이 (청산 기준)</div>
-              <PnlBarChart data={hourlyPnlData} curr={curr} labelSuffix="시" />
+              <div className="stats-section-label">Daily PnL</div>
+              <PnlBarChart data={dailyChartData} curr={curr} compact />
             </section>
           )}
 
           {/* ── 롱 / 숏 비교 ── */}
-          <section className="stats-section">
-            <div className="stats-section-label">롱 / 숏 비교</div>
+          <section className="stats-section stats-section--full">
+            <div className="stats-section-label">Long / Short comparison</div>
             <div className="side-grid">
               {[stats?.long_stats, stats?.short_stats].map(side => {
                 if (!side) return null;
@@ -766,7 +838,7 @@ const StatsPage = () => {
                       <span className="side-card-badge" style={{ background: `${accent}18`, color: accent, border: `1px solid ${accent}40` }}>
                         {isLong ? '▲ LONG' : '▼ SHORT'}
                       </span>
-                      <span className="side-card-count mono">{side.total_count}건</span>
+                      <span className="side-card-count mono">{side.total_count}</span>
                     </div>
 
                     <div className="side-winrate-bar-wrap">
@@ -783,7 +855,7 @@ const StatsPage = () => {
 
                     <div className="side-rows">
                       <div className="side-row">
-                        <span>수익 / 손실</span>
+                        <span>Wins / Losses</span>
                         <span className="mono">
                           <span style={{ color: '#f87171' }}>{side.win_count}W</span>
                           <span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>/</span>
@@ -791,13 +863,13 @@ const StatsPage = () => {
                         </span>
                       </div>
                       <div className="side-row">
-                        <span>총 손익</span>
+                        <span>Total PnL</span>
                         <span className="mono" style={{ color: pnlColor(side.total_pnl) }}>
                           {fmtSigned(side.total_pnl, curr)}
                         </span>
                       </div>
                       <div className="side-row">
-                        <span>평균 손익</span>
+                        <span>Average PnL</span>
                         <span className="mono" style={{ color: pnlColor(side.avg_pnl) }}>
                           {fmtSigned(side.avg_pnl, curr)}
                         </span>
@@ -809,19 +881,19 @@ const StatsPage = () => {
             </div>
           </section>
 
-          {/* ── 종목별 테이블 ── */}
+          {/* ── Symbol별 테이블 ── */}
           {stats?.symbol_stats?.length > 0 && (
             <section className="stats-section">
-              <div className="stats-section-label">종목별 성과</div>
+              <div className="stats-section-label">Performance by symbol</div>
               <div className="stats-table-wrap">
                 <table className="stats-table">
                   <thead>
                     <tr>
-                      <th>종목</th>
-                      <th>거래 수</th>
-                      <th>승률</th>
-                      <th>총 손익</th>
-                      <th>평균 손익</th>
+                      <th>Symbol</th>
+                      <th>Trades</th>
+                      <th>Win rate</th>
+                      <th>Total PnL</th>
+                      <th>Average PnL</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -860,10 +932,10 @@ const StatsPage = () => {
             </section>
           )}
 
-          {/* ── 2단계: 감정별 승률 ── */}
+          {/* ── 2단계: 감정별 Win rate ── */}
           {stats?.emotion_stats?.length > 0 && (
             <section className="stats-section">
-              <div className="stats-section-label">감정별 승률</div>
+              <div className="stats-section-label">Win rate by emotion</div>
               <div className="emotion-grid-stats">
                 {stats.emotion_stats.map(em => (
                   <div key={em.emotion} className="emotion-stat-card">
@@ -891,47 +963,10 @@ const StatsPage = () => {
             </section>
           )}
 
-          {/* ── 2단계: 전략 태그별 성과 ── */}
-          {stats?.tag_stats?.length > 0 && (
-            <section className="stats-section">
-              <div className="stats-section-label">전략 태그별 성과</div>
-              <div className="tag-stats-list">
-                {stats.tag_stats.map(tag => (
-                  <div key={tag.tag_name} className="tag-stat-row">
-                    <span className="tag-stat-chip" style={{
-                      background: `${tag.tag_color}18`,
-                      border: `1px solid ${tag.tag_color}50`,
-                      color: tag.tag_color,
-                    }}>
-                      {tag.tag_name}
-                    </span>
-                    <div className="tag-stat-bar-wrap">
-                      <div className="tag-stat-bar-track">
-                        <div className="tag-stat-bar-fill" style={{
-                          width: `${tag.win_rate}%`,
-                          background: tag.win_rate >= 50 ? '#f87171' : '#60a5fa',
-                        }} />
-                      </div>
-                    </div>
-                    <span className="mono tag-stat-rate" style={{
-                      color: tag.win_rate >= 50 ? '#f87171' : '#60a5fa',
-                    }}>
-                      {tag.win_rate}%
-                    </span>
-                    <span className="mono tag-stat-count">{tag.win_count}W/{tag.total_count - tag.win_count}L</span>
-                    <span className="mono tag-stat-pnl" style={{ color: pnlColor(tag.total_pnl) }}>
-                      {fmtSigned(tag.total_pnl, curr)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
           {/* ── 3단계: 시간대별 히트맵 ── */}
           {stats?.hourly_stats?.some(h => h.total_count > 0) && (
             <section className="stats-section">
-              <div className="stats-section-label">시간대별 성과 (청산 기준)</div>
+              <div className="stats-section-label">Performance by hour (exit time)</div>
               <div className="hourly-heatmap">
                 {stats.hourly_stats.map(h => {
                   const active = h.total_count > 0;
@@ -943,7 +978,7 @@ const StatsPage = () => {
                     : 'rgba(255,255,255,0.03)';
                   return (
                     <div key={h.hour} className="hourly-cell" style={{ background: bg }}
-                         title={active ? `${h.hour}시: ${h.win_rate}% (${h.win_count}W/${h.total_count-h.win_count}L) / ${fmtSigned(h.pnl, curr)}` : `${h.hour}시: 거래 없음`}>
+                         title={active ? `${h.hour}:00: ${h.win_rate}% (${h.win_count}W/${h.total_count-h.win_count}L) / ${fmtSigned(h.pnl, curr)}` : `${h.hour}:00: No trades`}>
                       <div className="hourly-cell-hour">{String(h.hour).padStart(2,'0')}</div>
                       {active && (
                         <>
@@ -952,7 +987,7 @@ const StatsPage = () => {
                           }}>
                             {h.win_rate}%
                           </div>
-                          <div className="hourly-cell-count">{h.total_count}건</div>
+                          <div className="hourly-cell-count">{h.total_count}</div>
                         </>
                       )}
                     </div>
@@ -962,10 +997,10 @@ const StatsPage = () => {
             </section>
           )}
 
-          {/* ── 3단계: 요일별 분석 ── */}
+          {/* ── 3단계: 요일별 analysis ── */}
           {stats?.day_of_week_stats?.some(d => d.total_count > 0) && (
             <section className="stats-section">
-              <div className="stats-section-label">요일별 성과</div>
+              <div className="stats-section-label">Performance by weekday</div>
               <div className="dow-grid">
                 {stats.day_of_week_stats.map(d => (
                   <div key={d.day_name} className="dow-card" style={{
@@ -985,13 +1020,13 @@ const StatsPage = () => {
                             background: d.win_rate >= 50 ? '#f87171' : '#60a5fa',
                           }} />
                         </div>
-                        <div className="dow-meta">{d.total_count}건</div>
+                        <div className="dow-meta">{d.total_count}</div>
                         <div className="dow-pnl mono" style={{ color: pnlColor(d.total_pnl) }}>
                           {fmtSigned(d.total_pnl, curr)}
                         </div>
                       </>
                     ) : (
-                      <div className="dow-meta" style={{ marginTop: 8 }}>거래 없음</div>
+                      <div className="dow-meta" style={{ marginTop: 8 }}>No trades</div>
                     )}
                   </div>
                 ))}

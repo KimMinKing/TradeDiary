@@ -2,7 +2,9 @@
 .env
 .env.*
 *.env
+*.key
 backend/src/main/resources/application-local.yml
+backend/bin/main/application-local.yml
 # 템플릿 파일은 커밋 허용
 !.env.example
 
@@ -44,3 +46,5 @@ Thumbs.db
 
 # ===== Docker =====
 docker-compose.override.yml
+database/dumps/*.sql
+database/dumps/*.dump

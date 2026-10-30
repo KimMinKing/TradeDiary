@@ -29,4 +29,10 @@ public class MonthlyGoalController {
             @RequestBody MonthlyGoalService.MonthlyGoalRequest request) {
         return ResponseEntity.ok(goalService.saveGoal(userId, request));
     }
+
+    @DeleteMapping
+    public ResponseEntity<MonthlyGoalResponse> deleteGoal(
+            @AuthenticationPrincipal Long userId) {
+        return ResponseEntity.ok(goalService.deleteGoal(userId));
+    }
 }

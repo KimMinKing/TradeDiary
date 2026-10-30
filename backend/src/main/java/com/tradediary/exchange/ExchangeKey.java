@@ -30,17 +30,20 @@ public class ExchangeKey {
     @Enumerated(EnumType.STRING)
     private Exchange exchange;
 
-    @Column(nullable = false, length = 512)
+    @Column(nullable = false, length = 2048)
     private String apiKey;      // AES-256 암호화된 값
 
-    @Column(nullable = false, length = 512)
+    @Column(nullable = false, length = 2048)
     private String secretKey;   // AES-256 암호화된 값
 
-    @Column(length = 512)
+    @Column(length = 2048)
     private String passphrase;  // Bitget 전용 AES-256 암호화된 값 (nullable)
 
     @Column(nullable = false)
     private boolean isActive;
+
+    @Column
+    private LocalDateTime lastTradeNotifiedAt;
 
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -56,7 +59,22 @@ public class ExchangeKey {
         this.createdAt = LocalDateTime.now();
     }
 
+    public void deactivate() {
+        this.isActive = false;
+    }
+
+    public void replaceCredentials(String apiKey, String secretKey, String passphrase) {
+        this.apiKey = apiKey;
+        this.secretKey = secretKey;
+        this.passphrase = passphrase;
+        this.isActive = true;
+    }
+
+    public void updateLastTradeNotifiedAt(LocalDateTime lastTradeNotifiedAt) {
+        this.lastTradeNotifiedAt = lastTradeNotifiedAt;
+    }
+
     public enum Exchange {
-        UPBIT, BYBIT, BITGET, OKX, BINANCE, BINGX
+        UPBIT, BYBIT, BITGET, OKX, BINANCE, BINGX, KRAKEN
     }
 }

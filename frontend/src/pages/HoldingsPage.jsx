@@ -1,11 +1,14 @@
-// [파일 용도] 거래소별 현재 보유 자산 표시 페이지
+// [파일 용도] Exchange별 현재 Holdings 표시 페이지
 
 import { useState, useEffect } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { getBalances } from '../api/exchangeApi';
 import api from '../api/authApi';
+import ProfitRateDisplay from '../components/ProfitRateDisplay';
+import ProfitChart from '../components/ProfitChart';
+import ProfitChartSlide from '../components/ProfitChartSlide';
 
-// [컴포넌트] 등록된 거래소의 보유 자산 목록 표시 / [호출] App.jsx 라우터, PositionListPage (embedded)
+// [컴포넌트] Add된 Exchange의 Holdings 목록 표시 / [호출] App.jsx 라우터, PositionListPage (embedded)
 const HoldingsPage = ({ embedded = false }) => {
   const [exchangeBalances, setExchangeBalances] = useState([]);
   const [loading, setLoading]     = useState(true);
@@ -14,6 +17,9 @@ const HoldingsPage = ({ embedded = false }) => {
     () => localStorage.getItem('displayCurrency') || 'KRW'
   );
   const [rates, setRates] = useState({ KRW: 1400, USD: 1, CNY: 7.2, JPY: 150 });
+  const [slideOpen, setSlideOpen] = useState(false);
+  const [slideSymbol, setSlideSymbol] = useState(null);
+  const [slideAvgBuyPrice, setSlideAvgBuyPrice] = useState(0);
 
   useEffect(() => {
     fetchBalances();
@@ -23,7 +29,7 @@ const HoldingsPage = ({ embedded = false }) => {
     return () => window.removeEventListener('currencyChange', onCurrencyChange);
   }, []);
 
-  // [용도] 거래소 잔고 조회 / [호출] useEffect, 새로고침 버튼
+  // [용도] Exchange Balance 조회 / [호출] useEffect, 새로고침 버튼
   const fetchBalances = async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
@@ -31,7 +37,7 @@ const HoldingsPage = ({ embedded = false }) => {
       const res = await getBalances();
       setExchangeBalances(res.data);
     } catch (e) {
-      console.error('잔고 조회 실패', e);
+      console.error('Balance Could not load', e);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -49,13 +55,13 @@ const HoldingsPage = ({ embedded = false }) => {
         JPY: Number(res.data.jpyPerUsdt),
       });
     } catch (e) {
-      console.error('환율 조회 실패', e);
+      console.error('환율 Could not load', e);
     }
   };
 
-  const CURRENCY_SYMBOL = { KRW: '₩', USD: '$', CNY: '¥', JPY: '¥' };
+  const CURRENCY_SYMBOL = { KRW: ' KRW', USD: '$', CNY: '¥', JPY: '¥' };
 
-  // [용도] 자산 가치를 선택 통화로 환산하여 포맷 / [호출] 렌더
+  // [용도] Assets 가치를 선택 통화로 환산하여 포맷 / [호출] 렌더
   // avgBuyPrice가 있으면 (Upbit) balance × avgBuyPrice로 가치 계산
   const formatValue = (balance, avgBuyPrice, unitCurrency) => {
     const qty = Number(balance);
@@ -63,23 +69,23 @@ const HoldingsPage = ({ embedded = false }) => {
 
     let valueInKrw;
     if (avgBuyPrice && unitCurrency === 'KRW' && Number(avgBuyPrice) > 0) {
-      // Upbit: 평균 매수가 × 수량 = KRW 가치
+      // Upbit: Average entry × Quantity = KRW 가치
       valueInKrw = qty * Number(avgBuyPrice);
     } else {
-      return null; // 가격 정보 없는 경우 가치 미표시
+      return null; // Price 정보 없는 경우 가치 미표시
     }
 
     const targetRate = rates[displayCurrency] ?? 1;
     const converted = valueInKrw / rates.KRW * targetRate;
 
     if (displayCurrency === 'KRW') {
-      return Math.round(converted).toLocaleString() + '원';
+      return Math.round(converted).toLocaleString('ko-KR') + ' KRW';
     }
     const sym = CURRENCY_SYMBOL[displayCurrency] ?? '';
     return sym + Number(converted).toLocaleString(undefined, { maximumFractionDigits: 2 });
   };
 
-  // [용도] 숫자 정리 (불필요한 소수점 제거) / [호출] 잔고 표시
+  // [용도] 숫자 정리 (불필요한 소수점 제거) / [호출] Balance 표시
   const fmt = (val, maxDigits = 8) => {
     const num = Number(val);
     if (isNaN(num)) return val ?? '-';
@@ -89,7 +95,23 @@ const HoldingsPage = ({ embedded = false }) => {
     });
   };
 
-  // 거래소 색상 매핑
+  const fmtSigned = (val, maxDigits = 4) => {
+    const num = Number(val);
+    if (isNaN(num)) return val ?? '-';
+    const formatted = parseFloat(Math.abs(num).toFixed(maxDigits)).toLocaleString(undefined, {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: maxDigits,
+    });
+    return `${num > 0 ? '+' : num < 0 ? '-' : ''}${formatted}`;
+  };
+
+  const positionSideLabel = (side) => {
+    if (side === 'long') return 'LONG';
+    if (side === 'short') return 'SHORT';
+    return side ?? '-';
+  };
+
+  // Exchange 색상 매핑
   const EXCHANGE_COLORS = {
     UPBIT:   '#3b82f6',
     BYBIT:   '#f59e0b',
@@ -97,14 +119,15 @@ const HoldingsPage = ({ embedded = false }) => {
     OKX:     '#6366f1',
     BINANCE: '#facc15',
     BINGX:   '#ec4899',
+    KRAKEN:  '#7252f3',
   };
 
-  // 잔고 있는 거래소 목록 (오류 포함 전체 표시)
+  // Balance 있는 Exchange 목록 (error 포함 All 표시)
   const hasAny = exchangeBalances.length > 0;
 
-  // [용도] 포트폴리오 파이 차트 데이터 구성 / [호출] 렌더
+  // [용도] 포트폴리오 파이 차트 data 구성 / [호출] 렌더
   // Upbit: balance × avgBuyPrice = KRW → displayCurrency 환산
-  // 다른 거래소: USDT/USDC 스테이블코인만 USD 가치로 계산
+  // 다른 Exchange: USDT/USDC 스테이블Asset만 USD 가치로 계산
   const PIE_COLORS = ['#f87171','#60a5fa','#a78bfa','#facc15','#34d399','#fb923c','#e879f9','#94a3b8'];
   const STABLE = ['USDT','USDC','BUSD','DAI'];
 
@@ -138,46 +161,48 @@ const HoldingsPage = ({ embedded = false }) => {
 
     if (sorted.length > 7) {
       const others = sorted.slice(7).reduce((acc, x) => acc + x.usd, 0) * (rates[displayCurrency] ?? 1);
-      return [...sorted.slice(0, 7), { name: '기타', value: Math.round(others * 100) / 100 }];
+      return [...sorted.slice(0, 7), { name: 'Other', value: Math.round(others * 100) / 100 }];
     }
     return sorted;
   })();
 
   const sym = CURRENCY_SYMBOL[displayCurrency] ?? '';
   const totalPortfolio = portfolioData.reduce((acc, d) => acc + d.value, 0);
+  const formatPortfolioValue = (value) => {
+    const formatted = Number(value).toLocaleString('ko-KR', {
+      maximumFractionDigits: displayCurrency === 'KRW' ? 0 : 2,
+    });
+    return displayCurrency === 'KRW' ? `${formatted} KRW` : `${sym}${formatted}`;
+  };
 
   return (
     <div className={embedded ? '' : 'page'}>
       {/* 헤더 */}
       <div className="page-header anim-fade-up">
-        <h1 className="page-title">보유 자산</h1>
+        <h1 className="page-title">Holdings</h1>
         <div className="header-actions">
           <button
-            className="btn btn-sm"
+            className="compact-secondary-action"
             onClick={() => fetchBalances(true)}
             disabled={refreshing || loading}
-            style={{
-              background: 'rgba(255,255,255,0.06)',
-              border: '1px solid rgba(255,255,255,0.12)',
-              color: 'var(--text-secondary)',
-            }}
           >
-            {refreshing ? '조회 중...' : '새로고침'}
+            <span className={refreshing ? 'compact-action-icon spinning' : 'compact-action-icon'}>↻</span>
+            {refreshing ? 'Refreshing' : 'Refresh'}
           </button>
         </div>
       </div>
 
       <p className="text-sm text-secondary anim-fade-up" style={{ marginBottom: '24px' }}>
-        거래소 API에서 실시간으로 조회한 현재 잔고입니다
+        Current balances reported by your connected exchanges.
       </p>
 
       {/* 포트폴리오 요약 차트 */}
       {!loading && portfolioData.length > 0 && (
         <div className="card anim-fade-up" style={{ marginBottom: '24px', padding: '20px' }}>
           <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '16px' }}>
-            포트폴리오 구성
+            Portfolio allocation
             <span style={{ marginLeft: '8px', fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400, textTransform: 'none' }}>
-              (Upbit 평가금액 + 스테이블코인 기준)
+              (Upbit 평가금액 + 스테이블Asset 기준)
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '24px', flexWrap: 'wrap' }}>
@@ -205,7 +230,7 @@ const HoldingsPage = ({ embedded = false }) => {
                       return (
                         <div className="chart-tooltip">
                           <div style={{ fontWeight: 700, marginBottom: 2 }}>{d.name}</div>
-                          <div className="mono" style={{ fontSize: 13 }}>{sym}{d.value.toLocaleString()}</div>
+                          <div className="mono" style={{ fontSize: 13 }}>{formatPortfolioValue(d.value)}</div>
                           <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{pct}%</div>
                         </div>
                       );
@@ -217,8 +242,8 @@ const HoldingsPage = ({ embedded = false }) => {
 
             {/* 범례 + 총액 */}
             <div style={{ flex: 1, minWidth: 180 }}>
-              <div style={{ fontSize: '20px', fontWeight: 800, fontFamily: 'monospace', marginBottom: '14px' }}>
-                {sym}{totalPortfolio.toLocaleString(undefined, { maximumFractionDigits: displayCurrency === 'KRW' ? 0 : 2 })}
+              <div style={{ fontSize: '20px', fontWeight: 800, fontFamily: 'var(--font-display)', marginBottom: '14px' }}>
+                {formatPortfolioValue(totalPortfolio)}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
                 {portfolioData.map((d, i) => {
@@ -242,14 +267,14 @@ const HoldingsPage = ({ embedded = false }) => {
 
       {loading ? (
         <div className="empty-state">
-          <p className="empty-state-title">잔고 조회 중...</p>
+          <p className="empty-state-title">Loading balances...</p>
         </div>
       ) : !hasAny ? (
         <div className="card empty-state">
           <div className="empty-state-icon">◻</div>
-          <p className="empty-state-title">등록된 거래소 없음</p>
+          <p className="empty-state-title">Add된 Exchange 없음</p>
           <p className="empty-state-desc">
-            거래소 연동 페이지에서 API Key를 등록하면 잔고를 볼 수 있습니다
+            Exchange connection 페이지에서 API Key를 Add하면 Balance를 볼 수 있습니다
           </p>
         </div>
       ) : (
@@ -258,6 +283,7 @@ const HoldingsPage = ({ embedded = false }) => {
             const accentColor = EXCHANGE_COLORS[ex.exchange] ?? 'var(--accent)';
             const hasError = !!ex.error;
             const hasAssets = ex.assets && ex.assets.length > 0;
+            const hasPositions = ex.positions && ex.positions.length > 0;
 
             return (
               <div
@@ -265,7 +291,7 @@ const HoldingsPage = ({ embedded = false }) => {
                 className="card anim-fade-up2"
                 style={{ padding: '0', overflow: 'hidden' }}
               >
-                {/* 거래소 헤더 */}
+                {/* Exchange 헤더 */}
                 <div style={{
                   padding: '14px 18px',
                   borderBottom: '1px solid var(--border)',
@@ -279,18 +305,18 @@ const HoldingsPage = ({ embedded = false }) => {
                   </span>
                   {hasError && (
                     <span className="text-xs text-sell" style={{ marginLeft: '4px' }}>
-                      조회 실패: {ex.error.length > 60 ? ex.error.slice(0, 60) + '...' : ex.error}
+                      Could not load: {ex.error.length > 60 ? ex.error.slice(0, 60) + '...' : ex.error}
                     </span>
                   )}
-                  {!hasError && !hasAssets && (
-                    <span className="text-xs text-muted">보유 자산 없음</span>
+                  {!hasError && !hasAssets && !hasPositions && (
+                    <span className="text-xs text-muted">Holdings 없음</span>
                   )}
-                  {!hasError && hasAssets && (
+                  {!hasError && (hasAssets || hasPositions) && (
                     <span className="text-xs text-muted">{ex.assets.length}종</span>
                   )}
                 </div>
 
-                {/* 자산 목록 */}
+                {/* Assets 목록 */}
                 {hasAssets && (
                   <>
                     {/* 데스크탑 테이블 */}
@@ -298,11 +324,14 @@ const HoldingsPage = ({ embedded = false }) => {
                       <table className="trade-table">
                         <thead>
                           <tr>
-                            <th>코인</th>
-                            <th>전체 잔고</th>
-                            <th>가용 잔고</th>
-                            {ex.exchange === 'UPBIT' && <th>평균 매수가</th>}
+                            <th>Asset</th>
+                            <th>All Balance</th>
+                            <th>Available Balance</th>
+                            {ex.exchange === 'UPBIT' && <th>Average entry</th>}
                             {ex.exchange === 'UPBIT' && <th>평가 금액</th>}
+                            {ex.exchange === 'UPBIT' && <th>현재가</th>}
+                            {ex.exchange === 'UPBIT' && <th>Return</th>}
+                            {ex.exchange === 'UPBIT' && <th>Profit</th>}
                           </tr>
                         </thead>
                         <tbody>
@@ -312,32 +341,108 @@ const HoldingsPage = ({ embedded = false }) => {
                               asset.avg_buy_price,
                               asset.unit_currency
                             );
+                            const hasAvgPrice = ex.exchange === 'UPBIT' &&
+                                              asset.avg_buy_price &&
+                                              Number(asset.avg_buy_price) > 0;
+
                             return (
-                              <tr key={i}>
-                                <td>
-                                  <span className="mono" style={{
-                                    fontWeight: 600,
-                                    color: asset.currency === 'KRW' || asset.currency === 'USDT'
-                                      ? 'var(--text-secondary)' : 'var(--text)',
-                                  }}>
-                                    {asset.currency}
-                                  </span>
-                                </td>
-                                <td className="mono">{fmt(asset.balance)}</td>
-                                <td className="mono text-secondary">{fmt(asset.available)}</td>
-                                {ex.exchange === 'UPBIT' && (
-                                  <td className="mono text-secondary">
-                                    {asset.avg_buy_price && Number(asset.avg_buy_price) > 0
-                                      ? Number(asset.avg_buy_price).toLocaleString() + '원'
-                                      : '-'}
+                              <>
+                                <tr key={`${ex.exchange}-${asset.currency}-${i}`}>
+                                  <td>
+                                    <span className="mono" style={{
+                                      fontWeight: 600,
+                                      color: asset.currency === 'KRW' || asset.currency === 'USDT'
+                                        ? 'var(--text-secondary)' : 'var(--text)',
+                                    }}>
+                                      {asset.currency}
+                                    </span>
                                   </td>
-                                )}
-                                {ex.exchange === 'UPBIT' && (
-                                  <td className="mono text-buy" style={{ fontWeight: 500 }}>
-                                    {valueStr ?? '-'}
-                                  </td>
-                                )}
-                              </tr>
+                                  <td className="mono">{fmt(asset.balance)}</td>
+                                  <td className="mono text-secondary">{fmt(asset.available)}</td>
+                                  {ex.exchange === 'UPBIT' && (
+                                    <td className="mono text-secondary">
+                                      {asset.avg_buy_price && Number(asset.avg_buy_price) > 0
+                                        ? Number(asset.avg_buy_price).toLocaleString() + ' KRW'
+                                        : '-'}
+                                    </td>
+                                  )}
+                                  {ex.exchange === 'UPBIT' && (
+                                    <td className="mono text-buy" style={{ fontWeight: 500 }}>
+                                      {valueStr ?? '-'}
+                                    </td>
+                                  )}
+                                  {ex.exchange === 'UPBIT' && hasAvgPrice && (
+                                    <td className="mono text-secondary">
+                                      <ProfitRateDisplay
+                                        symbol={asset.currency}
+                                        avgBuyPrice={Number(asset.avg_buy_price)}
+                                        qty={Number(asset.balance)}
+                                        type="currentPrice"
+                                        currentPrice={asset.current_price}
+                                        onShowChart={(symbol, avgBuyPrice) => {
+                                          setSlideSymbol(symbol);
+                                          setSlideAvgBuyPrice(avgBuyPrice);
+                                          setSlideOpen(true);
+                                        }}
+                                      />
+                                    </td>
+                                  )}
+                                  {ex.exchange === 'UPBIT' && hasAvgPrice && (
+                                    <td className="mono">
+                                      <ProfitRateDisplay
+                                        symbol={asset.currency}
+                                        avgBuyPrice={Number(asset.avg_buy_price)}
+                                        qty={Number(asset.balance)}
+                                        type="profitRate"
+                                        onShowChart={(symbol, avgBuyPrice) => {
+                                          setSlideSymbol(symbol);
+                                          setSlideAvgBuyPrice(avgBuyPrice);
+                                          setSlideOpen(true);
+                                        }}
+                                      />
+                                    </td>
+                                  )}
+                                  {ex.exchange === 'UPBIT' && hasAvgPrice && (
+                                    <td className="mono">
+                                      <ProfitRateDisplay
+                                        symbol={asset.currency}
+                                        avgBuyPrice={Number(asset.avg_buy_price)}
+                                        qty={Number(asset.balance)}
+                                        type="profitAmount"
+                                        onShowChart={(symbol, avgBuyPrice) => {
+                                          setSlideSymbol(symbol);
+                                          setSlideAvgBuyPrice(avgBuyPrice);
+                                          setSlideOpen(true);
+                                        }}
+                                        compact={true}
+                                        // Holdings 탭의 값들 그대로 전달
+                                        balance={asset.balance}
+                                        available={asset.available}
+                                        avgBuyPrice={asset.avg_buy_price}
+                                        valueStr={valueStr}
+                                        profitAmount={asset.profit_amount}
+                                      />
+                                    </td>
+                                  )}
+                                  {ex.exchange === 'UPBIT' && !hasAvgPrice && (
+                                    <>
+                                      <td className="mono text-secondary">-</td>
+                                      <td className="mono text-secondary">-</td>
+                                      <td className="mono text-secondary">-</td>
+                                    </>
+                                  )}
+                                </tr>
+                                {/* 모바일용 차트 영역 - 일시적으로 숨김 */}
+                                {/* {ex.exchange === 'UPBIT' && hasAvgPrice && (
+                                  <tr key={`chart-${ex.exchange}-${asset.currency}`}>
+                                    <td colSpan="5" style={{ padding: '20px 0 0 0' }}>
+                                      <div style={{ backgroundColor: 'rgba(255,255,255,0.03)', padding: '16px', borderRadius: '8px' }}>
+                                        <ProfitChart symbol={asset.currency} />
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )} */}
+                              </>
                             );
                           })}
                         </tbody>
@@ -350,8 +455,12 @@ const HoldingsPage = ({ embedded = false }) => {
                           asset.avg_buy_price,
                           asset.unit_currency
                         );
+                        const hasAvgPrice = ex.exchange === 'UPBIT' &&
+                                          asset.avg_buy_price &&
+                                          Number(asset.avg_buy_price) > 0;
+
                         return (
-                          <div key={`m-${i}`} className="trade-card">
+                          <div key={`mobile-${ex.exchange}-${asset.currency}-${i}`} className="trade-card">
                             <div className="trade-card-top">
                               <span className="mono" style={{ fontWeight: 700, fontSize: '15px' }}>
                                 {asset.currency}
@@ -363,33 +472,201 @@ const HoldingsPage = ({ embedded = false }) => {
                               )}
                             </div>
                             <div className="trade-card-row">
-                              <div>
-                                <div className="trade-card-label">전체 잔고</div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                <div className="trade-card-label">All Balance</div>
                                 <div className="trade-card-value mono">{fmt(asset.balance)}</div>
                               </div>
-                              <div>
-                                <div className="trade-card-label">가용 잔고</div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                <div className="trade-card-label">Available Balance</div>
                                 <div className="trade-card-value mono text-secondary">{fmt(asset.available)}</div>
                               </div>
                               {ex.exchange === 'UPBIT' && asset.avg_buy_price && Number(asset.avg_buy_price) > 0 && (
-                                <div style={{ textAlign: 'right' }}>
-                                  <div className="trade-card-label">평균 매수가</div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-end' }}>
+                                  <div className="trade-card-label">Average entry</div>
                                   <div className="trade-card-value mono text-secondary">
-                                    {Number(asset.avg_buy_price).toLocaleString()}원
+                                    {Number(asset.avg_buy_price).toLocaleString()} KRW
                                   </div>
                                 </div>
                               )}
                             </div>
+
+                            {/* Return/Profit 표시 영역 */}
+                            {hasAvgPrice && (
+                              <div
+                                className="trade-card-profit"
+                                onClick={() => {
+                                  setSlideSymbol(asset.currency);
+                                  setSlideAvgBuyPrice(Number(asset.avg_buy_price));
+                                  setSlideOpen(true);
+                                }}
+                                style={{
+                                  cursor: 'pointer',
+                                  marginTop: '12px',
+                                  padding: '0',
+                                  background: 'transparent',
+                                  borderRadius: '0',
+                                  border: 'none'
+                                }}
+                              >
+                                <div style={{
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  width: '100%'
+                                }}>
+                                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px', flex: 1 }}>
+                                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Return</span>
+                                    <ProfitRateDisplay
+                                      symbol={asset.currency}
+                                      avgBuyPrice={Number(asset.avg_buy_price)}
+                                      qty={Number(asset.balance)}
+                                      type="currentPrice"
+                                      compact={true}
+                                    />
+                                  </div>
+                                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px', flex: 1 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Profit</span>
+                                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>▶</span>
+                                    </div>
+                                    <ProfitRateDisplay
+                                      symbol={asset.currency}
+                                      avgBuyPrice={Number(asset.avg_buy_price)}
+                                      qty={Number(asset.balance)}
+                                      type="profitAmount"
+                                      compact={true}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         );
                       })}
                     </div>
                   </>
                 )}
+
+                {hasPositions && (
+                  <div style={{ padding: '18px', borderTop: hasAssets ? '1px solid var(--border)' : 'none' }}>
+                    <div style={{
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      color: 'var(--text-muted)',
+                      textTransform: 'uppercase',
+                      marginBottom: '12px'
+                    }}>
+                      Futures Positions
+                    </div>
+
+                    <div className="trade-table-wrap">
+                      <table className="trade-table">
+                        <thead>
+                          <tr>
+                            <th>Symbol</th>
+                            <th>Side</th>
+                            <th>Quantity</th>
+                            <th>Available to close</th>
+                            <th>Entry</th>
+                            <th>Mark price</th>
+                            <th>Unrealized PnL</th>
+                            <th>Leverage</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {ex.positions.map((position, i) => (
+                            <tr key={`${ex.exchange}-position-${position.symbol}-${position.side}-${i}`}>
+                              <td className="mono" style={{ fontWeight: 600 }}>{position.symbol}</td>
+                              <td>
+                                <span
+                                  className={position.side === 'long' ? 'text-buy' : 'text-sell'}
+                                  style={{ fontWeight: 700 }}
+                                >
+                                  {positionSideLabel(position.side)}
+                                </span>
+                              </td>
+                              <td className="mono">{fmt(position.size)}</td>
+                              <td className="mono text-secondary">{fmt(position.available_size)}</td>
+                              <td className="mono">{fmt(position.entry_price)}</td>
+                              <td className="mono text-secondary">{fmt(position.mark_price)}</td>
+                              <td
+                                className="mono"
+                                style={{
+                                  color: Number(position.unrealized_pnl) >= 0 ? 'var(--buy)' : 'var(--sell)',
+                                  fontWeight: 600
+                                }}
+                              >
+                                {fmtSigned(position.unrealized_pnl)}
+                              </td>
+                              <td className="mono text-secondary">{position.leverage}x</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+
+                      {ex.positions.map((position, i) => (
+                        <div key={`mobile-position-${ex.exchange}-${position.symbol}-${position.side}-${i}`} className="trade-card">
+                          <div className="trade-card-top">
+                            <span className="mono" style={{ fontWeight: 700, fontSize: '15px' }}>
+                              {position.symbol}
+                            </span>
+                            <span
+                              style={{
+                                marginLeft: 'auto',
+                                fontWeight: 700,
+                                color: position.side === 'long' ? 'var(--buy)' : 'var(--sell)'
+                              }}
+                            >
+                              {positionSideLabel(position.side)}
+                            </span>
+                          </div>
+                          <div className="trade-card-row">
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              <div className="trade-card-label">Quantity</div>
+                              <div className="trade-card-value mono">{fmt(position.size)}</div>
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              <div className="trade-card-label">Entry</div>
+                              <div className="trade-card-value mono">{fmt(position.entry_price)}</div>
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-end' }}>
+                              <div className="trade-card-label">Leverage</div>
+                              <div className="trade-card-value mono text-secondary">{position.leverage}x</div>
+                            </div>
+                          </div>
+                          <div className="trade-card-row" style={{ marginTop: '12px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              <div className="trade-card-label">Mark price</div>
+                              <div className="trade-card-value mono text-secondary">{fmt(position.mark_price)}</div>
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-end', marginLeft: 'auto' }}>
+                              <div className="trade-card-label">Unrealized PnL</div>
+                              <div
+                                className="trade-card-value mono"
+                                style={{ color: Number(position.unrealized_pnl) >= 0 ? 'var(--buy)' : 'var(--sell)' }}
+                              >
+                                {fmtSigned(position.unrealized_pnl)}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
+      )}
+
+      {/* Return 차트 슬라이드 패널 */}
+      {slideOpen && slideSymbol && (
+        <ProfitChartSlide
+          symbol={slideSymbol}
+          avgBuyPrice={slideAvgBuyPrice}
+          isOpen={slideOpen}
+          onClose={() => setSlideOpen(false)}
+        />
       )}
     </div>
   );

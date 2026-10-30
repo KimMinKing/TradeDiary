@@ -1,4 +1,4 @@
-// [파일 용도] 로그인/회원가입 통합 모달 (이메일 / 구글 / 카카오)
+// [파일 용도] Sign in/Create account 통합 모달 (이메일 / 구글 / 카카오)
 
 import { useState, useEffect } from 'react';
 
@@ -23,7 +23,7 @@ const AuthModal = ({ initialMode = 'login', onClose }) => {
   const setLoggedIn = useAuthStore((state) => state.setLoggedIn);
   const navigate    = useNavigate();
 
-  // [용도] 저장된 이메일 불러오기 / [호출] 마운트 시
+  // [용도] Save된 이메일 불러오기 / [호출] 마운트 시
   useEffect(() => {
     const saved = localStorage.getItem(SAVED_EMAIL_KEY);
     if (saved) {
@@ -32,12 +32,12 @@ const AuthModal = ({ initialMode = 'login', onClose }) => {
     }
   }, []);
 
-  // [용도] 비밀번호 유효성 조건 / [호출] 회원가입 폼
+  // [용도] 비밀번호 유효성 조 / [호출] Create account 폼
   const cond8chars  = password.length >= 8;
   const condUpper   = /[A-Z]/.test(password);
   const pwValid     = cond8chars && condUpper;
 
-  // [용도] 모드 전환 시 상태 초기화 / [호출] 하단 전환 버튼
+  // [용도] 모드 전환 시 상태 Reset / [호출] 하단 전환 버튼
   const switchMode = (next) => {
     setMode(next);
     setEmailExpanded(false);
@@ -56,15 +56,15 @@ const AuthModal = ({ initialMode = 'login', onClose }) => {
     setLoading(true);
     try {
       await requestPasswordReset(email);
-      setSuccess('재설정 링크를 이메일로 보냈습니다. 메일함을 확인하세요.');
+      setSuccess('Check your inbox for a password reset link.');
     } catch {
-      setError('요청에 실패했습니다. 잠시 후 다시 시도해주세요.');
+      setError('We could not send the reset email. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  // [용도] 이메일 로그인 처리 / [호출] 이메일 폼 submit
+  // [용도] 이메일 Sign in 처리 / [호출] 이메일 폼 submit
   const handleLogin = async (e) => {
     e.preventDefault();
     setError('');
@@ -80,45 +80,45 @@ const AuthModal = ({ initialMode = 'login', onClose }) => {
       onClose();
       navigate('/dashboard');
     } catch (err) {
-      setError(err.response?.data?.message || '이메일 또는 비밀번호가 올바르지 않습니다.');
+      setError(err.response?.data?.message || 'Incorrect email or password.');
     } finally {
       setLoading(false);
     }
   };
 
-  // [용도] 이메일 회원가입 처리 / [호출] 이메일 폼 submit
+  // [용도] 이메일 Create account 처리 / [호출] 이메일 폼 submit
   const handleSignup = async (e) => {
     e.preventDefault();
     if (!pwValid) {
-      setError('비밀번호 조건을 충족해주세요.');
+      setError('Password requirements are not met.');
       return;
     }
     setError('');
     setLoading(true);
     try {
       await signup(email, password, nickname);
-      setSuccess('가입 완료! 이메일로 로그인하세요.');
+      setSuccess('Account created. Sign in with your email.');
       switchMode('login');
     } catch (err) {
-      setError(err.response?.data?.message || '회원가입에 실패했습니다.');
+      setError(err.response?.data?.message || 'We could not create your account.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="auth-overlay" onClick={onClose}>
-      <div className="auth-modal" onClick={(e) => e.stopPropagation()}>
+    <div className="auth-overlay">
+      <div className="auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-dialog-title">
 
-        {/* 닫기 */}
+        {/* Close */}
         <button className="auth-modal-close" onClick={onClose}>✕</button>
 
         {/* 헤더 */}
-        <div className="auth-modal-logo">TradeDiary</div>
+        <div className="auth-modal-logo" id="auth-dialog-title">TradeDiary</div>
         <p className="auth-modal-sub">
-          {mode === 'login' ? '로그인하여 시작하세요'
-            : mode === 'signup' ? '새 계정 만들기'
-            : '비밀번호 찾기'}
+          {mode === 'login' ? 'Sign in to your trading workspace'
+            : mode === 'signup' ? 'Create your account'
+            : 'Reset your password'}
         </p>
 
         {/* ── 비밀번호 찾기 모드 ── */}
@@ -132,18 +132,18 @@ const AuthModal = ({ initialMode = 'login', onClose }) => {
                   className="auth-back-link"
                   onClick={() => switchMode('login')}
                 >
-                  ← 로그인으로 돌아가기
+                  ← Back to sign in
                 </button>
               </div>
             ) : (
               <form className="auth-email-form" onSubmit={handleForgot}>
                 <p className="text-sm text-secondary" style={{ marginBottom: '12px', lineHeight: '1.5' }}>
-                  가입 시 사용한 이메일을 입력하면<br />재설정 링크를 보내드립니다.
+                  Enter the email address associated with your account.
                 </p>
                 <input
                   className="input"
                   type="email"
-                  placeholder="이메일"
+                  placeholder="Email address"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
@@ -151,28 +151,28 @@ const AuthModal = ({ initialMode = 'login', onClose }) => {
                 />
                 {error && <p className="msg-error">{error}</p>}
                 <button className="btn btn-primary btn-full" type="submit" disabled={loading}>
-                  {loading ? '발송 중...' : '재설정 링크 보내기'}
+                  {loading ? 'Sending...' : 'Send reset link'}
                 </button>
                 <button
                   type="button"
                   className="auth-back-link"
                   onClick={() => switchMode('login')}
                 >
-                  ← 로그인으로 돌아가기
+                  ← Back to sign in
                 </button>
               </form>
             )}
           </div>
         )}
 
-        {/* 이메일 버튼 or 펼쳐진 폼 (로그인/회원가입 모드에서만) */}
+        {/* 이메일 버튼 or 펼쳐진 폼 (Sign in/Create account 모드에서만) */}
         {mode !== 'forgot' && (!emailExpanded ? (
           <button
             className="auth-social-btn auth-email-btn"
             onClick={() => setEmailExpanded(true)}
           >
-            <span className="auth-social-icon">✉</span>
-            이메일로 {mode === 'login' ? '로그인' : '회원가입'}
+            <span className="auth-social-icon auth-email-icon">@</span>
+            {mode === 'login' ? 'Continue with email' : 'Sign up with email'}
           </button>
         ) : (
           <form
@@ -182,7 +182,7 @@ const AuthModal = ({ initialMode = 'login', onClose }) => {
             <input
               className="input"
               type="email"
-              placeholder="이메일"
+              placeholder="Email address"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
@@ -195,7 +195,7 @@ const AuthModal = ({ initialMode = 'login', onClose }) => {
               <input
                 className="input"
                 type={showPw ? 'text' : 'password'}
-                placeholder={mode === 'signup' ? '비밀번호 (8자 이상, 대문자 포함)' : '비밀번호'}
+                placeholder={mode === 'signup' ? 'Password — 8+ characters, one uppercase' : 'Password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
@@ -206,19 +206,30 @@ const AuthModal = ({ initialMode = 'login', onClose }) => {
                 className="pw-toggle-btn"
                 onClick={() => setShowPw((v) => !v)}
                 tabIndex={-1}
+                aria-label={showPw ? 'Hide password' : 'Show password'}
+                title={showPw ? 'Hide password' : 'Show password'}
               >
-                {showPw ? '🙈' : '👁️'}
+                {showPw ? (
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M3 3l18 18M10.6 10.7a2 2 0 002.7 2.7M9.9 4.3A10.8 10.8 0 0112 4c5.2 0 8.7 4.8 8.7 4.8a14 14 0 01-2.3 2.8M6.3 6.3C4.4 7.5 3.3 8.8 3.3 8.8S6.8 16 12 16c1 0 2-.2 2.8-.6" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M3.3 12S6.8 6 12 6s8.7 6 8.7 6-3.5 6-8.7 6-8.7-6-8.7-6z" />
+                    <circle cx="12" cy="12" r="2.5" />
+                  </svg>
+                )}
               </button>
             </div>
 
-            {/* 회원가입 비밀번호 조건 */}
+            {/* Create account 비밀번호 조 */}
             {mode === 'signup' && password.length > 0 && (
               <div className="pw-conditions">
                 <span className={`pw-cond${cond8chars ? ' ok' : ''}`}>
-                  {cond8chars ? '✓' : '○'} 8자 이상
+                  {cond8chars ? '✓' : '○'} 8+ characters
                 </span>
                 <span className={`pw-cond${condUpper ? ' ok' : ''}`}>
-                  {condUpper ? '✓' : '○'} 대문자 1개 이상
+                  {condUpper ? '✓' : '○'} One uppercase
                 </span>
               </div>
             )}
@@ -227,7 +238,7 @@ const AuthModal = ({ initialMode = 'login', onClose }) => {
               <input
                 className="input"
                 type="text"
-                placeholder="닉네임 (2~20자)"
+                placeholder="Display name"
                 value={nickname}
                 onChange={(e) => setNickname(e.target.value)}
                 minLength={2}
@@ -235,7 +246,7 @@ const AuthModal = ({ initialMode = 'login', onClose }) => {
                 required
               />
             )}
-            {/* 아이디 저장 + 비밀번호 찾기 (로그인 모드에서만) */}
+            {/* 아이디 Save + 비밀번호 찾기 (Sign in 모드에서만) */}
             {mode === 'login' && (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <label className="login-remember-row">
@@ -244,7 +255,7 @@ const AuthModal = ({ initialMode = 'login', onClose }) => {
                     checked={rememberMe}
                     onChange={(e) => setRememberMe(e.target.checked)}
                   />
-                  <span>아이디 저장</span>
+                  <span>Remember email</span>
                 </label>
                 <button
                   type="button"
@@ -252,29 +263,29 @@ const AuthModal = ({ initialMode = 'login', onClose }) => {
                   style={{ fontSize: '12px' }}
                   onClick={() => switchMode('forgot')}
                 >
-                  비밀번호 찾기
+                  Forgot password?
                 </button>
               </div>
             )}
 
             {error   && <p className="msg-error">{error}</p>}
             <button className="btn btn-primary btn-full" type="submit" disabled={loading}>
-              {loading ? '처리 중...' : mode === 'login' ? '로그인' : '회원가입'}
+              {loading ? 'Please wait...' : mode === 'login' ? 'Sign in' : 'Create account'}
             </button>
             <button
               type="button"
               className="auth-back-link"
               onClick={() => setEmailExpanded(false)}
             >
-              ← 다른 방법으로
+              ← Other sign-in options
             </button>
           </form>
         ))}
 
-        {/* 소셜 로그인 + 하단 (forgot 모드에서는 숨김) */}
+        {/* 소셜 Sign in + 하단 (forgot 모드에서는 숨김) */}
         {mode !== 'forgot' && (
           <>
-            <div className="auth-divider"><span>또는</span></div>
+            <div className="auth-divider"><span>or</span></div>
 
             {/* 구글 */}
             <button
@@ -287,7 +298,7 @@ const AuthModal = ({ initialMode = 'login', onClose }) => {
                 <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
                 <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1c-3.3 0-6.19 1.47-8.2 3.82l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
               </svg>
-              구글로 {mode === 'login' ? '로그인' : '계속하기'}
+              Continue with Google
             </button>
 
             {/* 카카오 */}
@@ -295,23 +306,23 @@ const AuthModal = ({ initialMode = 'login', onClose }) => {
               className="auth-social-btn auth-kakao-btn"
               onClick={() => { window.location.href = '/oauth2/authorization/kakao'; }}
             >
-              <span className="auth-social-icon" style={{ fontSize: '18px' }}>💬</span>
-              카카오로 {mode === 'login' ? '로그인' : '계속하기'}
+              <span className="auth-social-icon auth-kakao-icon">K</span>
+              Continue with Kakao
             </button>
 
             {/* 하단 모드 전환 */}
             {success && <p className="msg-success" style={{ textAlign: 'center', marginTop: '12px' }}>{success}</p>}
             <p className="auth-modal-footer">
               {mode === 'login' ? (
-                <>계정이 없으신가요?{' '}
+                <>New to Trade Diary?{' '}
                   <button type="button" className="auth-switch-btn" onClick={() => switchMode('signup')}>
-                    회원가입
+                    Create account
                   </button>
                 </>
               ) : (
-                <>이미 계정이 있으신가요?{' '}
+                <>Already have an account?{' '}
                   <button type="button" className="auth-switch-btn" onClick={() => switchMode('login')}>
-                    로그인
+                    Sign in
                   </button>
                 </>
               )}

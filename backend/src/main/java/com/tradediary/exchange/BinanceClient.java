@@ -11,6 +11,7 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import com.tradediary.trade.TradeSide;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.Mac;
@@ -20,6 +21,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
@@ -30,8 +32,10 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class BinanceClient {
 
-    private static final String BASE_URL  = "https://fapi.binance.com";
+    @Value("${binance.base-url:https://fapi.binance.com}")
+    private String baseUrl = "https://fapi.binance.com";
     private static final int    PAGE_SIZE = 1000;
+    private static final long MAX_TRADE_WINDOW_MS = TimeUnit.DAYS.toMillis(7);
 
     private final OkHttpClient httpClient = new OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
@@ -43,18 +47,25 @@ public class BinanceClient {
     // 1) income 엔드포인트로 거래된 심볼 파악
     // 2) 심볼별 userTrades 조회 및 합산
     public List<BinanceTrade> getTrades(String apiKey, String secretKey, LocalDateTime startTime) {
-        log.info("[Binance] API Key 앞 6자리: {}...", apiKey.length() > 6 ? apiKey.substring(0, 6) : apiKey);
 
-        long startMs = startTime.atZone(ZoneId.of("Asia/Seoul")).toInstant().toEpochMilli();
+        long requestedStartMs = startTime.atZone(ZoneId.of("Asia/Seoul")).toInstant().toEpochMilli();
+        long endMs = ts();
+        long earliestAvailableMs = ZonedDateTime.now(ZoneId.of("Asia/Seoul"))
+                .minusMonths(3).toInstant().toEpochMilli();
+        long startMs = Math.max(requestedStartMs, earliestAvailableMs);
+        if (requestedStartMs < startMs) {
+            log.info("[Binance] Requested history predates the API's three-month retention; starting at {}", startMs);
+        }
+        if (startMs > endMs) return Collections.emptyList();
 
         // 1단계: income 조회로 거래된 심볼 수집
-        Set<String> symbols = fetchTradedSymbols(apiKey, secretKey, startMs);
+        Set<String> symbols = fetchTradedSymbols(apiKey, secretKey, startMs, endMs);
         log.info("[Binance] 거래된 심볼 수: {}개 → {}", symbols.size(), symbols);
 
         // 2단계: 심볼별 거래 내역 조회
         List<BinanceTrade> allTrades = new ArrayList<>();
         for (String symbol : symbols) {
-            List<BinanceTrade> trades = fetchTradesForSymbol(apiKey, secretKey, symbol, startMs);
+            List<BinanceTrade> trades = fetchTradesForSymbol(apiKey, secretKey, symbol, startMs, endMs);
             log.info("[Binance] 심볼={} 거래 {}건", symbol, trades.size());
             allTrades.addAll(trades);
         }
@@ -66,18 +77,18 @@ public class BinanceClient {
     }
 
     // [용도] income 엔드포인트로 거래된 심볼 목록 수집 / [호출] getTrades()
-    private Set<String> fetchTradedSymbols(String apiKey, String secretKey, long startMs) {
+    private Set<String> fetchTradedSymbols(String apiKey, String secretKey, long startMs, long endMs) {
         Set<String> symbols = new LinkedHashSet<>();
-        long cursorMs = startMs;
+        int page = 1;
 
         while (true) {
-            String params = "startTime=" + cursorMs + "&limit=" + PAGE_SIZE;
-            String url = BASE_URL + "/fapi/v1/income?" + params + "&timestamp=" + ts() + "&signature=";
+            String params = "startTime=" + startMs + "&endTime=" + endMs
+                    + "&page=" + page + "&limit=" + PAGE_SIZE;
             // 재조합 (timestamp 고정 필요)
             long timestamp = ts();
             String queryString = params + "&timestamp=" + timestamp;
             String sig = sign(secretKey, queryString);
-            String fullUrl = BASE_URL + "/fapi/v1/income?" + queryString + "&signature=" + sig;
+            String fullUrl = baseUrl + "/fapi/v1/income?" + queryString + "&signature=" + sig;
 
             Request req = new Request.Builder()
                     .url(fullUrl)
@@ -88,10 +99,11 @@ public class BinanceClient {
                 String body = resp.body() != null ? resp.body().string() : "";
                 if (!resp.isSuccessful()) {
                     log.warn("[Binance] income 오류: {} {}", resp.code(), body);
-                    break;
+                    throw new RuntimeException("Binance income HTTP " + resp.code() + ": " + body);
                 }
                 JsonArray arr = gson.fromJson(body, JsonArray.class);
-                if (arr == null || arr.size() == 0) break;
+                if (arr == null) throw new RuntimeException("Binance income returned an empty response");
+                if (arr.size() == 0) break;
 
                 for (JsonElement el : arr) {
                     JsonObject obj = el.getAsJsonObject();
@@ -103,74 +115,88 @@ public class BinanceClient {
 
                 if (arr.size() < PAGE_SIZE) break; // 마지막 페이지
 
-                // 다음 페이지: 마지막 레코드 time + 1ms
-                JsonObject last = arr.get(arr.size() - 1).getAsJsonObject();
-                cursorMs = last.get("time").getAsLong() + 1;
+                // page pagination preserves records with the same millisecond timestamp.
+                page++;
 
+            } catch (RuntimeException e) {
+                throw e;
             } catch (Exception e) {
-                log.error("[Binance] income 조회 실패", e);
-                break;
+                throw new RuntimeException("Binance income request failed", e);
             }
         }
         return symbols;
     }
 
-    // [용도] 심볼별 userTrades 조회 (페이지네이션) / [호출] getTrades()
-    private List<BinanceTrade> fetchTradesForSymbol(String apiKey, String secretKey, String symbol, long startMs) {
+    // [용도] 심볼별 userTrades 조회 / [호출] getTrades()
+    private List<BinanceTrade> fetchTradesForSymbol(String apiKey, String secretKey, String symbol,
+                                                    long startMs, long endMs) {
         List<BinanceTrade> result = new ArrayList<>();
-        Long fromId = null;
-
-        while (true) {
-            String params = "symbol=" + symbol + "&startTime=" + startMs + "&limit=" + PAGE_SIZE
-                    + (fromId != null ? "&fromId=" + fromId : "");
-            long timestamp = ts();
-            String queryString = params + "&timestamp=" + timestamp;
-            String sig = sign(secretKey, queryString);
-            String fullUrl = BASE_URL + "/fapi/v1/userTrades?" + queryString + "&signature=" + sig;
-
-            Request req = new Request.Builder()
-                    .url(fullUrl)
-                    .header("X-MBX-APIKEY", apiKey)
-                    .get().build();
-
-            try (Response resp = httpClient.newCall(req).execute()) {
-                String body = resp.body() != null ? resp.body().string() : "";
-                if (!resp.isSuccessful()) {
-                    log.warn("[Binance] userTrades 오류 symbol={}: {} {}", symbol, resp.code(), body);
-                    break;
-                }
-                JsonArray arr = gson.fromJson(body, JsonArray.class);
-                if (arr == null || arr.size() == 0) break;
-
-                for (JsonElement el : arr) {
-                    JsonObject obj = el.getAsJsonObject();
-                    try {
-                        BinanceTrade t = new BinanceTrade();
-                        t.id     = obj.get("id").getAsLong();
-                        t.symbol = obj.get("symbol").getAsString();
-                        t.side   = obj.get("side").getAsString();   // BUY | SELL
-                        t.qty    = new BigDecimal(obj.get("qty").getAsString());
-                        t.price  = new BigDecimal(obj.get("price").getAsString());
-                        // commission은 음수일 수 있음 → 절댓값
-                        t.commission = new BigDecimal(obj.get("commission").getAsString()).abs();
-                        t.time   = obj.get("time").getAsLong();
-                        result.add(t);
-                    } catch (Exception e) {
-                        log.warn("[Binance] trade 파싱 실패: {}", obj);
-                    }
-                }
-
-                if (arr.size() < PAGE_SIZE) break;
-
-                // 다음 페이지: 마지막 id + 1
-                fromId = arr.get(arr.size() - 1).getAsJsonObject().get("id").getAsLong() + 1;
-
-            } catch (Exception e) {
-                log.error("[Binance] userTrades 조회 실패 symbol={}", symbol, e);
-                break;
-            }
+        for (long windowStart = startMs; windowStart <= endMs; ) {
+            long windowEnd = Math.min(endMs, windowStart + MAX_TRADE_WINDOW_MS - 1);
+            result.addAll(fetchTradeWindow(apiKey, secretKey, symbol, windowStart, windowEnd));
+            windowStart = windowEnd + 1;
         }
         return result;
+    }
+
+    // Binance forbids fromId with startTime/endTime. Split full pages by time instead.
+    private List<BinanceTrade> fetchTradeWindow(String apiKey, String secretKey, String symbol,
+                                                long startMs, long endMs) {
+        String params = "symbol=" + symbol + "&startTime=" + startMs
+                + "&endTime=" + endMs + "&limit=" + PAGE_SIZE;
+        long timestamp = ts();
+        String queryString = params + "&timestamp=" + timestamp;
+        String sig = sign(secretKey, queryString);
+        String fullUrl = baseUrl + "/fapi/v1/userTrades?" + queryString + "&signature=" + sig;
+
+        Request req = new Request.Builder()
+                .url(fullUrl)
+                .header("X-MBX-APIKEY", apiKey)
+                .get().build();
+
+        try (Response resp = httpClient.newCall(req).execute()) {
+            String body = resp.body() != null ? resp.body().string() : "";
+            if (!resp.isSuccessful()) {
+                log.warn("[Binance] userTrades 오류 symbol={}: {} {}", symbol, resp.code(), body);
+                throw new RuntimeException("Binance userTrades HTTP " + resp.code() + " for " + symbol + ": " + body);
+            }
+            JsonArray arr = gson.fromJson(body, JsonArray.class);
+            if (arr == null) throw new RuntimeException("Binance userTrades returned an empty response for " + symbol);
+            if (arr.size() == PAGE_SIZE) {
+                if (startMs == endMs) {
+                    throw new IllegalStateException("Binance trade page exceeds 1000 records in one millisecond for " + symbol);
+                }
+                long middle = startMs + (endMs - startMs) / 2;
+                List<BinanceTrade> result = fetchTradeWindow(apiKey, secretKey, symbol, startMs, middle);
+                result.addAll(fetchTradeWindow(apiKey, secretKey, symbol, middle + 1, endMs));
+                return result;
+            }
+
+            List<BinanceTrade> result = new ArrayList<>();
+            for (JsonElement el : arr) {
+                JsonObject obj = el.getAsJsonObject();
+                try {
+                    BinanceTrade t = new BinanceTrade();
+                    t.id     = obj.get("id").getAsLong();
+                    t.symbol = obj.get("symbol").getAsString();
+                    t.side   = obj.get("side").getAsString();   // BUY | SELL
+                    t.qty    = new BigDecimal(obj.get("qty").getAsString());
+                    t.price  = new BigDecimal(obj.get("price").getAsString());
+                    // commission은 음수일 수 있음 → 절댓값
+                    t.commission = new BigDecimal(obj.get("commission").getAsString()).abs();
+                    t.time   = obj.get("time").getAsLong();
+                    result.add(t);
+                } catch (Exception e) {
+                    throw new IllegalStateException("Invalid Binance trade for " + symbol, e);
+                }
+            }
+
+            return result;
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("Binance userTrades request failed for " + symbol, e);
+        }
     }
 
     // [용도] HMAC-SHA256 서명 생성 / [호출] fetchTradedSymbols, fetchTradesForSymbol
@@ -197,7 +223,7 @@ public class BinanceClient {
         long timestamp = ts();
         String queryString = "timestamp=" + timestamp;
         String sig = sign(secretKey, queryString);
-        String fullUrl = BASE_URL + "/fapi/v2/balance?" + queryString + "&signature=" + sig;
+        String fullUrl = baseUrl + "/fapi/v2/balance?" + queryString + "&signature=" + sig;
 
         Request request = new Request.Builder()
                 .url(fullUrl)
@@ -206,7 +232,7 @@ public class BinanceClient {
 
         try (Response response = httpClient.newCall(request).execute()) {
             String body = response.body() != null ? response.body().string() : "";
-            log.info("[Binance] 잔고 조회 status={}, body 앞 200자: {}",
+            log.debug("[Binance] 잔고 조회 status={}, body 앞 200자: {}",
                     response.code(), body.length() > 200 ? body.substring(0, 200) + "..." : body);
             if (!response.isSuccessful()) {
                 throw new RuntimeException("status=" + response.code());
@@ -268,7 +294,7 @@ public class BinanceClient {
             LocalDateTime tradedAt = Instant.ofEpochMilli(t.time)
                     .atZone(ZoneId.of("Asia/Seoul")).toLocalDateTime();
             return new NormalizedTrade(
-                    String.valueOf(t.id),
+                    t.symbol + ":" + t.id,
                     t.symbol,
                     side,
                     t.qty,

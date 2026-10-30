@@ -1,0 +1,3 @@
+ALTER TABLE exchange_keys ALTER COLUMN api_key TYPE VARCHAR(2048);
+ALTER TABLE exchange_keys ALTER COLUMN secret_key TYPE VARCHAR(2048);
+ALTER TABLE exchange_keys ALTER COLUMN passphrase TYPE VARCHAR(2048);

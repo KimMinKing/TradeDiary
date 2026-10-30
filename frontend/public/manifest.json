@@ -8,11 +8,8 @@
   "theme_color": "#9d6ff7",
   "orientation": "portrait",
   "icons": [
-    {
-      "src": "/favicon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
-    }
+    { "src": "/logo/T_logo.ico", "sizes": "any", "type": "image/x-icon" },
+    { "src": "/logo/T_logo_256.png", "sizes": "256x256", "type": "image/png" },
+    { "src": "/logo/T_logo_512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }

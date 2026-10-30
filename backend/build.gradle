@@ -13,6 +13,10 @@ java {
     sourceCompatibility = JavaVersion.VERSION_17
 }
 
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
 configurations {
     compileOnly {
         extendsFrom annotationProcessor
@@ -26,6 +30,9 @@ repositories {
 dependencies {
     // Spring Web
     implementation 'org.springframework.boot:spring-boot-starter-web'
+
+    // WebSocket (실시간 알림용)
+    implementation 'org.springframework.boot:spring-boot-starter-websocket'
 
     // Spring Security
     implementation 'org.springframework.boot:spring-boot-starter-security'
@@ -41,6 +48,9 @@ dependencies {
 
     // PostgreSQL
     runtimeOnly 'org.postgresql:postgresql'
+
+    // DB 스키마 버전 관리
+    implementation 'org.flywaydb:flyway-core'
 
     // JWT
     implementation 'io.jsonwebtoken:jjwt-api:0.12.3'
@@ -66,8 +76,31 @@ dependencies {
     // Test
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.security:spring-security-test'
+    testImplementation 'com.squareup.okhttp3:mockwebserver:4.12.0'
 }
 
 tasks.named('test') {
     useJUnitPlatform()
+    useJUnitPlatform {
+        excludeTags 'migration'
+    }
+}
+
+tasks.register('migrationTest', Test) {
+    description = 'PostgreSQL 컨테이너에서 Flyway 마이그레이션을 검증합니다.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'migration'
+    }
+    shouldRunAfter tasks.named('test')
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('migrationTest')
+}
+
+tasks.named('bootRun') {
+    systemProperty 'spring.profiles.active', System.getProperty('spring.profiles.active', 'local')
 }

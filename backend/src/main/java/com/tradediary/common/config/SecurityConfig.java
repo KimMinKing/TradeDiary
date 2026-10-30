@@ -4,6 +4,7 @@ package com.tradediary.common.config;
 
 import com.tradediary.common.security.GoogleOAuth2UserService;
 import com.tradediary.common.security.JwtFilter;
+import com.tradediary.common.security.ApiNoStoreFilter;
 import com.tradediary.common.security.OAuth2SuccessHandler;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -27,6 +28,7 @@ import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 public class SecurityConfig {
 
     private final JwtFilter jwtFilter;
+    private final ApiNoStoreFilter apiNoStoreFilter;
     private final GoogleOAuth2UserService googleOAuth2UserService;
     private final OAuth2SuccessHandler oAuth2SuccessHandler;
 
@@ -42,9 +44,13 @@ public class SecurityConfig {
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
                 .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/api/health").permitAll()
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/api/exchange-rate").permitAll()
+                        .requestMatchers("/api/market/**").permitAll()
                         .requestMatchers("/oauth2/**", "/login/oauth2/**").permitAll()
+                        // WebSocket/SockJS 핸드셰이크 경로 — 인증은 HandshakeInterceptor가 쿼리 파라미터 token으로 처리
+                        .requestMatchers("/ws/**", "/ws").permitAll()
                         .anyRequest().authenticated()
                 )
                 .oauth2Login(oauth2 -> oauth2
@@ -61,6 +67,7 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/api/**")
                         )
                 )
+                .addFilterBefore(apiNoStoreFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();

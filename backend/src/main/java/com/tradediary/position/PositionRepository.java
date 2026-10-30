@@ -24,6 +24,9 @@ public interface PositionRepository extends JpaRepository<Position, Long> {
     // [용도] 사용자 포지션 전체 조회 (최신순) / [호출] PositionController, UserService, StatsService
     List<Position> findByUserIdOrderByClosedAtDesc(Long userId);
 
+    @Query("SELECT p FROM Position p JOIN FETCH p.user WHERE p.user.id IN :userIds ORDER BY p.closedAt DESC")
+    List<Position> findFeedPositions(@Param("userIds") List<Long> userIds);
+
     // [용도] 특정 거래소 포지션 조회 (최신순) / [호출] PositionController.getPositions()
     List<Position> findByUserIdAndExchangeOrderByClosedAtDesc(Long userId, ExchangeKey.Exchange exchange);
 
@@ -32,6 +35,12 @@ public interface PositionRepository extends JpaRepository<Position, Long> {
     List<Position> findByUserIdAndClosedAtBetween(@Param("userId") Long userId,
                                                    @Param("from") LocalDateTime from,
                                                    @Param("to") LocalDateTime to);
+
+    @Query("SELECT p FROM Position p WHERE p.user.id = :userId AND p.exchange = :exchange AND p.closedAt >= :from AND p.closedAt < :to ORDER BY p.closedAt DESC")
+    List<Position> findByUserIdAndExchangeAndClosedAtBetween(@Param("userId") Long userId,
+                                                              @Param("exchange") ExchangeKey.Exchange exchange,
+                                                              @Param("from") LocalDateTime from,
+                                                              @Param("to") LocalDateTime to);
 
     // [용도] 이번 달 랭킹용 전체 유저 포지션 월간 집계 / [호출] RankingService
     @Query("SELECT p FROM Position p WHERE p.closedAt >= :from AND p.closedAt < :to ORDER BY p.user.id, p.closedAt DESC")
@@ -46,4 +55,8 @@ public interface PositionRepository extends JpaRepository<Position, Long> {
     List<Position> findByUserIdAndClosedAtRange(@Param("userId") Long userId,
                                                  @Param("from") LocalDateTime from,
                                                  @Param("to") LocalDateTime to);
+
+    // [용도] 특정 거래 ID로 포지션 조회 / [호출] TradeJournalService
+    @Query("SELECT p FROM Position p WHERE p.trade.id = :tradeId")
+    Position findByTradeId(@Param("tradeId") Long tradeId);
 }

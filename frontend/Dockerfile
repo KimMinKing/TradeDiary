@@ -7,7 +7,7 @@ WORKDIR /app
 
 # 의존성 캐시 최적화
 COPY package*.json ./
-RUN npm install
+RUN npm ci
 
 COPY . .
 

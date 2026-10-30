@@ -1,0 +1,88 @@
+/* 거래 동기화 버튼 스타일 */
+.trade-sync-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sync-button {
+  background: #9d6ff7;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sync-button:hover:not(:disabled) {
+  background: #8b5cf6;
+  transform: translateY(-1px);
+}
+
+.sync-button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.sync-button.syncing {
+  background: #6b7280;
+  cursor: not-allowed;
+}
+
+.sync-button.syncing:hover {
+  background: #4b5563;
+}
+
+/* 동기화 중 스피너 */
+.sync-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 동기화 정보 */
+.sync-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  background: #f3f4f6;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.sync-count {
+  color: #059669;
+  font-weight: 600;
+}
+
+.sync-time {
+  color: #6b7280;
+}
+
+.sync-error {
+  color: #b42318;
+  font-size: 12px;
+}
+
+/* 반응형 */
+@media (max-width: 640px) {
+  .sync-button {
+    padding: 6px 12px;
+    font-size: 13px;
+  }
+}

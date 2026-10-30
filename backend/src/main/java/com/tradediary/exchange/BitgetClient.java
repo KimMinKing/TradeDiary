@@ -9,6 +9,7 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import com.tradediary.trade.TradeSide;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.Mac;
@@ -29,10 +30,14 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class BitgetClient {
 
-    private static final String BASE_URL = "https://api.bitget.com";
+    @Value("${bitget.base-url:https://api.bitget.com}")
+    private String baseUrl = "https://api.bitget.com";
     // V2 Classic Account: USDT 선물
     private static final String PRODUCT_TYPE = "USDT-FUTURES";
     private static final int PAGE_SIZE = 100;
+    private static final int WINDOW_DAYS = 14;
+    private static final long PAGE_DELAY_MS = 200L;
+    private static final long WINDOW_DELAY_MS = 300L;
 
     private final OkHttpClient httpClient = new OkHttpClient();
     private final Gson gson = new Gson();
@@ -40,14 +45,13 @@ public class BitgetClient {
     // [용도] Bitget 선물 체결 내역 전체 조회 (90일 슬라이딩 윈도우) / [호출] TradeService.syncBitgetTrades()
     // startTime: 초기 동기화 = 1년 전, 증분 동기화 = DB 마지막 거래 시각
     public List<BitgetOrder> getOrders(String apiKey, String secretKey, String passphrase, LocalDateTime startTime) {
-        log.info("[Bitget] API Key 앞 6자리: {}...", apiKey.length() > 6 ? apiKey.substring(0, 6) : apiKey);
 
         LocalDateTime now = LocalDateTime.now(ZoneId.of("Asia/Seoul"));
         // Bitget 최대 조회 범위: 90일
         LocalDateTime cutoff = now.minusDays(90);
         if (startTime.isBefore(cutoff)) {
             startTime = cutoff;
-            log.info("[Bitget] startTime을 90일 전으로 조정: {}", startTime);
+            log.debug("[Bitget] startTime을 90일 전으로 조정: {}", startTime);
         }
 
         List<BitgetOrder> result = new ArrayList<>();
@@ -55,7 +59,7 @@ public class BitgetClient {
 
         while (windowStart.isBefore(now)) {
             // 7일 슬라이딩 윈도우 (API rate limit 고려)
-            LocalDateTime windowEnd = windowStart.plusDays(7);
+            LocalDateTime windowEnd = windowStart.plusDays(WINDOW_DAYS);
             if (windowEnd.isAfter(now)) windowEnd = now;
 
             long startMs = toEpochMilli(windowStart);
@@ -64,30 +68,25 @@ public class BitgetClient {
             String idLessThan = null;
 
             while (true) {
-                BitgetOrderPage page;
-                try {
-                    page = fetchPage(apiKey, secretKey, passphrase, startMs, endMs, idLessThan);
-                } catch (RuntimeException e) {
-                    log.error("[Bitget] 동기화 중단: {}", e.getMessage());
-                    return result;
-                }
+                BitgetOrderPage page = fetchPage(apiKey, secretKey, passphrase, startMs, endMs, idLessThan);
 
-                if (page == null || page.orders().isEmpty()) break;
+                if (page.orders().isEmpty()) break;
 
                 result.addAll(page.orders());
 
                 if (page.endId() == null || page.endId().isBlank()) break;
 
                 idLessThan = page.endId();
-                try { TimeUnit.MILLISECONDS.sleep(50); } catch (InterruptedException ignored) {}
+                try { TimeUnit.MILLISECONDS.sleep(PAGE_DELAY_MS); } catch (InterruptedException ignored) {}
             }
 
             windowStart = windowEnd;
-            try { TimeUnit.MILLISECONDS.sleep(50); } catch (InterruptedException ignored) {}
+            try { TimeUnit.MILLISECONDS.sleep(WINDOW_DELAY_MS); } catch (InterruptedException ignored) {}
         }
 
-        log.info("[Bitget] 전체 조회 완료: {}건", result.size());
-        return result;
+        List<BitgetOrder> merged = mergeFills(result);
+        log.info("[Bitget] 전체 조회 완료: {}건", merged.size());
+        return merged;
     }
 
     // [용도] 단일 페이지 API 호출 (V2 fills) / [호출] getOrders()
@@ -107,7 +106,7 @@ public class BitgetClient {
         String signature = sign(secretKey, timestamp, "GET", requestPath, qs.toString(), "");
 
         Request request = new Request.Builder()
-                .url(BASE_URL + requestPath + "?" + qs)
+                .url(baseUrl + requestPath + "?" + qs)
                 .get()
                 .addHeader("ACCESS-KEY", apiKey)
                 .addHeader("ACCESS-SIGN", signature)
@@ -120,7 +119,7 @@ public class BitgetClient {
         try (Response response = httpClient.newCall(request).execute()) {
             String body = response.body().string();
             // 디버깅용: 응답 바디 전체 로그 (오류 발생 시 필드명 확인용)
-            log.info("[Bitget] HTTP {}, body: {}",
+            log.debug("[Bitget] HTTP {}, body: {}",
                     response.code(), body.length() > 500 ? body.substring(0, 500) + "..." : body);
 
             JsonObject json = gson.fromJson(body, JsonObject.class);
@@ -169,14 +168,12 @@ public class BitgetClient {
                 }
             }
 
-            // 같은 orderId의 부분 체결(fill)을 하나의 주문으로 합산
-            List<BitgetOrder> merged = mergeFills(orders);
-            return new BitgetOrderPage(merged, endId);
+            return new BitgetOrderPage(orders, endId);
 
         } catch (Exception e) {
             if (e instanceof RuntimeException re) throw re;
             log.error("[Bitget] 호출 실패: {}", e.getMessage());
-            return null;
+            throw new RuntimeException("Bitget order request failed", e);
         }
     }
 
@@ -252,7 +249,7 @@ public class BitgetClient {
                         .add(new BigDecimal(fill.fee != null ? fill.fee : "0"))
                         .toPlainString();
                 totalQtyMap.put(key, newQty);
-                log.info("[Bitget MERGE] orderId={} fill합산 qty={}", key, newQty);
+                log.debug("[Bitget MERGE] orderId={} fill합산 qty={}", key, newQty);
             }
         }
         return new java.util.ArrayList<>(map.values());
@@ -285,12 +282,13 @@ public class BitgetClient {
 
     // [용도] 현재 보유 자산 조회 (스팟 계정) / [호출] BalanceService.getBitgetBalance()
     public List<BitgetBalance> getBalance(String apiKey, String secretKey, String passphrase) {
-        String requestPath = "/api/v2/spot/account/assets";
+        String requestPath = "/api/v2/mix/account/accounts";
+        String queryString = "productType=" + PRODUCT_TYPE;
         String timestamp = String.valueOf(System.currentTimeMillis());
-        String signature = sign(secretKey, timestamp, "GET", requestPath, "", "");
+        String signature = sign(secretKey, timestamp, "GET", requestPath, queryString, "");
 
         Request request = new Request.Builder()
-                .url(BASE_URL + requestPath)
+                .url(baseUrl + requestPath + "?" + queryString)
                 .get()
                 .addHeader("ACCESS-KEY", apiKey)
                 .addHeader("ACCESS-SIGN", signature)
@@ -302,7 +300,7 @@ public class BitgetClient {
 
         try (Response response = httpClient.newCall(request).execute()) {
             String body = response.body().string();
-            log.info("[Bitget] 잔고 조회 status={}, body 앞 200자: {}",
+            log.debug("[Bitget] 잔고 조회 status={}, body 앞 200자: {}",
                     response.code(), body.length() > 200 ? body.substring(0, 200) + "..." : body);
 
             JsonObject json = gson.fromJson(body, JsonObject.class);
@@ -316,21 +314,91 @@ public class BitgetClient {
             if (json.has("data") && !json.get("data").isJsonNull()) {
                 for (var elem : json.getAsJsonArray("data")) {
                     JsonObject asset = elem.getAsJsonObject();
-                    String available = getStr(asset, "available");
-                    String frozen = getStr(asset, "frozen");
+                    String available = firstNonNull(asset, "available", "availableBalance", "maxOpenPosAvailable");
+                    String frozen = firstNonNull(asset, "locked", "frozen", "lockedAmount");
+                    String equity = firstNonNull(asset, "equity", "usdtEquity", "accountEquity");
                     try {
-                        BigDecimal total = new BigDecimal(available != null ? available : "0")
+                        BigDecimal total = equity != null
+                                ? new BigDecimal(equity)
+                                : new BigDecimal(available != null ? available : "0")
                                 .add(new BigDecimal(frozen != null ? frozen : "0"));
                         if (total.compareTo(BigDecimal.ZERO) == 0) continue;
                     } catch (NumberFormatException ignored) { continue; }
                     BitgetBalance b = new BitgetBalance();
-                    b.coin = getStr(asset, "coin");
+                    b.coin = firstNonNull(asset, "marginCoin", "coin", "asset");
                     b.available = available;
                     b.frozen = frozen;
+                    b.equity = equity;
                     balances.add(b);
                 }
             }
             return balances;
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException(e.getMessage(), e);
+        }
+    }
+
+    public List<BitgetPosition> getPositions(String apiKey, String secretKey, String passphrase) {
+        String requestPath = "/api/v2/mix/position/all-position";
+        String queryString = "productType=" + PRODUCT_TYPE;
+        String timestamp = String.valueOf(System.currentTimeMillis());
+        String signature = sign(secretKey, timestamp, "GET", requestPath, queryString, "");
+
+        Request request = new Request.Builder()
+                .url(baseUrl + requestPath + "?" + queryString)
+                .get()
+                .addHeader("ACCESS-KEY", apiKey)
+                .addHeader("ACCESS-SIGN", signature)
+                .addHeader("ACCESS-TIMESTAMP", timestamp)
+                .addHeader("ACCESS-PASSPHRASE", passphrase != null ? passphrase : "")
+                .addHeader("Content-Type", "application/json")
+                .addHeader("locale", "en-US")
+                .build();
+
+        try (Response response = httpClient.newCall(request).execute()) {
+            String body = response.body().string();
+            log.debug("[Bitget] 포지션 조회 status={}, body 앞 200자: {}",
+                    response.code(), body.length() > 200 ? body.substring(0, 200) + "..." : body);
+
+            JsonObject json = gson.fromJson(body, JsonObject.class);
+            String code = json.has("code") ? json.get("code").getAsString() : "";
+            if (!"00000".equals(code)) {
+                String msg = json.has("msg") ? json.get("msg").getAsString() : "";
+                throw new RuntimeException("code=" + code + ": " + msg);
+            }
+
+            List<BitgetPosition> positions = new ArrayList<>();
+            if (json.has("data") && !json.get("data").isJsonNull()) {
+                for (var elem : json.getAsJsonArray("data")) {
+                    JsonObject position = elem.getAsJsonObject();
+                    String total = firstNonNull(position, "total", "available");
+                    try {
+                        if (total == null || new BigDecimal(total).compareTo(BigDecimal.ZERO) == 0) {
+                            continue;
+                        }
+                    } catch (NumberFormatException ignored) {
+                        continue;
+                    }
+
+                    BitgetPosition p = new BitgetPosition();
+                    p.symbol = getStr(position, "symbol");
+                    p.marginCoin = getStr(position, "marginCoin");
+                    p.holdSide = getStr(position, "holdSide");
+                    p.total = total;
+                    p.available = getStr(position, "available");
+                    p.locked = getStr(position, "locked");
+                    p.leverage = getStr(position, "leverage");
+                    p.openPriceAvg = getStr(position, "openPriceAvg");
+                    p.markPrice = getStr(position, "markPrice");
+                    p.unrealizedPL = getStr(position, "unrealizedPL");
+                    p.marginMode = getStr(position, "marginMode");
+                    p.liquidationPrice = getStr(position, "liquidationPrice");
+                    positions.add(p);
+                }
+            }
+            return positions;
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
@@ -343,6 +411,22 @@ public class BitgetClient {
         public String coin;
         public String available;
         public String frozen;
+        public String equity;
+    }
+
+    public static class BitgetPosition {
+        public String symbol;
+        public String marginCoin;
+        public String holdSide;
+        public String total;
+        public String available;
+        public String locked;
+        public String leverage;
+        public String openPriceAvg;
+        public String markPrice;
+        public String unrealizedPL;
+        public String marginMode;
+        public String liquidationPrice;
     }
 
     // Bitget 체결 응답 DTO

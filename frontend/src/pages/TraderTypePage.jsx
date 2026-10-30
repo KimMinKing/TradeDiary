@@ -1,149 +1,44 @@
-// [파일 용도] 트레이더 유형 분석 결과 표시 페이지
-
 import { useEffect, useState } from 'react';
-import { getTraderType } from '../api/exchangeApi';
+import { getTraderType, getTraderTypeAdvice, refreshTraderTypeAdvice } from '../api/exchangeApi';
+import { useNavigate } from 'react-router-dom';
 
-// [컴포넌트] 포지션 데이터 기반 트레이더 유형 분석 카드 / [호출] App.jsx > /trader-type, StatsPage (embedded)
+const TYPES = {
+  FOCUSED: ['Focused Trader', 'FC', 'Trades two or fewer symbols', 'Deep familiarity with a small set of markets.', 'Concentration can amplify symbol-specific risk.'],
+  DIVERSIFIED: ['Diversified Trader', 'DV', 'Trades ten or more symbols', 'Finds opportunities across multiple markets.', 'Broad coverage can reduce depth of analysis.'],
+  SCALPER: ['Scalper', 'SC', 'Average hold under two hours', 'Fast execution and short exposure windows.', 'Fees and overtrading require close control.'],
+  DAY_TRADER: ['Day Trader', 'DT', 'Average hold from 2 to 24 hours', 'Closes risk within the trading day.', 'Requires sustained attention during sessions.'],
+  SWING_TRADER: ['Swing Trader', 'SW', 'Average hold from 1 to 14 days', 'Captures medium-term price movement.', 'Positions remain exposed to overnight events.'],
+  POSITION_TRADER: ['Position Trader', 'PT', 'Average hold over 14 days', 'Targets long-duration market trends.', 'Capital stays committed through larger swings.'],
+};
+
 const TraderTypePage = ({ embedded = false }) => {
-  const [data, setData]   = useState(null);
+  const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [advice, setAdvice] = useState(null);
+  const [guide, setGuide] = useState(false);
+  const navigate = useNavigate();
+  const loadAdvice = refresh => (refresh ? refreshTraderTypeAdvice() : getTraderTypeAdvice()).then(response => setAdvice(response.data)).catch(() => setAdvice(null));
 
-  useEffect(() => {
-    getTraderType()
-      .then(res => setData(res.data))
-      .catch(() => setData(null))
-      .finally(() => setLoading(false));
-  }, []);
+  useEffect(() => { getTraderType().then(response => setData(response.data)).catch(() => setData(null)).finally(() => setLoading(false)); }, []);
+  useEffect(() => { if (data?.type_code && data.type_code !== 'UNKNOWN') loadAdvice(false); }, [data]);
+  if (loading) return <div className={embedded ? '' : 'page'} style={{ padding: 40, color: 'var(--text-muted)' }}>Analyzing current performance...</div>;
 
-  const curr = localStorage.getItem('displayCurrency') || 'KRW';
-  const fmtPnl = (v) => {
-    if (v === 0) return '—';
-    const sign = v > 0 ? '+' : '';
-    return curr === 'KRW'
-      ? `${sign}${(v * 1350).toLocaleString('ko-KR', { maximumFractionDigits: 0 })}원`
-      : `${sign}${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT`;
-  };
-
-  if (loading) {
-    return (
-      <div className={embedded ? '' : 'page-container'} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '300px' }}>
-        <div style={{ color: 'var(--text-secondary)', fontSize: '0.95rem' }}>분석 중...</div>
-      </div>
-    );
-  }
-
-  const isUnknown = !data || data.type_code === 'UNKNOWN';
-
-  return (
-    <div className={embedded ? '' : 'page-container'}>
-      <h1 className="page-title">나의 트레이더 유형</h1>
-
-      {isUnknown ? (
-        <div className="card" style={{ textAlign: 'center', padding: '48px 24px' }}>
-          <div style={{ fontSize: '3rem', marginBottom: '16px' }}>⏳</div>
-          <div style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '8px', color: 'var(--text-primary)' }}>
-            아직 데이터가 부족해요
-          </div>
-          <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-            포지션이 5건 이상 쌓이면 트레이더 유형을 분석해드릴게요.
-          </div>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-
-          {/* 유형 메인 카드 */}
-          <div className="card" style={{
-            background: 'linear-gradient(135deg, var(--bg-card) 0%, var(--bg-secondary) 100%)',
-            border: '2px solid var(--accent)',
-            padding: '32px 24px',
-            textAlign: 'center',
-          }}>
-            <div style={{ fontSize: '4rem', marginBottom: '16px' }}>{data.icon}</div>
-            <div style={{
-              fontSize: '1.6rem',
-              fontWeight: 700,
-              color: 'var(--accent)',
-              marginBottom: '12px',
-            }}>
-              {data.type_name}
-            </div>
-            <div style={{
-              color: 'var(--text-secondary)',
-              fontSize: '0.95rem',
-              lineHeight: 1.6,
-              maxWidth: '480px',
-              margin: '0 auto',
-            }}>
-              {data.description}
-            </div>
-          </div>
-
-          {/* 강점 / 약점 */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-            <div className="card" style={{ borderLeft: '3px solid #f87171' }}>
-              <div style={{ fontSize: '0.75rem', color: '#f87171', fontWeight: 600, marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                강점
-              </div>
-              <div style={{ color: 'var(--text-primary)', fontSize: '0.9rem', lineHeight: 1.5 }}>
-                {data.strength}
-              </div>
-            </div>
-            <div className="card" style={{ borderLeft: '3px solid #60a5fa' }}>
-              <div style={{ fontSize: '0.75rem', color: '#60a5fa', fontWeight: 600, marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                약점
-              </div>
-              <div style={{ color: 'var(--text-primary)', fontSize: '0.9rem', lineHeight: 1.5 }}>
-                {data.weakness}
-              </div>
-            </div>
-          </div>
-
-          {/* 분석 통계 */}
-          <div className="card">
-            <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 600, marginBottom: '16px' }}>
-              분석 기반 통계
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '16px' }}>
-              <StatItem label="총 포지션" value={`${data.stats?.total_positions ?? 0}건`} />
-              <StatItem label="평균 보유시간"
-                value={formatHours(data.stats?.avg_hold_hours ?? 0)} />
-              <StatItem label="거래 종목 수" value={`${data.stats?.unique_symbols ?? 0}개`} />
-              <StatItem label="전체 승률"
-                value={`${data.stats?.win_rate ?? 0}%`}
-                color={data.stats?.win_rate >= 50 ? '#f87171' : '#60a5fa'} />
-              <StatItem label="평균 손익"
-                value={fmtPnl(data.stats?.avg_pnl_per_trade ?? 0)}
-                color={data.stats?.avg_pnl_per_trade >= 0 ? '#f87171' : '#60a5fa'} />
-            </div>
-          </div>
-
-          {/* 유형 안내 */}
-          <div className="card" style={{ background: 'var(--bg-secondary)' }}>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.7 }}>
-              💡 트레이더 유형은 <strong>평균 포지션 보유 시간</strong>과 <strong>거래 종목 다양성</strong>을 기반으로 분류됩니다.
-              포지션이 쌓일수록 분석이 더 정확해집니다.
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+  const unknown = !data || data.type_code === 'UNKNOWN';
+  const type = TYPES[data?.type_code];
+  return <section className={embedded ? 'trader-profile-module' : 'page trader-profile-module'}>
+    <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}><div><span style={eyebrow}>BEHAVIOR PROFILE</span><h2 style={{ margin: '5px 0 0', fontSize: 22 }}>Trader profile</h2></div><button style={outlineButton} onClick={() => setGuide(value => !value)}>{guide ? 'Close guide' : 'Explore profiles'}</button></header>
+    {unknown ? <div className="card" style={{ padding: 30 }}><b>No trader profile yet</b><p style={muted}>A profile is calculated only from your current performance data. Complete at least five closed positions to unlock it. Any older cached profile has been removed.</p><div style={{ marginTop: 16, height: 5, background: '#e7edf3' }}><div style={{ width: `${Math.min((data?.stats?.total_positions ?? 0) / 5 * 100, 100)}%`, height: '100%', background: '#3474b7' }} /></div><small style={muted}>{data?.stats?.total_positions ?? 0} / 5 closed positions</small><div style={{display:'flex',gap:7,marginTop:18}}><button style={outlineButton} onClick={()=>navigate('/settings?tab=connections')}>Connect exchange</button><button style={outlineButton} onClick={()=>navigate('/positions?tab=trades')}>Sync executions</button></div></div> : <>
+      <div className="card" style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: 18, padding: 24 }}><div style={typeBadge}>{type?.[1]}</div><div><h3 style={{ margin: 0 }}>{type?.[0]}</h3><p style={muted}>{type?.[2]}</p><div style={{ display: 'flex', gap: 24, marginTop: 15 }}><Metric label="Positions" value={data.stats?.total_positions} /><Metric label="Win rate" value={`${data.stats?.win_rate ?? 0}%`} /><Metric label="Avg. hold" value={`${data.stats?.avg_hold_hours ?? 0}h`} /><Metric label="Symbols" value={data.stats?.unique_symbols} /></div></div></div>
+      <div className="card" style={{ marginTop: 12, padding: 22 }}><div style={{ display: 'flex', justifyContent: 'space-between' }}><b>AI coaching</b><button style={outlineButton} onClick={() => loadAdvice(true)}>Refresh</button></div><p style={{ ...muted, whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>{advice?.advice || advice?.advice_text || 'Coaching will appear when the analysis service is available.'}</p></div>
+    </>}
+    {guide && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 10, marginTop: 16 }}>{Object.entries(TYPES).map(([code, item]) => <div className="card" key={code} style={{ padding: 17 }}><span style={eyebrow}>{item[1]} · {item[2]}</span><h3 style={{ margin: '7px 0' }}>{item[0]}</h3><p style={muted}><b>Strength:</b> {item[3]}</p><p style={muted}><b>Watch:</b> {item[4]}</p></div>)}</div>}
+  </section>;
 };
 
-// [컴포넌트] 통계 항목 카드 / [호출] TraderTypePage
-const StatItem = ({ label, value, color }) => (
-  <div style={{ textAlign: 'center' }}>
-    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '4px' }}>{label}</div>
-    <div style={{ fontSize: '1.1rem', fontWeight: 700, color: color || 'var(--text-primary)' }}>{value}</div>
-  </div>
-);
-
-// [용도] 시간 단위 포맷 변환 / [호출] TraderTypePage
-const formatHours = (hours) => {
-  if (hours < 1) return `${Math.round(hours * 60)}분`;
-  if (hours < 24) return `${Math.round(hours)}시간`;
-  const days = Math.round(hours / 24);
-  return `${days}일`;
-};
+const Metric = ({ label, value }) => <span><small style={{ display: 'block', color: '#8392a2', fontSize: 9, textTransform: 'uppercase' }}>{label}</small><b style={{ fontSize: 14 }}>{value ?? 0}</b></span>;
+const eyebrow = { color: '#59789a', fontSize: 9, fontWeight: 800, letterSpacing: '.15em' };
+const muted = { color: 'var(--text-secondary)', fontSize: 12, lineHeight: 1.55 };
+const outlineButton = { padding: '7px 11px', border: '1px solid #cbd7e3', color: '#3c638c', background: '#fff', fontSize: 10, fontWeight: 700, cursor: 'pointer' };
+const typeBadge = { display: 'grid', placeItems: 'center', width: 62, height: 62, color: '#fff', background: '#244e7a', fontWeight: 900, letterSpacing: '.08em' };
 
 export default TraderTypePage;

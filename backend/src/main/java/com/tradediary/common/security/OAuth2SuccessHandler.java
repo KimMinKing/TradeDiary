@@ -52,9 +52,11 @@ public class OAuth2SuccessHandler implements AuthenticationSuccessHandler {
                 .expiresAt(LocalDateTime.now().plusSeconds(refreshTokenExpiration / 1000))
                 .build());
 
+        // URL fragment는 브라우저가 서버 요청·Referer에 포함하지 않아 토큰 노출 범위를 줄인다.
         String redirectUrl = frontendUrl + "/oauth/callback"
-                + "?access_token=" + accessToken
-                + "&refresh_token=" + refreshToken;
+                + "#access_token=" + accessToken
+                + "&refresh_token=" + refreshToken
+                + "&user_id=" + userId;
 
         response.sendRedirect(redirectUrl);
     }

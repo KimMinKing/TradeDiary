@@ -1,10 +1,12 @@
-// [파일 용도] 코인 뉴스 페이지 (CryptoCompare 원문 영어 기사 + 오늘의 AI 시장 요약)
+// [파일 용도] Asset 뉴스 페이지 (CryptoCompare  KRW문 영어 기사 + Today의 AI 시장 요약)
 
 import { useState, useEffect, useCallback } from 'react';
 import { getNews, getNewsSummary, refreshNewsSummary } from '../api/newsApi';
+import MarkdownContent from '../components/MarkdownContent';
+import usePreferredLanguage from '../hooks/usePreferredLanguage';
 
 const CATEGORIES = [
-  { value: 'all',        label: '전체' },
+  { value: 'all',        label: 'All' },
   { value: 'BTC',        label: '₿ Bitcoin' },
   { value: 'ETH',        label: '⟠ Ethereum' },
   { value: 'Market',     label: '📈 Market' },
@@ -19,14 +21,15 @@ const timeAgoFromUnix = (unix) => {
   const mins  = Math.floor(diff / 60000);
   const hours = Math.floor(diff / 3600000);
   const days  = Math.floor(diff / 86400000);
-  if (mins  < 1)  return '방금 전';
-  if (mins  < 60) return `${mins}분 전`;
-  if (hours < 24) return `${hours}시간 전`;
-  return `${days}일 전`;
+  if (mins  < 1)  return 'Just now';
+  if (mins  < 60) return `${mins}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  return `${days}d ago`;
 };
 
-// [컴포넌트] 코인 뉴스 페이지 / [호출] App.jsx 라우터
+// [컴포넌트] Asset 뉴스 페이지 / [호출] App.jsx 라우터
 const NewsPage = () => {
+  const language = usePreferredLanguage();
   const [category,   setCategory]   = useState('all');
   const [posts,      setPosts]      = useState([]);
   const [loading,    setLoading]    = useState(true);
@@ -34,7 +37,7 @@ const NewsPage = () => {
   const [summary,    setSummary]    = useState(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  // [용도] 원문 기사 조회 / [호출] 카테고리 변경, 마운트
+  // [용도]  KRW문 기사 조회 / [호출] 카테고리 변경, 마운트
   const fetchNews = useCallback(async (cat) => {
     try {
       setLoading(true);
@@ -42,7 +45,7 @@ const NewsPage = () => {
       const res = await getNews(cat);
       setPosts(res.data || []);
     } catch {
-      setError('뉴스를 불러오지 못했습니다.');
+      setError('Could not load market news.');
     } finally {
       setLoading(false);
     }
@@ -53,7 +56,7 @@ const NewsPage = () => {
     try {
       const res = await getNewsSummary();
       if (res.data?.summary_ko) setSummary(res.data);
-    } catch {}
+    } catch { /* Summary is optional; news remains usable without it. */ }
   }, []);
 
   useEffect(() => {
@@ -67,7 +70,7 @@ const NewsPage = () => {
     try {
       const res = await refreshNewsSummary();
       if (res.data?.summary_ko) setSummary(res.data);
-    } catch {}
+    } catch { /* Keep the previous summary on refresh failure. */ }
     setRefreshing(false);
   };
 
@@ -76,8 +79,8 @@ const NewsPage = () => {
       {/* ── 헤더 ── */}
       <div className="news-header">
         <div>
-          <h1 className="news-title">코인 뉴스</h1>
-          <span className="news-last-update">CryptoCompare 실시간 영문 기사</span>
+          <h1 className="news-title">Market News</h1>
+          <span className="news-last-update">Live English coverage from CryptoCompare</span>
         </div>
       </div>
 
@@ -85,7 +88,7 @@ const NewsPage = () => {
       {summary?.summary_ko && (
         <div className="news-summary-card">
           <div className="news-summary-header">
-            <span className="news-summary-label">✦ 오늘의 AI 시장 요약</span>
+            <span className="news-summary-label">{language === 'ko' ? '✦ 오늘의 AI 시장 요약' : "✦ Today's AI market brief"}</span>
             <button
               className="btn btn-ghost btn-xs"
               onClick={handleRefreshSummary}
@@ -95,13 +98,13 @@ const NewsPage = () => {
               {refreshing ? '생성 중...' : '↺ 새로고침'}
             </button>
           </div>
-          <p className="news-summary-text">{summary.summary_ko}</p>
+          <MarkdownContent className="news-summary-text">{summary.summary_ko}</MarkdownContent>
           {summary.updated_at && (
             <span className="news-summary-time">
               {new Date(summary.updated_at).toLocaleString('ko-KR', {
                 month: 'numeric', day: 'numeric',
                 hour: '2-digit', minute: '2-digit',
-              })} 기준
+            })}
             </span>
           )}
         </div>
@@ -124,12 +127,12 @@ const NewsPage = () => {
       {loading ? (
         <div className="news-loading">
           <div className="news-spinner" />
-          <span>불러오는 중…</span>
+            <span>Loading…</span>
         </div>
       ) : error ? (
         <div className="news-error">{error}</div>
       ) : posts.length === 0 ? (
-        <div className="news-empty">뉴스가 없습니다.</div>
+          <div className="news-empty">No news is available.</div>
       ) : (
         <div className="news-list">
           {posts.map((post) => (

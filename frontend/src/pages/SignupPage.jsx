@@ -1,10 +1,10 @@
-// [파일 용도] 회원가입 페이지
+// [파일 용도] Create account 페이지
 
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { signup } from '../api/authApi';
 
-// [컴포넌트] 이메일/비밀번호/닉네임 회원가입 화면 / [호출] App.jsx 라우터
+// [컴포넌트] 이메일/비밀번호/Display name Create account 화면 / [호출] App.jsx 라우터
 const SignupPage = () => {
   const navigate = useNavigate();
 
@@ -22,7 +22,7 @@ const SignupPage = () => {
       await signup(email, password, nickname);
       navigate('/login', { state: { signedUp: true } });
     } catch (err) {
-      setError(err.response?.data?.message || '회원가입에 실패했습니다.');
+      setError(err.response?.data?.message || 'We could not create your account.');
     } finally {
       setLoading(false);
     }
@@ -32,11 +32,11 @@ const SignupPage = () => {
     <div className="auth-bg">
       <div className="auth-card">
         <div className="auth-logo" style={{ marginBottom: '4px' }}>TradeDiary</div>
-        <p className="auth-subtitle">새 계정 만들기</p>
+        <p className="auth-subtitle">Create your trading workspace</p>
 
         <form className="form" onSubmit={handleSubmit}>
           <div>
-            <label className="input-label">이메일</label>
+            <label className="input-label">Email</label>
             <input
               className="input"
               type="email"
@@ -48,7 +48,7 @@ const SignupPage = () => {
             />
           </div>
           <div>
-            <label className="input-label">비밀번호 (8자 이상)</label>
+            <label className="input-label">Password</label>
             <input
               className="input"
               type="password"
@@ -61,11 +61,11 @@ const SignupPage = () => {
             />
           </div>
           <div>
-            <label className="input-label">닉네임 (2~20자)</label>
+            <label className="input-label">Display name</label>
             <input
               className="input"
               type="text"
-              placeholder="나의 트레이더명"
+              placeholder="Your trader name"
               value={nickname}
               onChange={(e) => setNickname(e.target.value)}
               minLength={2}
@@ -82,14 +82,14 @@ const SignupPage = () => {
             disabled={loading}
             style={{ marginTop: '4px' }}
           >
-            {loading ? '처리 중...' : '회원가입'}
+            {loading ? 'Creating account...' : 'Create account'}
           </button>
         </form>
 
         <p className="auth-footer">
-          이미 계정이 있으신가요?{' '}
+          Already have an account?{' '}
           <Link to="/login" style={{ color: 'var(--accent)', fontWeight: 600 }}>
-            로그인
+            Sign in
           </Link>
         </p>
       </div>

@@ -1,19 +1,26 @@
-// [파일 용도] 매매 일기 작성/수정 모달 컴포넌트
+// [파일 용도] Trading journal 작성/Edit 모달 컴포넌트
 
 import { useState, useEffect } from 'react';
 import { createJournal, updateJournal, createStrategyTag } from '../api/journalApi';
 
 // 감정 선택지
 const EMOTIONS = [
-  { value: 'CALM',      label: '😌 냉정' },
-  { value: 'CONFIDENT', label: '💪 확신' },
-  { value: 'FOMO',      label: '😰 FOMO' },
-  { value: 'GREEDY',    label: '🤑 욕심' },
-  { value: 'FEARFUL',   label: '😨 공포' },
-  { value: 'ANXIOUS',   label: '😟 불안' },
+  { value: 'CALM',      label: '😌 Calm' },
+  { value: 'CONFIDENT', label: '💪 Confident' },
+  { value: 'GREEDY',    label: '🤑 Greedy' },
+  { value: 'FEARFUL',   label: '😨 Fearful' },
+  { value: 'ANXIOUS',   label: '😟 Anxious' },
 ];
 
-// [컴포넌트] 일기 작성/수정 모달 / [호출] JournalPage.jsx
+const EMOTION_HELP = {
+  CALM: 'Calm: decisions followed the plan without emotional interference.',
+  CONFIDENT: 'Confident: entry and exit decisions were supported by clear evidence.',
+  GREEDY: 'Greedy: the desire for a larger gain began to influence the decision.',
+  FEARFUL: 'Fearful: loss avoidance made the decision more hesitant.',
+  ANXIOUS: 'Anxious: uncertainty repeatedly affected conviction.',
+};
+
+// [컴포넌트] Journal 작성/Edit 모달 / [호출] JournalPage.jsx
 const JournalFormModal = ({ journal, tags, onClose, onSaved }) => {
   const isEdit = !!journal;
 
@@ -30,8 +37,8 @@ const JournalFormModal = ({ journal, tags, onClose, onSaved }) => {
   const [error, setError]             = useState('');
   const [newTagName, setNewTagName]   = useState('');
   const [newTagColor, setNewTagColor] = useState('#00d4aa');
-  const [allTags, setAllTags]         = useState(tags ?? []);
   const [addingTag, setAddingTag]     = useState(false);
+  const [allTags, setAllTags]         = useState(tags ?? []);
 
   useEffect(() => {
     setAllTags(tags ?? []);
@@ -52,27 +59,29 @@ const JournalFormModal = ({ journal, tags, onClose, onSaved }) => {
     }));
   };
 
-  // [용도] 새 커스텀 태그 생성 후 즉시 선택 / [호출] 태그 추가 버튼
   const handleAddTag = async () => {
-    if (!newTagName.trim()) return;
+    const name = newTagName.trim();
+    if (!name || addingTag) return;
+
     setAddingTag(true);
+    setError('');
     try {
-      const res = await createStrategyTag(newTagName.trim(), newTagColor);
-      const created = res.data;
-      setAllTags((prev) => [...prev, created]);
-      setForm((prev) => ({ ...prev, tagIds: [...prev.tagIds, created.id] }));
+      const response = await createStrategyTag(name, newTagColor);
+      const createdTag = response.data;
+      setAllTags((prev) => [...prev, createdTag]);
+      setForm((prev) => ({ ...prev, tagIds: [...prev.tagIds, createdTag.id] }));
       setNewTagName('');
     } catch {
-      setError('태그 생성 실패');
+      setError('Could not add the tag.');
     } finally {
       setAddingTag(false);
     }
   };
 
-  // [용도] 일기 저장 (작성/수정) / [호출] 저장 버튼
+  // [용도] Journal Save (작성/Edit) / [호출] Save 버튼
   const handleSubmit = async () => {
     if (!form.symbol.trim() && !form.entryReason.trim()) {
-      setError('종목명 또는 진입 이유를 입력해주세요.');
+      setError('Enter a symbol and an entry reason.');
       return;
     }
     setSaving(true);
@@ -93,7 +102,7 @@ const JournalFormModal = ({ journal, tags, onClose, onSaved }) => {
       }
       onSaved();
     } catch {
-      setError('저장 실패. 다시 시도해주세요.');
+      setError('Save failed. Try again.');
     } finally {
       setSaving(false);
     }
@@ -104,18 +113,18 @@ const JournalFormModal = ({ journal, tags, onClose, onSaved }) => {
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         {/* 헤더 */}
         <div className="modal-header">
-          <h2 className="modal-title">{isEdit ? '일기 수정' : '새 매매 일기'}</h2>
+          <h2 className="modal-title">{isEdit ? 'Edit journal' : 'New journal'}</h2>
           <button className="modal-close" onClick={onClose}>✕</button>
         </div>
 
         <div className="modal-body">
-          {/* 종목 */}
+          {/* Symbol */}
           <div className="form-group">
-            <label className="input-label">종목</label>
+            <label className="input-label">Symbol</label>
             <input
               type="text"
               className="input"
-              placeholder="예: BTC-KRW, BTCUSDT"
+              placeholder="e.g. BTC-KRW, BTCUSDT"
               value={form.symbol}
               onChange={(e) => handleChange('symbol', e.target.value)}
             />
@@ -123,7 +132,7 @@ const JournalFormModal = ({ journal, tags, onClose, onSaved }) => {
 
           {/* 감정 선택 */}
           <div className="form-group">
-            <label className="input-label">매매 감정</label>
+            <label className="input-label">Trading emotion</label>
             <div className="emotion-grid">
               {EMOTIONS.map((em) => (
                 <button
@@ -131,6 +140,7 @@ const JournalFormModal = ({ journal, tags, onClose, onSaved }) => {
                   type="button"
                   className={`emotion-btn${form.emotion === em.value ? ' selected' : ''}`}
                   onClick={() => handleChange('emotion', form.emotion === em.value ? '' : em.value)}
+                  title={EMOTION_HELP[em.value]}
                 >
                   {em.label}
                 </button>
@@ -138,25 +148,25 @@ const JournalFormModal = ({ journal, tags, onClose, onSaved }) => {
             </div>
           </div>
 
-          {/* 진입 이유 */}
+          {/* Entry 이유 */}
           <div className="form-group">
-            <label className="input-label">진입 이유</label>
+            <label className="input-label">Entry reason</label>
             <textarea
               className="textarea"
               rows={3}
-              placeholder="왜 매수/진입했나요?"
+              placeholder="Why did you enter?"
               value={form.entryReason}
               onChange={(e) => handleChange('entryReason', e.target.value)}
             />
           </div>
 
-          {/* 청산 이유 */}
+          {/* Exit 이유 */}
           <div className="form-group">
-            <label className="input-label">청산 이유</label>
+            <label className="input-label">Exit reason</label>
             <textarea
               className="textarea"
               rows={3}
-              placeholder="왜 매도/청산했나요?"
+              placeholder="Why did you exit?"
               value={form.exitReason}
               onChange={(e) => handleChange('exitReason', e.target.value)}
             />
@@ -164,7 +174,7 @@ const JournalFormModal = ({ journal, tags, onClose, onSaved }) => {
 
           {/* 전략 태그 */}
           <div className="form-group">
-            <label className="input-label">전략 태그</label>
+            <label className="input-label">{"\uC804\uB7B5 \uD0DC\uADF8"}</label>
             <div className="tag-grid">
               {allTags.map((tag) => (
                 <button
@@ -178,41 +188,42 @@ const JournalFormModal = ({ journal, tags, onClose, onSaved }) => {
                 </button>
               ))}
             </div>
-            {/* 새 태그 추가 */}
-            <div className="tag-add-row">
-              <input
-                type="color"
-                className="color-picker"
-                value={newTagColor}
-                onChange={(e) => setNewTagColor(e.target.value)}
-                title="태그 색상"
-              />
-              <input
-                type="text"
-                className="input input-sm"
-                placeholder="새 태그 이름"
-                value={newTagName}
-                onChange={(e) => setNewTagName(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleAddTag()}
-              />
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
-                onClick={handleAddTag}
-                disabled={addingTag || !newTagName.trim()}
-              >
-                + 추가
-              </button>
+            <div className="tag-add-panel">
+              <div className="tag-add-row">
+                <input
+                  type="color"
+                  className="color-picker"
+                  value={newTagColor}
+                  onChange={(e) => setNewTagColor(e.target.value)}
+                  title={"\uC0C9\uC0C1 \uC120\uD0DD"}
+                />
+                <input
+                  type="text"
+                  className="input input-sm tag-add-input"
+                  placeholder={"\uC0C8 \uD0DC\uADF8 \uC774\uB984"}
+                  value={newTagName}
+                  onChange={(e) => setNewTagName(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAddTag()}
+                />
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm tag-add-btn"
+                  onClick={handleAddTag}
+                  disabled={addingTag || !newTagName.trim()}
+                >
+                  {"\uFF0B \uCD94\uAC00"}
+                </button>
+              </div>
             </div>
           </div>
 
           {/* 자유 메모 */}
           <div className="form-group">
-            <label className="input-label">메모</label>
+            <label className="input-label">Notes</label>
             <textarea
               className="textarea"
               rows={4}
-              placeholder="반성, 개선할 점, 기타 메모..."
+              placeholder="Reflections, improvements, and other notes..."
               value={form.memo}
               onChange={(e) => handleChange('memo', e.target.value)}
             />
@@ -223,13 +234,13 @@ const JournalFormModal = ({ journal, tags, onClose, onSaved }) => {
 
         {/* 푸터 */}
         <div className="modal-footer">
-          <button className="btn btn-ghost" onClick={onClose}>취소</button>
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
           <button
             className="btn btn-primary"
             onClick={handleSubmit}
             disabled={saving}
           >
-            {saving ? '저장 중...' : isEdit ? '수정 완료' : '일기 저장'}
+            {saving ? 'Saving...' : isEdit ? 'Edit complete' : 'Journal Save'}
           </button>
         </div>
       </div>

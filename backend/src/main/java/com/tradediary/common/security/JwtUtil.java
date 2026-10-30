@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
+import java.util.UUID;
 
 // [클래스] JWT AccessToken / RefreshToken 생성 및 파싱
 @Slf4j
@@ -46,6 +47,7 @@ public class JwtUtil {
     public String generateRefreshToken(Long userId) {
         return Jwts.builder()
                 .subject(String.valueOf(userId))
+                .id(UUID.randomUUID().toString())
                 .claim("type", "refresh")
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + refreshTokenExpiration))
